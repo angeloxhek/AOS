@@ -438,8 +438,8 @@ void kernel_memcpy(void* dest, const void* src, uint64_t n) {
     uint64_t* d1 = dest;
     const uint64_t* s1 = src;
     while (n1--) *d1++ = *s1++;
-	uint8_t* d2 = dest;
-    const uint8_t* s2 = src;
+	uint8_t* d2 = (uint8_t*)d1;
+    const uint8_t* s2 = (const uint8_t*)s1;
 	while (n2--) *d2++ = *s2++;
 }
 
