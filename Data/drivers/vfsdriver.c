@@ -5,10 +5,10 @@
 extern fs_driver_t fat32_driver; 
 
 typedef enum {
-    VFS_TYPE_DIR,           // Обычная папка (виртуальная)
-    VFS_TYPE_DEVICE_FILE,   // Файл устройства (raw, memory, ctl) - VFS обрабатывает сама
-    VFS_TYPE_MOUNT_POINT,   // Точка входа в драйвер ФС (папка fs/)
-    VFS_TYPE_SYMLINK        // Символическая ссылка (soft link)
+    VFS_TYPE_DIR,
+    VFS_TYPE_DEVICE_FILE,
+    VFS_TYPE_MOUNT_POINT,
+    VFS_TYPE_SYMLINK
 } vfs_node_type_t;
 
 typedef struct vfs_node {
@@ -19,13 +19,12 @@ typedef struct vfs_node {
     struct vfs_node* children;
     struct vfs_node* next;
 
-    // Специфичные данные
     union {
         // Для VFS_TYPE_DEVICE_FILE
         struct {
             int (*read)(void* param, void* buf, uint64_t size, uint64_t offset);
             int (*write)(void* param, void* buf, uint64_t size, uint64_t offset);
-            void* param; // Например, указатель на block_dev_t
+            void* param;
         } dev_ops;
 
         // Для VFS_TYPE_MOUNT_POINT
@@ -103,11 +102,34 @@ int dev_read_raw(void* param, void* buf, uint64_t size, uint64_t offset) {
     return block_read(dev, lba, count, buf); 
 }
 
-int dev_read_kmem(void* param, void* buf, uint64_t size, uint64_t offset) {
-    return syscall(SYS_READ_KMEM, offset, size, (uint64_t)buf, 0, 0);
+int dev_read_uptime(void* param, void* buf, uint64_t size, uint64_t offset) {
+    system_info_t info;
+    syscall(SYS_GET_SYSTEM_INFO, (uint64_t)&info, 0, 0, 0, 0);
+
+    char text[32];
+    sprintf(text, "%d\n", (int)info.uptime);
+    
+    int len = strlen(text);
+    if (offset >= len) return 0;
+    if (offset + size > len) size = len - offset;
+    memcpy(buf, text + offset, size);
+    return size;
 }
 
-// Управление устройством (для 'ctl')
+int dev_read_flags(void* param, void* buf, uint64_t size, uint64_t offset) {
+    system_info_t info;
+    syscall(SYS_GET_SYSTEM_INFO, (uint64_t)&info, 0, 0, 0, 0);
+
+    char text[32];
+    sprintf(text, "%d\n", (int)info.flags);
+    
+    int len = strlen(text);
+    if (offset >= len) return 0;
+    if (offset + size > len) size = len - offset;
+    memcpy(buf, text + offset, size);
+    return size;
+}
+
 int dev_write_ctl(void* param, void* buf, uint64_t size, uint64_t offset) {
     block_dev_t* dev = (block_dev_t*)param;
     char cmd[32];
@@ -120,7 +142,6 @@ int dev_write_ctl(void* param, void* buf, uint64_t size, uint64_t offset) {
     return size;
 }
 
-// Создание папки
 vfs_node_t* vfs_mkdir(vfs_node_t* parent, const char* name) {
 	if (!parent || !name) return 0;
     vfs_node_t* node = calloc(1, sizeof(vfs_node_t));
@@ -134,7 +155,6 @@ vfs_node_t* vfs_mkdir(vfs_node_t* parent, const char* name) {
     return node;
 }
 
-// Создание спецфайла
 void vfs_mkdev(vfs_node_t* parent, const char* name, void* read_func, void* param) {
 	if (!name) return;
     vfs_node_t* node = vfs_mkdir(parent, name);
@@ -144,7 +164,6 @@ void vfs_mkdev(vfs_node_t* parent, const char* name, void* read_func, void* para
     node->dev_ops.param = param;
 }
 
-// Создание симлинка
 void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
 	if (!name || !target) return;
     vfs_node_t* node = vfs_mkdir(parent, name);
@@ -176,7 +195,10 @@ void vfs_init_tree() {
     vfs_node_t* mnt  = vfs_mkdir(vfs_root, "mnt");
     vfs_node_t* mnt_id = vfs_mkdir(mnt, "id");
 
-    vfs_mkdev(sys, "kram", dev_read_kmem, 0);
+    vfs_node_t* sysstat  = vfs_mkdir(sys, "stat");
+	vfs_mkdev(sysstat, "uptime", dev_read_uptime, 0);
+	vfs_mkdev(sysstat, "flags", dev_read_flags, 0);
+	
 
     uint64_t disk_count = syscall(SYS_GET_DISK_COUNT, 0, 0, 0, 0, 0);
     for (int i = 0; i < disk_count; i++) {
@@ -230,8 +252,13 @@ void vfs_init_tree() {
             
             vfs_symlink(mnt_id, link_name, target);
 			
-            char label[12] = "NO_NAME"; 
-            // fat32_get_label(fs_inst, label);
+            char label[12];
+            memset(label, 0, 12);
+            strcpy(label, "NO_NAME"); 
+            
+            if (fs_node->mount.driver->get_label) {
+                fs_node->mount.driver->get_label(fs_inst, label);
+            }
             
             if (strcmp(label, "NO_NAME") != 0) {
                  char id_link[32];

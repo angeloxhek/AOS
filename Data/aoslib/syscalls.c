@@ -168,6 +168,10 @@ uint8_t syscall_get_kbd_scancode() {
     return (uint8_t)(response.param1 & 0xFF);
 }
 
+int syscall_get_sysinfo(system_info_t* info) {
+    return syscall(SYS_GET_SYSTEM_INFO, (uint64_t)info, 0, 0, 0, 0);
+}
+
 typedef struct malloc_header {
     uint64_t size;
     uint64_t is_free;

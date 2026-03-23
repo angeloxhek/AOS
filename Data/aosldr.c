@@ -706,6 +706,9 @@ void schedule() {
     while (next->state > 1 && next != prev) {
         next = next->next;
     }
+	if (next->state > 1) {
+        next = get_thread_by_id(1);
+    }
     if (next == prev) return;
     current_thread = next;
 	if (prev->state == THREAD_RUNNING) prev->state = THREAD_READY;
@@ -1844,8 +1847,8 @@ int kill_thread(thread_t* target, int exit_code) {
     if (ready_queue == target) {
         ready_queue = target->next;
     }
-	target->next = zombies_list;
-	zombies_list = target;
+	target->next_zombie = zombies_list;
+    zombies_list = target;
 	asm volatile("sti");
 	return SYS_RES_OK;
 }

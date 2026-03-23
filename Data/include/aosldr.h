@@ -231,6 +231,7 @@ typedef struct thread_t {
 	uint64_t         fs_base;
 	uint64_t         wake_up_time;
 	struct thread_t* next;            // Для списка
+	struct thread_t* next_zombie;
 	struct thread_t* next_waiter;
 	void*            owned_mutexes; // Reserved
 	msg_node_t*      msg_queue_head;

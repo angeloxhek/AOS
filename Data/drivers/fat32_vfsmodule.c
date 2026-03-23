@@ -128,8 +128,6 @@ void fat32_format_sfn(char* dest, const char* sfn_name) {
     dest[p] = '\0';
 }
 
-// === Реализация интерфейса драйвера ===
-
 fs_instance_t fat32_mount(block_dev_t* dev) {
     uint8_t* buf = malloc(512);
     if (block_read(dev, 0, 1, buf) != 0) {
@@ -139,7 +137,6 @@ fs_instance_t fat32_mount(block_dev_t* dev) {
 
     fat32_bpb_t* bpb = (fat32_bpb_t*)buf;
 
-    // Простая проверка
     if (bpb->boot_signature != 0x29 && bpb->boot_signature != 0x28 && buf[510] != 0x55) {
 		printf("Mount failed\n");
 		return 0;
@@ -163,8 +160,6 @@ void fat32_umount(fs_instance_t fs) {
     free(fs);
 }
 
-// Поиск записи в директории (возвращает первый кластер файла)
-// Возвращает 1 если нашел, заполняет file_out
 int find_entry_in_cluster_chain(fat32_instance_t* inst, uint32_t start_cluster, const char* name, fat32_file_t* file_out) {
     uint8_t* buffer = malloc(inst->sectors_per_cluster * 512);
     uint32_t cluster = start_cluster;
@@ -185,13 +180,13 @@ int find_entry_in_cluster_chain(fat32_instance_t* inst, uint32_t start_cluster, 
         int entries_per_cluster = (inst->sectors_per_cluster * 512) / 32;
 
         for (int i = 0; i < entries_per_cluster; i++) {
-            if (dir[i].name[0] == 0x00) { free(buffer); return 0; } // Конец
-            if (dir[i].name[0] == 0xE5) { // Удален
-                memset(lfn_temp, 0, 256);
-                continue;
-            }
+            if ((dir[i].name[0] & 0xFF) == 0x00) { free(buffer); return 0; } // Конец
+            if ((dir[i].name[0] & 0xFF) == 0xE5) {
+				memset(lfn_temp, 0, 256);
+				continue;
+			}
 
-            if (dir[i].attr == 0x0F) { // LFN
+            if (dir[i].attr == 0x0F) {
                 fat32_lfn_entry_t* lfn = (fat32_lfn_entry_t*)&dir[i];
                 if (lfn->order & 0x40) {
                     memset(lfn_temp, 0, 256);
@@ -201,12 +196,11 @@ int find_entry_in_cluster_chain(fat32_instance_t* inst, uint32_t start_cluster, 
                 continue;
             }
 
-            if (dir[i].attr & 0x08) { // Volume label
+            if (dir[i].attr & 0x08) {
                 memset(lfn_temp, 0, 256);
                 continue;
             }
 
-            // Формируем имя для сравнения
             char current_name[256];
             uint8_t sfn_sum = fat32_checksum((unsigned char*)dir[i].name);
             
@@ -216,13 +210,11 @@ int find_entry_in_cluster_chain(fat32_instance_t* inst, uint32_t start_cluster, 
                 fat32_format_sfn(current_name, dir[i].name);
             }
             
-            // Сравнение
             char current_upper[256];
             strncpy(current_upper, current_name, 256);
             to_upper(current_upper);
 
             if (strcmp(current_upper, search_name) == 0) {
-                // Нашли!
                 file_out->first_cluster = ((uint32_t)dir[i].cluster_high << 16) | dir[i].cluster_low;
                 file_out->size_bytes = dir[i].file_size;
                 file_out->is_dir = (dir[i].attr & 0x10) ? 1 : 0;
@@ -233,7 +225,6 @@ int find_entry_in_cluster_chain(fat32_instance_t* inst, uint32_t start_cluster, 
                 return 1;
             }
 
-            // Сброс LFN
             memset(lfn_temp, 0, 256);
         }
         cluster = get_next_cluster(inst, cluster);
@@ -247,9 +238,7 @@ fs_file_handle_t fat32_open(fs_instance_t fs, const char* path) {
     fat32_instance_t* inst = (fat32_instance_t*)fs;
     const char* p = path;
     if (*p == '/') p++;
-
     fat32_file_t* handle = malloc(sizeof(fat32_file_t));
-
     if (*p == 0) {
         handle->first_cluster = inst->root_cluster;
         handle->current_cluster = inst->root_cluster;
@@ -258,24 +247,33 @@ fs_file_handle_t fat32_open(fs_instance_t fs, const char* path) {
         handle->size_bytes = 0;
         return (fs_file_handle_t)handle;
     }
-
-    if (find_entry_in_cluster_chain(inst, inst->root_cluster, p, handle)) {
-        return (fs_file_handle_t)handle;
+    char path_copy[256];
+    strncpy(path_copy, p, 256);
+    
+    uint32_t current_cluster = inst->root_cluster;
+    char* token = strtok(path_copy, "/");
+    while (token != 0) {
+        if (!find_entry_in_cluster_chain(inst, current_cluster, token, handle)) {
+            free(handle);
+            return 0;
+        }
+        token = strtok(0, "/");
+        if (token != 0 && !handle->is_dir) {
+            free(handle);
+            return 0;
+        }
+        current_cluster = handle->first_cluster;
     }
-
-    free(handle);
-    return 0;
+    return (fs_file_handle_t)handle;
 }
 
-// Адаптированная функция чтения с поддержкой offset и partial read
 int fat32_read(fs_instance_t fs, fs_file_handle_t f, void* buf, uint64_t size, uint64_t offset) {
     fat32_instance_t* inst = (fat32_instance_t*)fs;
     fat32_file_t* file = (fat32_file_t*)f;
     
-    if (file->is_dir) return -1; // Нельзя читать директорию как файл
+    if (file->is_dir) return -1;
     if (offset >= file->size_bytes) return 0; // EOF
 
-    // Обрезаем size, если выходим за пределы файла
     if (offset + size > file->size_bytes) {
         size = file->size_bytes - offset;
     }
@@ -283,38 +281,29 @@ int fat32_read(fs_instance_t fs, fs_file_handle_t f, void* buf, uint64_t size, u
     uint64_t cluster_bytes = inst->sectors_per_cluster * 512;
     uint32_t cluster = file->first_cluster;
     
-    // Оптимизация: если читаем последовательно
     uint64_t current_pos = 0;
     if (offset >= file->current_offset && file->current_cluster != 0) {
         cluster = file->current_cluster;
         current_pos = file->current_offset;
     }
 
-    // Пропускаем кластеры до нужного offset
     while (current_pos + cluster_bytes <= offset) {
         cluster = get_next_cluster(inst, cluster);
         current_pos += cluster_bytes;
-        if (cluster >= 0x0FFFFFF8) return -1; // Ошибка структуры FS
+        if (cluster >= 0x0FFFFFF8) return -1;
     }
-    
-    // Обновляем кэш в хендле
+	
     file->current_cluster = cluster;
     file->current_offset = current_pos;
-
-    // Читаем данные
     uint64_t bytes_read = 0;
     uint8_t* out_ptr = (uint8_t*)buf;
     
-    // Временный буфер для чтения кластера (чтобы не читать лишнего в user buffer)
     uint8_t* cl_buf = malloc(cluster_bytes);
 
     while (bytes_read < size && cluster < 0x0FFFFFF8) {
         uint64_t lba = cluster_to_lba(inst, cluster);
-        
-        // Читаем кластер целиком
         block_read(inst->dev, lba, inst->sectors_per_cluster, cl_buf);
 
-        // Определяем, какую часть кластера копировать
         uint64_t offset_in_cluster = (offset + bytes_read) - current_pos;
         uint64_t available_in_cluster = cluster_bytes - offset_in_cluster;
         uint64_t to_copy = size - bytes_read;
@@ -332,10 +321,8 @@ int fat32_read(fs_instance_t fs, fs_file_handle_t f, void* buf, uint64_t size, u
     }
 
     free(cl_buf);
-    
-    // Обновляем кэш позиции для следующего чтения
     file->current_cluster = cluster;
-    file->current_offset = current_pos; // Внимание: это начало кластера, а не offset
+    file->current_offset = current_pos;
 
     return bytes_read;
 }
@@ -344,40 +331,53 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, int index, fs_d
     fat32_instance_t* inst = (fat32_instance_t*)fs;
     fat32_file_t* dir = (fat32_file_t*)dir_handle;
     
-    // Если это не директория, ошибка
     if (!dir->is_dir && dir->first_cluster != inst->root_cluster) return 0;
 
-    // Чтение сырых записей директории
-    // Это сложнее, чем кажется, из-за LFN (длинных имен).
-    // Драйвер должен уметь пропускать N валидных файлов.
-    
-    // УПРОЩЕННЫЙ ВАРИАНТ (Без LFN, только 8.3 имена) для теста:
-    
     uint32_t cluster = dir->first_cluster;
     uint8_t buffer[512];
     int count = 0;
+    char lfn_temp[256];
+    uint8_t lfn_checksum = 0;
+    memset(lfn_temp, 0, 256);
     
     while (cluster < 0x0FFFFFF8 && cluster >= 2) {
         uint64_t lba = cluster_to_lba(inst, cluster);
-        
-        // Читаем кластер посекторно (для простоты)
         for (int s = 0; s < inst->sectors_per_cluster; s++) {
             block_read(inst->dev, lba + s, 1, buffer);
             fat32_dir_entry_t* entries = (fat32_dir_entry_t*)buffer;
-            
             for (int i = 0; i < 16; i++) {
-                if (entries[i].name[0] == 0) return 0; // Конец
-                if (entries[i].name[0] == 0xE5) continue; // Удален
-                if (entries[i].attr == 0x0F) continue; // LFN (пропускаем пока)
-                if (entries[i].attr & 0x08) continue; // Label
-
-                // Если это файл номер 'index'
+                if ((entries[i].name[0] & 0xFF) == 0) return 0;
+				if ((entries[i].name[0] & 0xFF) == 0xE5) {
+					memset(lfn_temp, 0, 256);
+					lfn_checksum = 0;
+					continue;
+				}
+                if (entries[i].attr == 0x0F) { 
+                    fat32_lfn_entry_t* lfn = (fat32_lfn_entry_t*)&entries[i];
+                    if (lfn->order & 0x40) {
+                        memset(lfn_temp, 0, 256);
+                        lfn_checksum = lfn->checksum;
+                    }
+                    fat32_collect_lfn_chars(lfn, lfn_temp);
+                    continue;
+                }
+                if (entries[i].attr & 0x08) {
+                    memset(lfn_temp, 0, 256);
+                    continue; 
+                }
                 if (count == index) {
-                    fat32_format_sfn(out->name, entries[i].name);
+                    uint8_t sfn_sum = fat32_checksum((unsigned char*)entries[i].name);
+                    if (lfn_temp[0] != 0 && sfn_sum == lfn_checksum) {
+                        strncpy(out->name, lfn_temp, 256);
+                    } else {
+                        fat32_format_sfn(out->name, entries[i].name);
+                    }
                     out->size = entries[i].file_size;
                     out->is_dir = (entries[i].attr & 0x10) ? 1 : 0;
-                    return 1; // Успех
+                    return 1;
                 }
+                memset(lfn_temp, 0, 256);
+                lfn_checksum = 0;
                 count++;
             }
         }
@@ -387,16 +387,53 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, int index, fs_d
     return 0; // EOF
 }
 
+void fat32_get_label(fs_instance_t fs, char* out_label) {
+    fat32_instance_t* inst = (fat32_instance_t*)fs;
+    uint32_t cluster = inst->root_cluster;
+    uint8_t buffer[512];
+
+    strcpy(out_label, "NO_NAME");
+
+    while (cluster < 0x0FFFFFF8 && cluster >= 2) {
+        uint64_t lba = cluster_to_lba(inst, cluster);
+        
+        for (int s = 0; s < inst->sectors_per_cluster; s++) {
+            block_read(inst->dev, lba + s, 1, buffer);
+            fat32_dir_entry_t* entries = (fat32_dir_entry_t*)buffer;
+            
+            for (int i = 0; i < 16; i++) {
+                if ((entries[i].name[0] & 0xFF) == 0x00) return;
+                if ((entries[i].name[0] & 0xFF) == 0xE5) continue;
+                if (entries[i].attr == 0x0F) continue;
+                
+                if (entries[i].attr == 0x08) { 
+                    int len = 11;
+                    while (len > 0 && entries[i].name[len - 1] == ' ') {
+                        len--;
+                    }
+                    
+                    if (len > 0) {
+                        memcpy(out_label, entries[i].name, len);
+                        out_label[len] = '\0';
+                    }
+                    return;
+                }
+            }
+        }
+        cluster = get_next_cluster(inst, cluster);
+    }
+}
+
 void fat32_close(fs_instance_t fs, fs_file_handle_t f) {
     free(f);
 }
 
-// Глобальная структура драйвера
 fs_driver_t fat32_driver = {
     .mount = fat32_mount,
     .umount = fat32_umount,
     .open = fat32_open,
     .read = fat32_read,
     .close = fat32_close,
-    .readdir = fat32_readdir
+    .readdir = fat32_readdir,
+    .get_label = fat32_get_label
 };

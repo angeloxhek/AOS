@@ -16,7 +16,7 @@
 #define SYS_GET_DISK_INFO           12
 #define SYS_GET_PARTITION_COUNT     13
 #define SYS_GET_PARTITION_INFO      14
-#define SYS_READ_KMEM               15 // Реализовать
+#define SYS_RESERVED1               15
 #define SYS_PRINT                   16
 
 #define SYS_RES_OK                   0
@@ -172,7 +172,11 @@ __attribute__((noreturn)) void _start(uint64_t arg1, uint64_t arg2);
 
 #define AOS_GET_TCB() ((aos_tcb_t __seg_fs *)0)
 
-#ifndef AOSLIB_START_ONLY
+#ifdef AOSLIB_START_ONLY
+
+void vfs_init();
+
+#else
 
 void syscall_system_print(const char* str);
 
@@ -187,6 +191,7 @@ uint64_t syscall_get_driver_tid(driver_type_t type);
 uint64_t syscall_get_driver_tid_by_name(const char* name);
 
 uint8_t syscall_get_kbd_scancode();
+int syscall_get_sysinfo(system_info_t* info);
 
 void* syscall_sbrk(int64_t increment);
 void* malloc(uint64_t size);

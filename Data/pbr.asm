@@ -5,11 +5,10 @@ jmp short start
 nop
 
 ; ----------------------------------------------------------------------
-; BIOS Parameter Block (BPB) для FAT32
-; Значения здесь - заглушки. При форматировании они перезаписываются.
+; BIOS Parameter Block (BPB)
 ; ----------------------------------------------------------------------
 OEMName         db 'MSWIN4.1'
-BytesPerSec     dw 0
+BytesPerSec     dw 512
 SecPerClust     db 8
 RsvdSecCnt      dw 32
 NumFATs         db 2
@@ -19,12 +18,12 @@ Media           db 0xF8
 FATSz16         dw 0
 SecPerTrk       dw 63
 NumHeads        dw 255
-HiddSec         dd 0        ; Смещение раздела (LBA start)
+HiddSec         dd 0
 TotSec32        dd 0
-FATSz32         dd 0        ; Размер одной FAT в секторах
+FATSz32         dd 0
 ExtFlags        dw 0
 FSVer           dw 0
-RootClus        dd 2        ; Кластер корневой директории
+RootClus        dd 2
 FSInfo          dw 1
 BkBootSec       dw 6
 Reserved        times 12 db 0
@@ -35,6 +34,9 @@ VolID           dd 0
 VolLab          db 'NO NAME    '
 FilSysType      db 'FAT32   '
 
+; ----------------------------------------------------------------------
+; Точка входа
+; ----------------------------------------------------------------------
 start:
     cli
     xor ax, ax
@@ -43,36 +45,35 @@ start:
     mov ss, ax
     mov sp, 0x7C00
     sti
-	push dx
-	mov ax, 0003h
-    int 10h
-	xor ax, ax
-	pop dx
+
     mov [DrvNum], dl
-	mov eax, [HiddSec]
-    mov ah, 0x41
-    mov bx, 0x55AA
-    int 0x13
-    ;mov si, MsgErrLBA
-    ;jc boot_error
-    mov eax, [FATSz32]
-    movzx ebx, byte [NumFATs]
-    mul ebx                  ; EAX = FATSz32 * NumFATs
-    add eax, [HiddSec]
+
+    mov eax, [HiddSec]
     movzx ebx, word [RsvdSecCnt]
     add eax, ebx
+    mov [FATStartLBA], eax
+
+    mov ecx, [FATSz32]
+    movzx edx, byte [NumFATs]
+    xchg eax, ecx
+    mul edx
+    add eax, ecx
     mov [DataStartLBA], eax
+
     mov eax, [RootClus]
     mov [Cluster], eax
+
+search_dir_loop:
     call ClusterToLBA
-	mov dx, 32
-	push dx
-    push eax
+    movzx cx, byte [SecPerClust]
     mov bx, 0x8000
-    mov di, bx
-    call ReadSector
-    mov cx, 16
-search_loop:
+    call ReadSectors
+
+    movzx cx, byte [SecPerClust]
+    shl cx, 4               ; CX = sectors * 16 записей
+    mov di, 0x8000
+
+.scan_entries:
     push cx
     push di
     mov si, FileName
@@ -82,50 +83,74 @@ search_loop:
     pop cx
     je file_found
     add di, 32
-    loop search_loop
-	pop eax
-    pop dx
-    inc eax
-    dec dx
-	jnz search_loop
+    loop .scan_entries
+
+    call GetNextCluster
+    cmp eax, 0x0FFFFFF8
+    jb search_dir_loop
+
     mov si, MsgErrFile
     jmp boot_error
+
 file_found:
-	mov si, SigText
-    call print_string
-    mov ax, [di + 0x14]
-    shl eax, 16
-    mov ax, [di + 0x1A] 
-    mov [Cluster], eax
-	mov eax, [di + 0x1C]
-    add eax, 511
-    shr eax, 9
-	mov [DAP_Count], al
-	call ClusterToLBA
-	push eax
-    call print_hex
-    mov si, MsgNewline
-    call print_string
-    pop eax
-    mov bx, 0x1000
-    mov es, bx
-	xor bx, bx
-    call ReadSector
-	mov si, SigText
-    mov di, 0x0002
+    mov dx, [di + 0x14]
+    shl edx, 16
+    mov dx, [di + 0x1A]
+    mov [Cluster], edx
+
+    mov ax, 0x1000
+    mov es, ax
+    xor bx, bx
+
+load_file_loop:
+    call ClusterToLBA
+    movzx cx, byte [SecPerClust]
+    call ReadSectors
+
+    movzx ax, byte [SecPerClust]
+    shl ax, 5
+    mov dx, es
+    add dx, ax
+    mov es, dx
+
+    call GetNextCluster
+    cmp eax, 0x0FFFFFF8
+    jb load_file_loop
+
+    ; ------------------------------------------------------------------
+    ; Проверка сигнатуры загрузчика и прыжок
+    ; ------------------------------------------------------------------
+    mov ax, 0x1000
+    mov es, ax
+    xor ax, ax
+    mov ds, ax
+    mov si, SigText
+    mov di, 2
     mov cx, 6
     repe cmpsb
-    mov si, MsgErrSig
-    jne boot_error
+    jne sig_error
+
     mov dl, [DrvNum]
     jmp 0x1000:0x0000
+
+sig_error:
+    mov si, MsgErrSig
+    jmp boot_error
+
 boot_error:
-    call print_string
     xor ax, ax
-    int 0x16
-    int 0x19
+    mov ds, ax
+.print_loop:
+    lodsb
+    or al, al
+    jz .halt
+    mov ah, 0x0E
+    int 0x10
+    jmp .print_loop
+.halt:
     hlt
-    jmp $
+    jmp .halt
+
 ClusterToLBA:
     mov eax, [Cluster]
     sub eax, 2
@@ -133,68 +158,71 @@ ClusterToLBA:
     mul ecx
     add eax, [DataStartLBA]
     ret
-ReadSector:
+
+GetNextCluster:
+    mov eax, [Cluster]
+    shl eax, 2
+    mov edx, eax
+    shr eax, 9              ; EAX = Смещение сектора
+    add eax, [FATStartLBA]
+    and dx, 511             ; DX = Смещение байта в секторе
+
+    push es
+    push bx
+    xor bx, bx
+    mov es, bx
+    mov bx, 0x7E00
+    mov cx, 1
+    call ReadSectors
+    pop bx
+    pop es
+
+    mov si, 0x7E00
+    add si, dx
+    mov eax, [si]
+    and eax, 0x0FFFFFFF
+    mov [Cluster], eax
+    ret
+
+ReadSectors:
+    pusha
     mov [DAP_LBA_Low], eax
-    mov [DAP_LBA_High], dword 0
-	mov [DAP_Seg], es
+    mov [DAP_Count], cx
+    mov [DAP_Seg], es
     mov [DAP_Off], bx
     mov ah, 0x42
     mov dl, [DrvNum]
     mov si, DAP
     int 0x13
-    jnc .success
+    jc read_error
+    popa
+    ret
+
+read_error:
     mov si, MsgErrRead
     jmp boot_error
-.success:
-    ret
-print_string:
-    push ax
-    push si
-.loop:
-    lodsb
-    or al, al
-    jz .done
-    mov ah, 0x0E
-    int 0x10
-    jmp .loop
-.done:
-    pop si
-    pop ax
-    ret
-print_hex:
-    pushad
-    mov cx, 8
-.loop:
-    rol eax, 4
-    push eax
-    and al, 0x0F
-    add al, '0'
-    cmp al, '9'
-    jbe .print
-    add al, 7
-.print:
-    mov ah, 0x0E
-    int 0x10
-    pop eax
-    loop .loop
-    popad
-    ret
+
+; ----------------------------------------------------------------------
+; Данные
+; ----------------------------------------------------------------------
 FileName     db 'AOSLDR  BIN'
 SigText      db 'AOSLDR'
-MsgNewline   db 13, 10, 0
-;MsgErrLBA    db 'NoLBA', 0
-MsgErrRead   db 'RdErr', 0
-MsgErrFile   db 'NoFile', 0
-MsgErrSig    db 'BadSig', 0
+MsgErrRead   db 'RE', 0
+MsgErrFile   db 'NF', 0
+MsgErrSig    db 'BS', 0
+
 Cluster      dd 0
+FATStartLBA  dd 0
 DataStartLBA dd 0
+
 DAP:
     db 0x10
     db 0
-DAP_Count dw 1
-DAP_Off dw 0
-DAP_Seg dw 0
+DAP_Count dw 0
+DAP_Off   dw 0
+DAP_Seg   dw 0
 DAP_LBA_Low  dd 0
 DAP_LBA_High dd 0
+
 times 510-($-$$) db 0
 dw 0xAA55

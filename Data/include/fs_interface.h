@@ -17,4 +17,5 @@ typedef struct {
     void (*close)(fs_instance_t fs, fs_file_handle_t file);
     int (*readdir)(fs_instance_t fs, fs_file_handle_t dir, int index, fs_dirent_t* out_entry);
     int (*stat)(fs_instance_t fs, fs_file_handle_t file, fs_dirent_t* out_info);
+    void (*get_label)(fs_instance_t fs, char* out_label);
 } fs_driver_t;
