@@ -143,7 +143,7 @@ kernel_tcb_t kernel_tcb = {
 #define USER_DATA_SEG   0x18 
 #define USER_SEG_BASE   0x10
 
-#define KERNEL_STACK_SIZE 4096
+#define KERNEL_STACK_SIZE 16384
 process_t kernel_process;
 
 thread_t* current_thread;
@@ -2153,9 +2153,9 @@ void sleep(uint64_t ms) {
     asm volatile("cli");
     current_thread->wake_up_time = ticks + ticks_to_wait;
     current_thread->state = THREAD_BLOCKED;
-    asm volatile("sti");
 
     schedule();
+	asm volatile("sti");
 }
 
 int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result) {
