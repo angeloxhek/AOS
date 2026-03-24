@@ -20,20 +20,17 @@ typedef struct vfs_node {
     struct vfs_node* next;
 
     union {
-        // Для VFS_TYPE_DEVICE_FILE
         struct {
             int (*read)(void* param, void* buf, uint64_t size, uint64_t offset);
             int (*write)(void* param, void* buf, uint64_t size, uint64_t offset);
             void* param;
         } dev_ops;
 
-        // Для VFS_TYPE_MOUNT_POINT
         struct {
             fs_driver_t* driver;
             fs_instance_t fs_inst;
         } mount;
 
-        // Для VFS_TYPE_SYMLINK
         char target_path[128];
     };
 } vfs_node_t;
@@ -47,28 +44,24 @@ typedef struct {
     uint64_t offset;
     vfs_node_type_t type; 
     union {
-        // Если это файл внутри ФС (например FAT32)
         struct {
             fs_driver_t* driver;
             fs_instance_t fs;
             fs_file_handle_t handle;
         } mounted_file;
 
-        // Если это файл устройства (например /hw/ide0/raw)
         struct {
             int (*read)(void* param, void* buf, uint64_t size, uint64_t offset);
             int (*write)(void* param, void* buf, uint64_t size, uint64_t offset);
             void* param;
         } device_file;
 
-        // Если это открытая папка VFS (например /hw)
         struct {
             vfs_node_t* node;
         } dir;
     };
 } vfs_file_t;
 
-// === ГЛОБАЛЬНАЯ ТАБЛИЦА ФАЙЛОВ ===
 
 #define MAX_OPEN_FILES 1024
 vfs_file_t open_files[MAX_OPEN_FILES];
@@ -78,7 +71,7 @@ int vfs_alloc_fd(uint64_t tid) {
         if (!open_files[i].used) {
 			memset(&open_files[i], 0, sizeof(vfs_file_t));
             open_files[i].used = 1;
-            open_files[i].id = i + 1; // FD начинаются с 1
+            open_files[i].id = i + 1;
             open_files[i].owner_tid = tid;
             open_files[i].offset = 0;
             return i + 1;
@@ -100,6 +93,13 @@ int dev_read_raw(void* param, void* buf, uint64_t size, uint64_t offset) {
     uint64_t lba = offset / 512;
     uint64_t count = (size + 511) / 512;
     return block_read(dev, lba, count, buf); 
+}
+
+int dev_write_raw(void* param, void* buf, uint64_t size, uint64_t offset) {
+    block_dev_t* dev = (block_dev_t*)param;
+    uint64_t lba = offset / 512;
+    uint64_t count = (size + 511) / 512;
+    return block_write(dev, lba, count, buf); 
 }
 
 int dev_read_uptime(void* param, void* buf, uint64_t size, uint64_t offset) {
@@ -130,6 +130,38 @@ int dev_read_flags(void* param, void* buf, uint64_t size, uint64_t offset) {
     return size;
 }
 
+int dev_read_zero(void* param, void* buf, uint64_t size, uint64_t offset) {
+    memset(buf, 0, size);
+    return size;
+}
+
+int dev_read_null(void* param, void* buf, uint64_t size, uint64_t offset) {
+    return 0;
+}
+
+int dev_write_null(void* param, void* buf, uint64_t size, uint64_t offset) {
+    return size;
+}
+
+static uint64_t rand_seed = 123456789;
+
+int dev_read_urandom(void* param, void* buf, uint64_t size, uint64_t offset) {
+    uint8_t* b = (uint8_t*)buf;
+    
+    if (rand_seed == 123456789) {
+        system_info_t info;
+        if (syscall(SYS_GET_SYSTEM_INFO, (uint64_t)&info, 0, 0, 0, 0) == 0) {
+            rand_seed ^= info.uptime;
+        }
+    }
+
+    for (uint64_t i = 0; i < size; i++) {
+        rand_seed = rand_seed * 6364136223846793005ULL + 1442695040888963407ULL;
+        b[i] = (uint8_t)(rand_seed >> 56);
+    }
+    return size;
+}
+
 int dev_write_ctl(void* param, void* buf, uint64_t size, uint64_t offset) {
     block_dev_t* dev = (block_dev_t*)param;
     char cmd[32];
@@ -155,12 +187,13 @@ vfs_node_t* vfs_mkdir(vfs_node_t* parent, const char* name) {
     return node;
 }
 
-void vfs_mkdev(vfs_node_t* parent, const char* name, void* read_func, void* param) {
+void vfs_mkdev(vfs_node_t* parent, const char* name, void* read_func, void* write_func, void* param) {
 	if (!name) return;
     vfs_node_t* node = vfs_mkdir(parent, name);
 	if (!node) return;
     node->type = VFS_TYPE_DEVICE_FILE;
     node->dev_ops.read = read_func;
+	node->dev_ops.read = write_func;
     node->dev_ops.param = param;
 }
 
@@ -171,6 +204,49 @@ void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
     node->type = VFS_TYPE_SYMLINK;
     strlcpy(node->target_path, target, sizeof(node->target_path));
 }
+
+/*void vfs_add_proc(uint64_t pid, const char* proc_name) {
+    char pid_str[21];
+    uint64_to_dec(pid, pid_str);
+    vfs_node_t* proc_node = vfs_mkdir(ptasks, pid_str);
+    if (!proc_node) return;
+	
+    vfs_mkdev(proc_node, "name",  0, 0, (void*)pid);
+    vfs_mkdev(proc_node, "state", 0, 0, (void*)pid);
+    vfs_mkdev(proc_node, "mem",   0, 0, (void*)pid);
+    vfs_mkdev(proc_node, "ctl",   0, 0, (void*)pid);
+	
+    vfs_mkdir(proc_node, "threads");
+}
+
+void vfs_proc_add_thread(uint64_t tid, uint64_t parent_pid) {
+    char tid_str[21];
+    char pid_str[21];
+    uint64_to_dec(tid, tid_str);
+    uint64_to_dec(parent_pid, pid_str);
+	
+    vfs_node_t* thread_node = vfs_mkdir(ttasks, tid_str);
+    if (!thread_node) return;
+
+    vfs_mkdev(thread_node, "status",  0, 0, (void*)tid);
+    vfs_mkdev(thread_node, "drvinfo", 0, 0, (void*)tid);
+    
+    vfs_mkdir(thread_node, "fd");
+
+    char proc_target[64];
+    sprintf(proc_target, "/tasks/p/%s", pid_str);
+    vfs_symlink(thread_node, "proc", proc_target);
+
+    vfs_node_t* parent_proc_node = find_child(ptasks, pid_str);
+    if (parent_proc_node) {
+        vfs_node_t* threads_dir = find_child(parent_proc_node, "threads");
+        if (threads_dir) {
+            char thread_target[64];
+            sprintf(thread_target, "/tasks/t/%s", tid_str);
+            vfs_symlink(threads_dir, tid_str, thread_target);
+        }
+    }
+}*/ // В разработке
 
 vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
     if (!parent || !name) return 0;
@@ -190,14 +266,20 @@ void vfs_init_tree() {
     vfs_root->type = VFS_TYPE_DIR;
 
     vfs_node_t* hw   = vfs_mkdir(vfs_root, "hw");
+	vfs_mkdev(hw, "null", dev_read_null, dev_write_null, 0);
+	vfs_mkdev(hw, "zero", dev_read_zero, dev_write_null, 0);
+	vfs_mkdev(hw, "urandom", dev_read_urandom, dev_write_null, 0);
+
     vfs_node_t* sys  = vfs_mkdir(vfs_root, "sys");
-    vfs_node_t* proc = vfs_mkdir(vfs_root, "proc");
+    vfs_node_t* tasks = vfs_mkdir(vfs_root, "tasks");
+	vfs_node_t* ptasks = vfs_mkdir(tasks, "p");
+	vfs_node_t* ttasks = vfs_mkdir(tasks, "t");
     vfs_node_t* mnt  = vfs_mkdir(vfs_root, "mnt");
     vfs_node_t* mnt_id = vfs_mkdir(mnt, "id");
 
     vfs_node_t* sysstat  = vfs_mkdir(sys, "stat");
-	vfs_mkdev(sysstat, "uptime", dev_read_uptime, 0);
-	vfs_mkdev(sysstat, "flags", dev_read_flags, 0);
+	vfs_mkdev(sysstat, "uptime", dev_read_uptime, 0, 0);
+	vfs_mkdev(sysstat, "flags", dev_read_flags, 0, 0);
 	
 
     uint64_t disk_count = syscall(SYS_GET_DISK_COUNT, 0, 0, 0, 0, 0);
@@ -211,8 +293,8 @@ void vfs_init_tree() {
         raw_disk->disk_id = i;
         raw_disk->partition_offset_lba = 0;
 		
-        vfs_mkdev(disk_node, "raw", dev_read_raw, raw_disk);
-        vfs_mkdev(disk_node, "ctl", 0, raw_disk);
+        vfs_mkdev(disk_node, "raw", dev_read_raw, dev_write_raw, raw_disk);
+        vfs_mkdev(disk_node, "ctl", 0, 0, raw_disk);
     }
 
     uint64_t part_count = syscall(SYS_GET_PARTITION_COUNT, 0, 0, 0, 0, 0);
@@ -235,7 +317,7 @@ void vfs_init_tree() {
         part_dev->partition_offset_lba = pinfo.start_lba;
         part_dev->size_sectors = pinfo.size_sectors;
         
-        vfs_mkdev(p_node, "raw", dev_read_raw, part_dev);
+        vfs_mkdev(p_node, "raw", dev_read_raw, dev_write_raw, part_dev);
 
         fs_instance_t fs_inst = fat32_driver.mount(part_dev);
         if (fs_inst) {
@@ -270,9 +352,9 @@ void vfs_init_tree() {
 }
 
 typedef struct {
-    vfs_node_t* node;       // Найденный узел (папка, файл устр-ва или точка монтирования)
-    char* fs_path;          // Остаток пути для драйвера ФС (нужно делать free!)
-    int error;              // 0 - OK, иначе код ошибки
+    vfs_node_t* node;
+    char* fs_path;
+    int error;
 } vfs_path_result_t;
 
 void vfs_resolve(const char* path, vfs_path_result_t* out) {
@@ -288,23 +370,19 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
     char* cursor = path_copy + 1;
     
     while (1) {
-        // --- Шаг 1: Проверка на Точку Монтирования ---
         if (current->type == VFS_TYPE_MOUNT_POINT) {
-            // МЫ НАШЛИ ФС! 
-            // Всё, что осталось в cursor - это путь внутри ФС.
             
             out->node = current;
             if (*cursor == 0) {
-                out->fs_path = strdup("/"); // Корень ФС
+                out->fs_path = strdup("/");
             } else {
-                out->fs_path = strdup(cursor); // "folder/file.txt"
+                out->fs_path = strdup(cursor);
             }
             out->error = 0;
             free(path_copy);
             return;
         }
 
-        // --- Шаг 2: Конец строки ---
         if (*cursor == 0) {
             out->node = current;
             out->error = 0;
@@ -312,7 +390,6 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
             return;
         }
 
-        // --- Шаг 3: Выделяем следующий токен ---
         char* next_slash = strchr(cursor, '/');
         if (next_slash) {
             *next_slash = 0;
@@ -320,7 +397,6 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
 
         char* token = cursor;
 
-        // --- Шаг 4: Ищем ребенка ---
         vfs_node_t* next_node = 0;
         vfs_node_t* child = current->children;
         while (child) {
@@ -331,7 +407,6 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
             child = child->next;
         }
 
-        // --- Шаг 5: Логика /proc (Динамическая) ---
         if (!next_node) {
             if (strcmp(current->name, "proc") == 0) {
                 // Тут можно проверить, число ли 'token', и создать узел динамически
@@ -345,10 +420,8 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
             return;
         }
 
-        // --- Шаг 6: Обработка Symlink ---
         if (next_node->type == VFS_TYPE_SYMLINK) {
             
-            // Ограничение рекурсии
             static int recursion_depth = 0;
             if (recursion_depth > 8) {
                 out->error = VFS_ERR_SYMLINKLOOP; // Loop detected
@@ -358,8 +431,6 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
 
             char* remainder = next_slash ? (next_slash + 1) : "";
             
-            // target: "/hw/ide0/p0"
-            // remainder: "windows/system32"
             int new_len = strlen(next_node->target_path) + 1 + strlen(remainder) + 1;
             char* new_full_path = malloc(new_len);
 			if (!new_full_path) return;
@@ -370,7 +441,6 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
                 strlcat(new_full_path, remainder, new_len);
             }
 
-            // РЕКУРСИВНЫЙ ВЫЗОВ
             recursion_depth++;
             vfs_resolve(new_full_path, out);
             recursion_depth--;
@@ -380,13 +450,11 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
             return;
         }
 
-        // Переходим дальше
         current = next_node;
         
         if (next_slash) {
             cursor = next_slash + 1;
         } else {
-            // Слэша не было, значит это было последнее слово
             cursor = cursor + strlen(cursor);
         }
     }
@@ -395,20 +463,17 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
 void handle_vfs_request(message_t* req) {
     message_t resp;
 	memset(&resp, 0, sizeof(message_t));
-    // Копируем базовые поля для ответа
     resp.type = MSG_TYPE_VFS;
     resp.subtype = MSG_SUBTYPE_RESPONSE;
-    resp.sender_tid = req->sender_tid; // Отвечаем тому, кто спросил
+    resp.sender_tid = req->sender_tid;
     resp.payload_ptr = 0;
     resp.payload_size = 0;
 
     switch (req->param1) {
-        // === ОТКРЫТИЕ ФАЙЛА ===
         case VFS_CMD_OPEN: {
             char* path = (char*)req->payload_ptr;
             if (!path) { resp.param1 = VFS_ERR_UNKNOWN; break; }
 
-            // 1. Резолвим путь
             vfs_path_result_t res;
             vfs_resolve(path, &res);
 
@@ -417,10 +482,9 @@ void handle_vfs_request(message_t* req) {
                 break;
             }
 
-            // 2. Аллоцируем FD
             int fd = vfs_alloc_fd(req->sender_tid);
             if (fd < 0) {
-                resp.param1 = VFS_ERR_UNKNOWN; // Limit reached
+                resp.param1 = VFS_ERR_UNKNOWN;
                 if (res.fs_path) free(res.fs_path);
                 break;
             }
@@ -428,20 +492,17 @@ void handle_vfs_request(message_t* req) {
             vfs_file_t* f = &open_files[fd - 1];
             f->offset = 0;
 
-            // 3. Логика открытия в зависимости от типа узла
             if (res.node->type == VFS_TYPE_MOUNT_POINT) {
-                // Это файл внутри ФС (FAT32)
                 f->type = VFS_TYPE_MOUNT_POINT;
                 f->mounted_file.driver = res.node->mount.driver;
                 f->mounted_file.fs = res.node->mount.fs_inst;
                 
-                // Если путь пустой, значит открываем корень (для ls)
                 char* p = (res.fs_path && *res.fs_path) ? res.fs_path : "/";
                 
                 if (f->mounted_file.driver && f->mounted_file.driver->open) {
                     f->mounted_file.handle = f->mounted_file.driver->open(f->mounted_file.fs, p);
                 } else {
-                    f->mounted_file.handle = 0; // Нет реализации open
+                    f->mounted_file.handle = 0;
                 }
                 
                 if (!f->mounted_file.handle) {
@@ -453,7 +514,6 @@ void handle_vfs_request(message_t* req) {
                 }
             } 
             else if (res.node->type == VFS_TYPE_DEVICE_FILE) {
-                // Это файл устройства (например /hw/ide0/raw)
                 f->type = VFS_TYPE_DEVICE_FILE;
                 f->device_file.read = res.node->dev_ops.read;
                 f->device_file.write = res.node->dev_ops.write;
@@ -463,10 +523,8 @@ void handle_vfs_request(message_t* req) {
                 resp.param2 = fd;
             }
             else if (res.node->type == VFS_TYPE_DIR) {
-                // Это виртуальная папка (например /hw)
-                // Открываем её для чтения списка файлов
                 f->type = VFS_TYPE_DIR;
-                f->dir.node = res.node; // Запоминаем узел
+                f->dir.node = res.node;
                 
                 resp.param1 = VFS_ERR_OK;
                 resp.param2 = fd;
@@ -480,7 +538,6 @@ void handle_vfs_request(message_t* req) {
             break;
         }
 
-        // === ЧТЕНИЕ ФАЙЛА ===
         case VFS_CMD_READ: {
             int fd = req->param2;
             uint64_t size = req->param3;
@@ -488,7 +545,6 @@ void handle_vfs_request(message_t* req) {
             vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
             if (!f) { resp.param1 = VFS_ERR_PERM; break; }
 
-            // Если это папка, читать её как файл нельзя
             if (f->type == VFS_TYPE_DIR) {
                 resp.param1 = VFS_ERR_ISDIR;
                 break;
@@ -523,23 +579,56 @@ void handle_vfs_request(message_t* req) {
             free(buf);
             return;
         }
+		
+		case VFS_CMD_WRITE: {
+            int fd = req->param2;
+            uint64_t size = req->param3;
+            
+            vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
+            if (!f) { resp.param1 = VFS_ERR_PERM; break; }
+
+            if (f->type == VFS_TYPE_DIR) {
+                resp.param1 = VFS_ERR_ISDIR;
+                break;
+            }
+
+            int bytes = -1;
+
+            if (f->type == VFS_TYPE_MOUNT_POINT) {
+                if (f->mounted_file.driver && f->mounted_file.driver->write) {
+                    bytes = f->mounted_file.driver->write(
+                        f->mounted_file.fs, f->mounted_file.handle, req->payload_ptr, size, f->offset
+                    );
+                }
+            } else if (f->type == VFS_TYPE_DEVICE_FILE && f->device_file.write) {
+                bytes = f->device_file.write(f->device_file.param, req->payload_ptr, size, f->offset);
+            }
+
+            if (bytes >= 0) {
+                f->offset += bytes;
+                resp.param1 = VFS_ERR_OK;
+                resp.payload_size = bytes;
+            } else {
+                resp.param1 = VFS_ERR_UNKNOWN;
+                resp.payload_size = 0;
+            }
+            
+            syscall_ipc_send(req->sender_tid, &resp);
+            return;
+        }
         
-        // === ЧТЕНИЕ ДИРЕКТОРИИ (ls) ===
         case VFS_CMD_LIST: {
-            // param2 = FD, param3 = index (0, 1, 2...)
             int fd = req->param2;
             int index = req->param3;
             
             vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
             if (!f) { resp.param1 = VFS_ERR_PERM; break; }
 
-            vfs_dirent_t dirent; // Структура ответа (определи её в protocol.h)
+            vfs_dirent_t dirent;
             memset(&dirent, 0, sizeof(vfs_dirent_t));
             int res = 0;
 
             if (f->type == VFS_TYPE_DIR) {
-                // Виртуальная папка VFS
-                // Итерируемся по списку детей: f->dir.node->children
                 vfs_node_t* child = f->dir.node->children;
                 int i = 0;
                 while (child && i < index) {
@@ -570,8 +659,6 @@ void handle_vfs_request(message_t* req) {
                 }
             } 
             else if (f->type == VFS_TYPE_MOUNT_POINT) {
-                // Папка внутри FAT32
-                // Драйвер должен поддерживать readdir
                 if (f->mounted_file.driver->readdir) {
                     fs_dirent_t fs_ent;
 					memset(&fs_ent, 0, sizeof(fs_dirent_t));
@@ -581,17 +668,17 @@ void handle_vfs_request(message_t* req) {
                     if (res) {
                         strlcpy(dirent.name, fs_ent.name, sizeof(dirent.name));
                         dirent.size = fs_ent.size;
-                        dirent.type = fs_ent.is_dir ? VFS_FILE_TYPE_DIR : VFS_FILE_TYPE_REGULAR;
+                        dirent.type = fs_ent.type;
                     }
                 }
             }
 
             if (res) {
                 resp.param1 = VFS_ERR_OK;
-                resp.payload_ptr = (uint8_t*)&dirent; // Отправляем структуру
+                resp.payload_ptr = (uint8_t*)&dirent;
                 resp.payload_size = sizeof(vfs_dirent_t);
             } else {
-                resp.param1 = VFS_ERR_UNKNOWN; // EOF
+                resp.param1 = VFS_ERR_UNKNOWN;
             }
             
             break;

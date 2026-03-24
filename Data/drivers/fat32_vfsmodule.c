@@ -2,6 +2,14 @@
 #include "../include/aoslib.h"
 #include "../include/fs_interface.h"
 
+#define FAT_ATTR_READ_ONLY 0x01
+#define FAT_ATTR_HIDDEN    0x02
+#define FAT_ATTR_SYSTEM    0x04
+#define FAT_ATTR_VOLUME_ID 0x08
+#define FAT_ATTR_DIRECTORY 0x10
+#define FAT_ATTR_ARCHIVE   0x20
+#define FAT_ATTR_LFN       0x0F
+
 typedef struct {
     uint8_t  jmp[3];
     uint8_t  oem[8];
@@ -65,6 +73,7 @@ typedef struct {
     uint32_t bytes_per_sector;
     uint32_t fat_start_lba;
     uint32_t data_start_lba;
+	uint32_t total_clusters;
 } fat32_instance_t;
 
 typedef struct {
@@ -72,7 +81,9 @@ typedef struct {
     uint64_t size_bytes;
     uint32_t current_cluster;
     uint64_t current_offset;
-    uint8_t  is_dir;
+    uint8_t  attributes;
+	uint64_t dir_entry_lba;
+	uint32_t dir_entry_offset;
 } fat32_file_t;
 
 uint64_t cluster_to_lba(fat32_instance_t* inst, uint32_t cluster) {
@@ -85,11 +96,42 @@ uint32_t get_next_cluster(fat32_instance_t* inst, uint32_t current_cluster) {
     uint32_t ent_offset = fat_offset % inst->bytes_per_sector;
 
     uint8_t buffer[512];
-    // Тут в идеале нужен кэш секторов
     block_read(inst->dev, fat_sector, 1, buffer);
 
     uint32_t val = *(uint32_t*)&buffer[ent_offset];
     return val & 0x0FFFFFFF;
+}
+
+void set_next_cluster(fat32_instance_t* inst, uint32_t cluster, uint32_t next_cluster) {
+    uint32_t fat_offset = cluster * 4;
+    uint32_t fat_sector = inst->fat_start_lba + (fat_offset / inst->bytes_per_sector);
+    uint32_t ent_offset = fat_offset % inst->bytes_per_sector;
+
+    uint8_t buffer[512];
+    block_read(inst->dev, fat_sector, 1, buffer);
+
+    uint32_t val = *(uint32_t*)&buffer[ent_offset];
+    val = (val & 0xF0000000) | (next_cluster & 0x0FFFFFFF);
+    *(uint32_t*)&buffer[ent_offset] = val;
+
+    block_write(inst->dev, fat_sector, 1, buffer);
+}
+
+uint32_t allocate_cluster(fat32_instance_t* inst) {
+    for (uint32_t i = 2; i < inst->total_clusters + 2; i++) {
+        if (get_next_cluster(inst, i) == 0x00000000) {
+            set_next_cluster(inst, i, 0x0FFFFFFF); // Маркер EOF
+            
+            uint8_t buffer[512];
+            memset(buffer, 0, 512);
+            uint64_t lba = cluster_to_lba(inst, i);
+            for(uint32_t s = 0; s < inst->sectors_per_cluster; s++) {
+                block_write(inst->dev, lba + s, 1, buffer);
+            }
+            return i;
+        }
+    }
+    return 0;
 }
 
 unsigned char fat32_checksum(unsigned char *pName) {
@@ -151,6 +193,10 @@ fs_instance_t fat32_mount(block_dev_t* dev) {
     
     uint32_t fat_size = bpb->sectors_per_fat_32;
     inst->data_start_lba = inst->fat_start_lba + (bpb->fats_count * fat_size);
+	
+	uint32_t total_sectors = bpb->total_sectors_32 != 0 ? bpb->total_sectors_32 : bpb->total_sectors_16;
+    uint32_t data_sectors = total_sectors - inst->data_start_lba;
+    inst->total_clusters = data_sectors / inst->sectors_per_cluster;
 
     free(buf);
     return (fs_instance_t)inst;
@@ -217,9 +263,12 @@ int find_entry_in_cluster_chain(fat32_instance_t* inst, uint32_t start_cluster, 
             if (strcmp(current_upper, search_name) == 0) {
                 file_out->first_cluster = ((uint32_t)dir[i].cluster_high << 16) | dir[i].cluster_low;
                 file_out->size_bytes = dir[i].file_size;
-                file_out->is_dir = (dir[i].attr & 0x10) ? 1 : 0;
+                file_out->attributes = dir[i].attr;
                 file_out->current_cluster = file_out->first_cluster;
                 file_out->current_offset = 0;
+				
+				file_out->dir_entry_lba = lba + ((i * 32) / inst->bytes_per_sector);
+                file_out->dir_entry_offset = (i * 32) % inst->bytes_per_sector;
                 
                 free(buffer);
                 return 1;
@@ -243,7 +292,7 @@ fs_file_handle_t fat32_open(fs_instance_t fs, const char* path) {
         handle->first_cluster = inst->root_cluster;
         handle->current_cluster = inst->root_cluster;
         handle->current_offset = 0;
-        handle->is_dir = 1;
+        handle->attributes = FAT_ATTR_DIRECTORY;
         handle->size_bytes = 0;
         return (fs_file_handle_t)handle;
     }
@@ -258,7 +307,7 @@ fs_file_handle_t fat32_open(fs_instance_t fs, const char* path) {
             return 0;
         }
         token = strtok(0, "/");
-        if (token != 0 && !handle->is_dir) {
+        if (token != 0 && !(handle->attributes & FAT_ATTR_DIRECTORY)) {
             free(handle);
             return 0;
         }
@@ -271,8 +320,8 @@ int fat32_read(fs_instance_t fs, fs_file_handle_t f, void* buf, uint64_t size, u
     fat32_instance_t* inst = (fat32_instance_t*)fs;
     fat32_file_t* file = (fat32_file_t*)f;
     
-    if (file->is_dir) return -1;
-    if (offset >= file->size_bytes) return 0; // EOF
+    if (file->attributes & FAT_ATTR_DIRECTORY) return -1;
+	if (file->size_bytes == 0 || offset >= file->size_bytes) return 0; // EOF
 
     if (offset + size > file->size_bytes) {
         size = file->size_bytes - offset;
@@ -327,11 +376,107 @@ int fat32_read(fs_instance_t fs, fs_file_handle_t f, void* buf, uint64_t size, u
     return bytes_read;
 }
 
+int fat32_write(fs_instance_t fs, fs_file_handle_t f, const void* buf, uint64_t size, uint64_t offset) {
+    fat32_instance_t* inst = (fat32_instance_t*)fs;
+    fat32_file_t* file = (fat32_file_t*)f;
+    
+    if (file->attributes & FAT_ATTR_DIRECTORY) return -1; // В папки писать нельзя
+
+    uint64_t cluster_bytes = inst->sectors_per_cluster * inst->bytes_per_sector;
+
+    if (offset + size > file->size_bytes) {
+        uint64_t current_capacity = ((file->size_bytes + cluster_bytes - 1) / cluster_bytes) * cluster_bytes;
+        if (file->size_bytes == 0) current_capacity = 0;
+
+        uint64_t needed_capacity = offset + size;
+
+        if (file->first_cluster == 0 && needed_capacity > 0) {
+            file->first_cluster = allocate_cluster(inst);
+            if (!file->first_cluster) return -1; // Disk Full
+            file->current_cluster = file->first_cluster;
+        }
+
+        if (needed_capacity > current_capacity && file->first_cluster != 0) {
+            uint32_t last_cluster = file->first_cluster;
+            
+            while (1) {
+                uint32_t next = get_next_cluster(inst, last_cluster);
+                if (next >= 0x0FFFFFF8) break;
+                last_cluster = next;
+            }
+
+            while (current_capacity < needed_capacity) {
+                uint32_t new_cluster = allocate_cluster(inst);
+                if (!new_cluster) return -1; // Disk Full
+                set_next_cluster(inst, last_cluster, new_cluster);
+                last_cluster = new_cluster;
+                current_capacity += cluster_bytes;
+            }
+        }
+    }
+
+    uint32_t cluster = file->first_cluster;
+    uint64_t current_pos = 0;
+
+    while (current_pos + cluster_bytes <= offset) {
+        cluster = get_next_cluster(inst, cluster);
+        current_pos += cluster_bytes;
+        if (cluster >= 0x0FFFFFF8) return -1; // Защита от сбоя FAT
+    }
+
+    uint64_t bytes_written = 0;
+    const uint8_t* in_ptr = (const uint8_t*)buf;
+    uint8_t* cl_buf = malloc(cluster_bytes);
+	if (!cl_buf) return -1;
+
+    while (bytes_written < size && cluster < 0x0FFFFFF8) {
+        uint64_t lba = cluster_to_lba(inst, cluster);
+
+        uint64_t offset_in_cluster = (offset + bytes_written) - current_pos;
+        uint64_t available_in_cluster = cluster_bytes - offset_in_cluster;
+        uint64_t to_copy = size - bytes_written;
+        if (to_copy > available_in_cluster) to_copy = available_in_cluster;
+
+        if (to_copy != cluster_bytes) {
+            block_read(inst->dev, lba, inst->sectors_per_cluster, cl_buf);
+        }
+
+        memcpy(cl_buf + offset_in_cluster, in_ptr + bytes_written, to_copy);
+        block_write(inst->dev, lba, inst->sectors_per_cluster, cl_buf);
+
+        bytes_written += to_copy;
+
+        if (bytes_written < size) {
+            cluster = get_next_cluster(inst, cluster);
+            current_pos += cluster_bytes;
+        }
+    }
+    
+    free(cl_buf);
+
+    if (offset + bytes_written > file->size_bytes) {
+        file->size_bytes = offset + bytes_written;
+
+        uint8_t sec_buf[512];
+        block_read(inst->dev, file->dir_entry_lba, 1, sec_buf);
+
+        fat32_dir_entry_t* d_ent = (fat32_dir_entry_t*)&sec_buf[file->dir_entry_offset];
+        d_ent->file_size = file->size_bytes;
+        
+        d_ent->cluster_high = (file->first_cluster >> 16) & 0xFFFF;
+        d_ent->cluster_low = file->first_cluster & 0xFFFF;
+
+        block_write(inst->dev, file->dir_entry_lba, 1, sec_buf);
+    }
+
+    return bytes_written;
+}
+
 int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, int index, fs_dirent_t* out) {
     fat32_instance_t* inst = (fat32_instance_t*)fs;
     fat32_file_t* dir = (fat32_file_t*)dir_handle;
     
-    if (!dir->is_dir && dir->first_cluster != inst->root_cluster) return 0;
+    if (!(dir->attributes & FAT_ATTR_DIRECTORY) && dir->first_cluster != inst->root_cluster) return 0;
 
     uint32_t cluster = dir->first_cluster;
     uint8_t buffer[512];
@@ -373,7 +518,7 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, int index, fs_d
                         fat32_format_sfn(out->name, entries[i].name);
                     }
                     out->size = entries[i].file_size;
-                    out->is_dir = (entries[i].attr & 0x10) ? 1 : 0;
+                    out->type = (entries[i].attr & FAT_ATTR_DIRECTORY) ? VFS_FILE_TYPE_DIR : VFS_FILE_TYPE_REGULAR;
                     return 1;
                 }
                 memset(lfn_temp, 0, 256);
@@ -433,6 +578,7 @@ fs_driver_t fat32_driver = {
     .umount = fat32_umount,
     .open = fat32_open,
     .read = fat32_read,
+	.write = fat32_write,
     .close = fat32_close,
     .readdir = fat32_readdir,
     .get_label = fat32_get_label

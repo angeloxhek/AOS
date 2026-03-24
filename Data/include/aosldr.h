@@ -10,8 +10,9 @@
 #define KBD_BUFFER_SIZE 256
 #define KERNEL_BASE 0xFFFFFFFF80000000
 
-#define ATA_CMD_READ_PIO_EXT  0x24
-#define ATA_CMD_WRITE_PIO_EXT 0x34
+#define ATA_CMD_READ_PIO_EXT    0x24
+#define ATA_CMD_WRITE_PIO_EXT   0x34
+#define ATA_CMD_CACHE_FLUSH_EXT 0xEA
 
 // --- Структуры данных ---
 
@@ -267,11 +268,12 @@ typedef struct driver_info_t {
 //           ASM
 // --------------------------
 
-static inline void outb(uint16_t port, uint8_t val);
-static inline uint8_t inb(uint16_t port);
-static inline uint16_t inw(uint16_t port);
-static inline void outw(uint16_t port, uint16_t val);
-static inline void insw(uint16_t port, void* addr, uint32_t count);
+void outb(uint16_t port, uint8_t val);
+uint8_t inb(uint16_t port);
+uint16_t inw(uint16_t port);
+void outw(uint16_t port, uint16_t val);
+void insw(uint16_t port, void* addr, uint32_t count);
+void outsw(uint16_t port, const void* addr, uint32_t count);
 void wrmsr(uint32_t msr, uint64_t value);
 uint64_t rdmsr(uint32_t msr);
 
@@ -377,6 +379,8 @@ int ide_wait_ready(void* dev);
 int ide_wait_drq(void* dev);
 int ide_read_sectors(ide_device_t* dev, uint64_t lba, uint16_t count, uint8_t* buffer);
 int ide_read_sector(ide_device_t* dev, uint64_t lba, uint8_t* buffer);
+int ide_write_sectors(ide_device_t* dev, uint64_t lba, uint16_t count, const uint8_t* buffer);
+int ide_write_sector(ide_device_t* dev, uint64_t lba, const uint8_t* buffer);
 
 
 // ----------------------------

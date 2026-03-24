@@ -165,30 +165,39 @@ uint8_t default_fpu_state[512] __attribute__((aligned(16)));
 //           ASM
 // --------------------------
 
-static inline void outb(uint16_t port, uint8_t val) {
+void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ( "outb %b0, %w1" : : "a"(val), "Nd"(port) : "memory");
 }
 
-static inline uint8_t inb(uint16_t port) {
+uint8_t inb(uint16_t port) {
     uint8_t ret;
     __asm__ volatile ( "inb %w1, %b0" : "=a"(ret) : "Nd"(port) : "memory");
     return ret;
 }
 
-static inline uint16_t inw(uint16_t port) {
+uint16_t inw(uint16_t port) {
     uint16_t ret;
     __asm__ volatile ( "inw %w1, %w0" : "=a"(ret) : "Nd"(port) : "memory");
     return ret;
 }
 
-static inline void outw(uint16_t port, uint16_t val) {
+void outw(uint16_t port, uint16_t val) {
     __asm__ volatile ( "outw %w0, %w1" : : "a"(val), "Nd"(port) : "memory");
 }
 
-static inline void insw(uint16_t port, void* addr, uint32_t count) {
+void insw(uint16_t port, void* addr, uint32_t count) {
     __asm__ volatile (
         "cld; rep insw"
         : "+D" (addr), "+c" (count)
+        : "d" (port)
+        : "memory"
+    );
+}
+
+void outsw(uint16_t port, const void* addr, uint32_t count) {
+    __asm__ volatile (
+        "cld; rep outsw"
+        : "+S" (addr), "+c" (count)
         : "d" (port)
         : "memory"
     );
@@ -957,6 +966,7 @@ void syscall_handler(syscall_regs_t* regs) {
 			uint64_t lba    = regs->rsi;
 			uint64_t count  = regs->rdx;
 			void* buffer    = (void*)regs->r10;
+			
 			ide_device_t* target_dev = 0;
 			for (int i = 0; i < ide_count; i++) {
 				if (mounted_ides[i].id == dev_id) {
@@ -971,6 +981,27 @@ void syscall_handler(syscall_regs_t* regs) {
 			regs->rax = ide_read_sectors(target_dev, lba, count, buffer) ? SYS_RES_OK : SYS_RES_DSK_ERR;
 			break;
 		}
+		
+		case SYS_BLOCK_WRITE: {
+            uint64_t dev_id = regs->rdi;
+            uint64_t lba    = regs->rsi;
+            uint64_t count  = regs->rdx;
+            const void* buffer = (const void*)regs->r10;
+            
+            ide_device_t* target_dev = 0;
+            for (int i = 0; i < ide_count; i++) {
+                if (mounted_ides[i].id == dev_id) {
+                    target_dev = &mounted_ides[i];
+                    break;
+                }
+            }
+            if (!target_dev) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+            regs->rax = ide_write_sectors(target_dev, lba, count, buffer) ? SYS_RES_OK : SYS_RES_DSK_ERR;
+            break;
+        }
 		
 		case SYS_GET_DISK_COUNT: {
 			regs->rax = ide_count;
@@ -1141,6 +1172,43 @@ int ide_read_sectors(ide_device_t* dev, uint64_t lba, uint16_t count, uint8_t* b
 
 int ide_read_sector(ide_device_t* dev, uint64_t lba, uint8_t* buffer) {
 	return ide_read_sectors(dev, lba, 1, buffer);
+}
+
+int ide_write_sectors(ide_device_t* dev, uint64_t lba, uint16_t count, const uint8_t* buffer) {
+    if (!sleep_while_zero(ide_wait_ready, (void*)dev, 5000, 0)) return 0;
+    
+    uint16_t io = dev->io_base;
+    uint8_t slave_bit = (dev->drive_select & 0x10);
+    
+    outb(io + 6, 0x40 | slave_bit); 
+    
+    outb(io + 2, (uint8_t)(count >> 8));
+    outb(io + 2, (uint8_t)count);
+    outb(io + 3, (uint8_t)(lba >> 24)); 
+    outb(io + 3, (uint8_t)lba);
+    outb(io + 4, (uint8_t)(lba >> 32));
+    outb(io + 4, (uint8_t)(lba >> 8));
+    outb(io + 5, (uint8_t)(lba >> 40));
+    outb(io + 5, (uint8_t)(lba >> 16));
+    
+    outb(io + 7, ATA_CMD_WRITE_PIO_EXT);
+    
+    int res = 0;
+    for (int i = 0; i < count; i++) {
+        if (!sleep_while_zero(ide_wait_drq, (void*)dev, 5000, &res) || res == 2) {
+            return 0; 
+        }
+        outsw(io, buffer + (i * 512), 256);
+    }
+    
+    outb(io + 7, ATA_CMD_CACHE_FLUSH_EXT);
+    if (!sleep_while_zero(ide_wait_ready, (void*)dev, 5000, 0)) return 0;
+    
+    return 1;
+}
+
+int ide_write_sector(ide_device_t* dev, uint64_t lba, const uint8_t* buffer) {
+    return ide_write_sectors(dev, lba, 1, buffer);
 }
 
 

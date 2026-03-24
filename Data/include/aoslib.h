@@ -11,7 +11,7 @@
 #define SYS_GET_SYSTEM_INFO          7
 #define SYS_SBRK                     8
 #define SYS_BLOCK_READ               9
-#define SYS_BLOCK_WRITE             10 // Реализовать
+#define SYS_BLOCK_WRITE             10
 #define SYS_GET_DISK_COUNT          11
 #define SYS_GET_DISK_INFO           12
 #define SYS_GET_PARTITION_COUNT     13
