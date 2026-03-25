@@ -1,6 +1,26 @@
 #ifndef AOSLIB
+
+#if defined(AOSLIB_START_ONLY)
+#define AOSLIB_START
+#elif defined(AOSLIB_SYSCALLS_ONLY)
+#define AOSLIB_SYSCALLS
+#elif defined(AOSLIB_VFS_ONLY)
+#define AOSLIB_VFS
+#elif defined(AOSLIB_STRING_ONLY)
+#define AOSLIB_STRING
+#elif !defined(AOSKERNEL)
 #define AOSLIB
+#define AOSLIB_START
+#define AOSLIB_SYSCALLS
+#define AOSLIB_VFS
+#define AOSLIB_STRING
+#endif
+
+#ifndef AOSLIB_DEFINE
+#define AOSLIB_DEFINE
+
 #include <stdint.h>
+#include "limits.h"
 
 #define SYS_EXIT                     1
 #define SYS_IPC_SEND                 2
@@ -18,6 +38,8 @@
 #define SYS_GET_PARTITION_INFO      14
 #define SYS_RESERVED1               15
 #define SYS_PRINT                   16
+#define SYS_GET_PROC_INFO           17
+#define SYS_GET_THREAD_INFO         18
 
 #define SYS_RES_OK                   0
 #define SYS_RES_INVALID             -1
@@ -26,6 +48,8 @@
 #define SYS_RES_BUFFER_TOO_SMALL    -4
 #define SYS_RES_QUEUE_EMPTY         -5
 #define SYS_RES_DSK_ERR             -6
+#define SYS_RES_RANGE               -7
+#define SYS_RES_NOTFOUND            -8
 #define SYS_RES_KERNEL_ERR         -99
 
 #define VFS_ERR_OK                   0
@@ -124,6 +148,22 @@ typedef struct {
 } partition_info_t;
 
 typedef struct {
+    uint32_t pid;
+    char     name[32];
+    uint8_t  state;
+    uint64_t heap_limit;
+    uint64_t threads_count;
+} proc_info_user_t;
+
+typedef struct {
+    uint64_t tid;
+    uint32_t parent_pid;
+    uint8_t  state;
+    int      waiting_for_msg; 
+    uint64_t wake_up_time;
+} thread_info_user_t;
+
+typedef struct {
     uint64_t disk_id;
     uint64_t partition_offset_lba;
     uint64_t size_sectors;
@@ -161,39 +201,56 @@ typedef struct {
     uint64_t stack_canary;  // 0x28: Канарейка для безопасности (-fstack-protector)
 } aos_tcb_t;
 
+#define AOS_GET_TCB() ((aos_tcb_t __seg_fs *)0)
+
 #ifndef offsetof
-#define offsetof(TYPE, MEMBER) __builtin_offsetof(TYPE, MEMBER)
+    #define offsetof(TYPE, MEMBER)  __builtin_offsetof(TYPE, MEMBER)
 #endif
 
-#ifndef AOSKERNEL
+#undef NULL
+
+#ifdef __cplusplus
+    #define NULL __null
+#else
+    #define NULL ((void *)0)
+#endif
+
+#endif
+
+#if defined(AOSLIB_START) || defined(AOSLIB_VFS)
+void vfs_init();
+#endif
+
+#ifdef AOSLIB_START
 int64_t syscall(uint64_t nr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
 __attribute__((noreturn)) void exit(int code);
 __attribute__((noreturn)) void _start(uint64_t arg1, uint64_t arg2);
+#endif
 
-#define AOS_GET_TCB() ((aos_tcb_t __seg_fs *)0)
+#ifdef AOSLIB_SYSCALLS
+void sysprint(const char* str);
 
-#ifdef AOSLIB_START_ONLY
+int64_t __ipc_recv(message_t* out_msg);
+int64_t ipc_send(uint64_t dest_tid, message_t* msg);
+uint64_t get_ipc_count(void);
+void ipc_recv(message_t* out_msg);
+void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
 
-void vfs_init();
+int64_t register_driver(driver_type_t type, const char* name);
+uint64_t get_driver_tid(driver_type_t type);
+uint64_t get_driver_tid_name(const char* name);
 
-#else
-
-void syscall_system_print(const char* str);
-
-int64_t __syscall_ipc_recv(message_t* out_msg);
-int64_t syscall_ipc_send(uint64_t dest_tid, message_t* msg);
-uint64_t syscall_get_msg_count(void);
-void syscall_ipc_recv(message_t* out_msg);
-void syscall_ipc_recv_filtered(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
-
-int64_t syscall_register_driver(driver_type_t type, const char* name);
-uint64_t syscall_get_driver_tid(driver_type_t type);
-uint64_t syscall_get_driver_tid_by_name(const char* name);
-
-uint8_t syscall_get_kbd_scancode();
-int syscall_get_sysinfo(system_info_t* info);
-
+uint8_t get_scancode();
+int get_sysinfo(system_info_t* info);
 void* syscall_sbrk(int64_t increment);
+
+uint64_t get_disk_count(void);
+uint64_t get_partition_count(void);
+uint64_t get_disk_info(uint64_t index, disk_info_t* pinfo);
+uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo);
+#endif
+
+#ifdef AOSLIB_STRING
 void* malloc(uint64_t size);
 void free(void* ptr);
 void* realloc(void* ptr, uint64_t new_size);
@@ -241,7 +298,27 @@ int32_t printf(const char* format, ...);
 int32_t snprintf(char* str, uint64_t size, const char* format, ...);
 int32_t sprintf(char* str, const char* format, ...);
 
-#ifndef AOSLIB_SYSCALLS_ONLY
+int atoi(const char *str);
+long atol(const char *str);
+long long atoll(const char *str);
+
+unsigned long long strtoull(const char *nptr, char **endptr, int base);
+long long strtoll(const char *nptr, char **endptr, int base);
+
+int kstrtoull(const char *s, int base, unsigned long long *res);
+int kstrtoll(const char *s, int base, long long *res);
+int kstrtoint(const char *s, int base, int *res);
+int kstrtobool(const char *s, bool *res);
+
+char* itoa(int value, char* str, int base);
+char* utoa(unsigned int value, char* str, int base);
+char* ltoa(long value, char* str, int base);
+char* ultoa(unsigned long value, char* str, int base);
+char* lltoa(long long value, char* str, int base);
+char* ulltoa(unsigned long long value, char* str, int base);
+#endif
+
+#ifdef AOSLIB_VFS
 
 int64_t block_read(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
 int64_t block_write(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
@@ -253,6 +330,5 @@ int vfs_write(int fd, const void* buf, int count);
 int vfs_readdir(int fd, int index, vfs_dirent_t* out_entry);
 
 #endif
-#endif
-#endif
+
 #endif

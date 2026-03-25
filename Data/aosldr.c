@@ -1053,6 +1053,97 @@ void syscall_handler(syscall_regs_t* regs) {
 			break;
 		}
 		
+		case SYS_GET_PROC_INFO: {
+            uint32_t target_pid = (uint32_t)regs->rdi;
+            proc_info_user_t* user_ptr = (proc_info_user_t*)regs->rsi;
+
+            if (!is_valid_user_pointer(user_ptr)) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+
+            // Ищем процесс. 
+            // ВАЖНО: Если у вас нет глобального списка процессов (process_list_head),
+            // вы можете найти его, перебрав ready_queue и посмотрев t->owner->id
+            process_t* target_proc = 0;
+            thread_t* t = ready_queue;
+            if (t) {
+                do {
+                    if (t->owner->id == target_pid) {
+                        target_proc = t->owner;
+                        break;
+                    }
+                    t = t->next;
+                } while (t != ready_queue);
+            }
+
+            if (!target_proc) {
+                regs->rax = SYS_RES_NOTFOUND; // Процесс не найден (возможно зомби или убит)
+                break;
+            }
+
+            // Безопасно заполняем временную структуру в ядре
+            proc_info_user_t info;
+            kernel_memset(&info, 0, sizeof(proc_info_user_t));
+            info.pid = target_proc->id;
+            kernel_memcpy(info.name, target_proc->name, 32);
+            info.state = target_proc->state;
+            info.heap_limit = target_proc->heap_limit;
+            
+            // Подсчет потоков
+            info.threads_count = 0;
+            t = ready_queue;
+            if (t) {
+                do {
+                    if (t->owner->id == target_pid) info.threads_count++;
+                    t = t->next;
+                } while (t != ready_queue);
+            }
+
+            // Копируем пользователю
+            kernel_memcpy(user_ptr, &info, sizeof(proc_info_user_t));
+            regs->rax = SYS_RES_OK;
+            break;
+        }
+
+        case SYS_GET_THREAD_INFO: {
+            uint64_t target_tid = regs->rdi;
+            thread_info_user_t* user_ptr = (thread_info_user_t*)regs->rsi;
+
+            if (!is_valid_user_pointer(user_ptr)) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+
+            thread_t* target_thread = get_thread_by_id(target_tid);
+            
+            // Если нет в активных, можно поискать в zombies_list (опционально)
+            if (!target_thread) {
+                thread_t* z = zombies_list;
+                while (z) {
+                    if (z->tid == target_tid) { target_thread = z; break; }
+                    z = z->next_zombie;
+                }
+            }
+
+            if (!target_thread) {
+                regs->rax = SYS_RES_NOTFOUND; // Поток не найден
+                break;
+            }
+
+            thread_info_user_t info;
+            kernel_memset(&info, 0, sizeof(thread_info_user_t));
+            info.tid = target_thread->tid;
+            info.parent_pid = target_thread->owner->id;
+            info.state = target_thread->state;
+            info.waiting_for_msg = target_thread->waiting_for_msg;
+            info.wake_up_time = target_thread->wake_up_time;
+
+            kernel_memcpy(user_ptr, &info, sizeof(thread_info_user_t));
+            regs->rax = SYS_RES_OK;
+            break;
+        }
+		
         default: {
             kprint("Unknown Syscall invoked!\n");
             regs->rax = SYS_RES_INVALID;

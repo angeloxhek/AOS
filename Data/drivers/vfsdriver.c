@@ -36,6 +36,8 @@ typedef struct vfs_node {
 } vfs_node_t;
 
 vfs_node_t* vfs_root = 0;
+vfs_node_t* ptasks = 0;
+vfs_node_t* ttasks = 0;
 
 typedef struct {
     int id;
@@ -104,7 +106,7 @@ int dev_write_raw(void* param, void* buf, uint64_t size, uint64_t offset) {
 
 int dev_read_uptime(void* param, void* buf, uint64_t size, uint64_t offset) {
     system_info_t info;
-    syscall(SYS_GET_SYSTEM_INFO, (uint64_t)&info, 0, 0, 0, 0);
+    get_sysinfo(&info);
 
     char text[32];
     sprintf(text, "%d\n", (int)info.uptime);
@@ -118,7 +120,7 @@ int dev_read_uptime(void* param, void* buf, uint64_t size, uint64_t offset) {
 
 int dev_read_flags(void* param, void* buf, uint64_t size, uint64_t offset) {
     system_info_t info;
-    syscall(SYS_GET_SYSTEM_INFO, (uint64_t)&info, 0, 0, 0, 0);
+    get_sysinfo(&info);
 
     char text[32];
     sprintf(text, "%d\n", (int)info.flags);
@@ -150,7 +152,7 @@ int dev_read_urandom(void* param, void* buf, uint64_t size, uint64_t offset) {
     
     if (rand_seed == 123456789) {
         system_info_t info;
-        if (syscall(SYS_GET_SYSTEM_INFO, (uint64_t)&info, 0, 0, 0, 0) == 0) {
+        if (get_sysinfo(&info) == 0) {
             rand_seed ^= info.uptime;
         }
     }
@@ -193,7 +195,7 @@ void vfs_mkdev(vfs_node_t* parent, const char* name, void* read_func, void* writ
 	if (!node) return;
     node->type = VFS_TYPE_DEVICE_FILE;
     node->dev_ops.read = read_func;
-	node->dev_ops.read = write_func;
+	node->dev_ops.write = write_func;
     node->dev_ops.param = param;
 }
 
@@ -205,9 +207,23 @@ void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
     strlcpy(node->target_path, target, sizeof(node->target_path));
 }
 
-/*void vfs_add_proc(uint64_t pid, const char* proc_name) {
+vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
+    if (!parent || !name) return 0;
+    
+    vfs_node_t* child = parent->children;
+    while (child) {
+        if (strcmp(child->name, name) == 0) {
+            return child;
+        }
+        child = child->next;
+    }
+    return 0;
+}
+
+void vfs_add_proc(uint64_t pid, const char* proc_name) {
     char pid_str[21];
-    uint64_to_dec(pid, pid_str);
+    ulltoa((unsigned long long)pid, pid_str, 10); 
+    
     vfs_node_t* proc_node = vfs_mkdir(ptasks, pid_str);
     if (!proc_node) return;
 	
@@ -222,8 +238,9 @@ void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
 void vfs_proc_add_thread(uint64_t tid, uint64_t parent_pid) {
     char tid_str[21];
     char pid_str[21];
-    uint64_to_dec(tid, tid_str);
-    uint64_to_dec(parent_pid, pid_str);
+    
+    ulltoa((unsigned long long)tid, tid_str, 10);
+    ulltoa((unsigned long long)parent_pid, pid_str, 10);
 	
     vfs_node_t* thread_node = vfs_mkdir(ttasks, tid_str);
     if (!thread_node) return;
@@ -246,19 +263,6 @@ void vfs_proc_add_thread(uint64_t tid, uint64_t parent_pid) {
             vfs_symlink(threads_dir, tid_str, thread_target);
         }
     }
-}*/ // В разработке
-
-vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
-    if (!parent || !name) return 0;
-    
-    vfs_node_t* child = parent->children;
-    while (child) {
-        if (strcmp(child->name, name) == 0) {
-            return child;
-        }
-        child = child->next;
-    }
-    return 0;
 }
 
 void vfs_init_tree() {
@@ -272,8 +276,8 @@ void vfs_init_tree() {
 
     vfs_node_t* sys  = vfs_mkdir(vfs_root, "sys");
     vfs_node_t* tasks = vfs_mkdir(vfs_root, "tasks");
-	vfs_node_t* ptasks = vfs_mkdir(tasks, "p");
-	vfs_node_t* ttasks = vfs_mkdir(tasks, "t");
+	ptasks = vfs_mkdir(tasks, "p");
+	ttasks = vfs_mkdir(tasks, "t");
     vfs_node_t* mnt  = vfs_mkdir(vfs_root, "mnt");
     vfs_node_t* mnt_id = vfs_mkdir(mnt, "id");
 
@@ -282,7 +286,7 @@ void vfs_init_tree() {
 	vfs_mkdev(sysstat, "flags", dev_read_flags, 0, 0);
 	
 
-    uint64_t disk_count = syscall(SYS_GET_DISK_COUNT, 0, 0, 0, 0, 0);
+    uint64_t disk_count = get_disk_count();
     for (int i = 0; i < disk_count; i++) {
         char name[16];
         sprintf(name, "ide%d", i);
@@ -297,10 +301,10 @@ void vfs_init_tree() {
         vfs_mkdev(disk_node, "ctl", 0, 0, raw_disk);
     }
 
-    uint64_t part_count = syscall(SYS_GET_PARTITION_COUNT, 0, 0, 0, 0, 0);
+    uint64_t part_count = get_partition_count();
     for (int i = 0; i < part_count; i++) {
         partition_info_t pinfo;
-        syscall(SYS_GET_PARTITION_INFO, i, (uint64_t)&pinfo, 0, 0, 0);
+        get_partition_info(i, &pinfo);
 		
         char disk_name[16];
         sprintf(disk_name, "ide%d", (int)pinfo.parent_disk_id);
@@ -575,7 +579,7 @@ void handle_vfs_request(message_t* req) {
                 resp.payload_size = 0;
             }
             
-            syscall_ipc_send(req->sender_tid, &resp);
+            ipc_send(req->sender_tid, &resp);
             free(buf);
             return;
         }
@@ -613,7 +617,7 @@ void handle_vfs_request(message_t* req) {
                 resp.payload_size = 0;
             }
             
-            syscall_ipc_send(req->sender_tid, &resp);
+            ipc_send(req->sender_tid, &resp);
             return;
         }
         
@@ -700,7 +704,7 @@ void handle_vfs_request(message_t* req) {
 		}
     }
     
-    syscall_ipc_send(req->sender_tid, &resp);
+    ipc_send(req->sender_tid, &resp);
 }
 
 int driver_main(void* reserved1, void* reserved2) {
@@ -708,11 +712,11 @@ int driver_main(void* reserved1, void* reserved2) {
     vfs_init_tree();
     printf("VFS: Tree initialized.\n");
 	
-	syscall_register_driver(DT_VFS, 0);
+	register_driver(DT_VFS, 0);
 	
 	message_t msg;
     while (1) {
-        syscall_ipc_recv_filtered(0, MSG_TYPE_VFS, MSG_SUBTYPE_NONE, &msg);
+        ipc_recv_ex(0, MSG_TYPE_VFS, MSG_SUBTYPE_NONE, &msg);
 		handle_vfs_request(&msg);
 		if (msg.payload_ptr != (void*)0 && msg.payload_size > 0) {
             free(msg.payload_ptr);

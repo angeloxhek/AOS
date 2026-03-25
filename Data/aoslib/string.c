@@ -1,5 +1,6 @@
 #include <stdint.h>
-#define AOSLIB_SYSCALLS_ONLY
+#define AOSLIB_SYSCALLS
+#define AOSLIB_STRING
 #include "../include/aoslib.h"
 
 void* memset(void* ptr, uint8_t value, uint64_t n) {
@@ -411,7 +412,7 @@ static void putc_ctx(PrintContext* ctx, char c) {
         ctx->dest_buf[ctx->idx++] = c;
         if (ctx->idx >= ctx->capacity - 1) {
             ctx->dest_buf[ctx->idx] = '\0';
-            syscall_system_print(ctx->dest_buf);
+            sysprint(ctx->dest_buf);
             ctx->idx = 0;
         }
     } else {
@@ -422,22 +423,44 @@ static void putc_ctx(PrintContext* ctx, char c) {
 }
 
 static void print_number(PrintContext* ctx, uint64_t val, int32_t base, int32_t is_signed, int32_t upper, int32_t width, char pad_char) {
-    char temp[64];
-    int32_t i = 0;
-    const char* digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
+    char temp[65]; // Буфер для ulltoa (до 64 бит в base=2 + '\0')
     int32_t is_neg = 0;
+
     if (is_signed && base == 10) {
-        int64_t sval = (int64_t)val;
-        if (sval < 0) { is_neg = 1; val = (uint64_t)(-sval); }
+        if ((int64_t)val < 0) {
+            is_neg = 1;
+            val = ~(uint64_t)val + 1;
+        }
     }
-    if (val == 0) temp[i++] = '0';
-    else while (val > 0) { temp[i++] = digits[val % base]; val /= base; }
-    int32_t pad_len = width - i;
-    if (is_neg) pad_len--;
-    if (pad_char == '0' && is_neg) { putc_ctx(ctx, '-'); is_neg = 0; }
-    while (pad_len-- > 0) putc_ctx(ctx, pad_char);
-    if (is_neg) putc_ctx(ctx, '-');
-    while (i > 0) putc_ctx(ctx, temp[--i]);
+
+    ulltoa(val, temp, base);
+
+    int32_t len = 0;
+    while (temp[len] != '\0') {
+        if (upper && temp[len] >= 'a' && temp[len] <= 'z') {
+            temp[len] = temp[len] - 'a' + 'A'; 
+        }
+        len++;
+    }
+
+    int32_t pad_len = width - len - is_neg;
+
+    if (pad_char == '0' && is_neg) { 
+        putc_ctx(ctx, '-'); 
+        is_neg = 0;
+    }
+
+    while (pad_len-- > 0) {
+        putc_ctx(ctx, pad_char);
+    }
+
+    if (is_neg) {
+        putc_ctx(ctx, '-');
+    }
+
+    for (int32_t i = 0; i < len; i++) {
+        putc_ctx(ctx, temp[i]);
+    }
 }
 
 static void format_core(PrintContext* ctx, const char* format, va_list* args) {
@@ -502,7 +525,7 @@ int32_t printf(const char* format, ...) {
     va_end(args);
     if (ctx.idx > 0) {
         ctx.dest_buf[ctx.idx] = '\0';
-        syscall_system_print(ctx.dest_buf);
+        sysprint(ctx.dest_buf);
     }
     return ctx.total_chars;
 }
@@ -536,3 +559,282 @@ int32_t sprintf(char* str, const char* format, ...) {
 #undef va_start
 #undef va_arg
 #undef va_end
+
+static inline int char_to_val(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'Z') return c - 'A' + 10;
+    return 255; // Недопустимый символ
+}
+
+static bool is_clean_tail(const char *endptr) {
+    return (*endptr == '\0' || (*endptr == '\n' && *(endptr + 1) == '\0'));
+}
+
+unsigned long long strtoull(const char *nptr, char **endptr, int base) {
+    const char *s = nptr;
+    unsigned long long acc = 0;
+    int c;
+    bool is_neg = false;
+    bool overflowed = false;
+
+    while (isspace(*s)) s++;
+
+    if (*s == '-') {
+        is_neg = true;
+        s++;
+    } else if (*s == '+') {
+        s++;
+    }
+
+    if ((base == 0 || base == 16) && *s == '0' && (*(s + 1) == 'x' || *(s + 1) == 'X')) {
+        s += 2;
+        base = 16;
+    } else if (base == 0) {
+        base = (*s == '0') ? 8 : 10;
+    }
+
+    if (base < 2 || base > 36) {
+        if (endptr) *endptr = (char *)nptr;
+        return 0;
+    }
+
+    unsigned long long cutoff = ULLONG_MAX / base;
+    unsigned int cutlim = ULLONG_MAX % base;
+
+    const char *digits_start = s;
+    while (*s) {
+        c = char_to_val(*s);
+        if (c >= base) break;
+
+        if (overflowed || acc > cutoff || (acc == cutoff && c > cutlim)) {
+            overflowed = true;
+        } else {
+            acc = acc * base + c;
+        }
+        s++;
+    }
+
+    if (endptr) {
+        *endptr = (char *)(s == digits_start ? nptr : s);
+    }
+
+    if (overflowed) return ULLONG_MAX;
+    return is_neg ? -acc : acc; 
+}
+
+long long strtoll(const char *nptr, char **endptr, int base) {
+    const char *s = nptr;
+    while (isspace(*s)) s++;
+    
+    bool is_neg = (*s == '-');
+    
+    char *internal_end;
+    unsigned long long uval = strtoull(nptr, &internal_end, base);
+    
+    if (endptr) *endptr = internal_end;
+
+    unsigned long long abs_max = is_neg ? ((unsigned long long)LLONG_MAX + 1) : LLONG_MAX;
+    
+    if (uval > abs_max) {
+        return is_neg ? LLONG_MIN : LLONG_MAX;
+    }
+    
+    return is_neg ? -(long long)uval : (long long)uval;
+}
+
+int kstrtoull(const char *s, int base, unsigned long long *res) {
+    char *endptr;
+    
+    const char *check_sign = s;
+    while (isspace(*check_sign)) check_sign++;
+    if (*check_sign == '-') {
+        return SYS_RES_INVALID; 
+    }
+
+    unsigned long long val = strtoull(s, &endptr, base);
+
+    if (endptr == s || !is_clean_tail(endptr)) {
+        return SYS_RES_INVALID;
+    }
+
+    if (val == ULLONG_MAX) {
+        return SYS_RES_RANGE;
+    }
+
+    *res = val;
+    return SYS_RES_OK;
+}
+
+int kstrtoll(const char *s, int base, long long *res) {
+    char *endptr;
+    long long val = strtoll(s, &endptr, base);
+
+    if (endptr == s || !is_clean_tail(endptr)) {
+        return SYS_RES_INVALID;
+    }
+
+    if (val == LLONG_MAX || val == LLONG_MIN) {
+        return SYS_RES_RANGE;
+    }
+
+    *res = val;
+    return SYS_RES_OK;
+}
+
+int kstrtoint(const char *s, int base, int *res) {
+    long long val;
+    int err = kstrtoll(s, base, &val);
+    
+    if (err != SYS_RES_OK) {
+        return err;
+    }
+
+    if (val < INT_MIN || val > INT_MAX) {
+        return SYS_RES_RANGE;
+    }
+
+    *res = (int)val;
+    return SYS_RES_OK;
+}
+
+int kstrtobool(const char *s, bool *res) {
+    while (isspace(*s)) s++;
+
+    switch (*s) {
+        case '1':
+            *res = true;
+            return SYS_RES_OK;
+        case '0':
+            *res = false;
+            return SYS_RES_OK;
+        case 'y': case 'Y':
+            *res = true;
+            return SYS_RES_OK;
+        case 'n': case 'N':
+            *res = false;
+            return SYS_RES_OK;
+        case 't': case 'T':
+            if ((s[1] == 'r' || s[1] == 'R') && (s[2] == 'u' || s[2] == 'U') && (s[3] == 'e' || s[3] == 'E')) {
+                *res = true; return SYS_RES_OK;
+            }
+            break;
+        case 'f': case 'F':
+            if ((s[1] == 'a' || s[1] == 'A') && (s[2] == 'l' || s[2] == 'L') && 
+                (s[3] == 's' || s[3] == 'S') && (s[4] == 'e' || s[4] == 'E')) {
+                *res = false; return SYS_RES_OK;
+            }
+            break;
+        case 'o': case 'O':
+            if (s[1] == 'n' || s[1] == 'N') { *res = true; return SYS_RES_OK; }
+            if ((s[1] == 'f' || s[1] == 'F') && (s[2] == 'f' || s[2] == 'F')) { *res = false; return SYS_RES_OK; }
+            break;
+    }
+
+    return SYS_RES_INVALID;
+}
+
+int atoi(const char *str) {
+    return (int)strtoull(str, NULL, 10);
+}
+
+long atol(const char *str) {
+    return (long)strtoull(str, NULL, 10);
+}
+
+long long atoll(const char *str) {
+    return (long long)strtoull(str, NULL, 10);
+}
+
+static void reverse(char *str, int length) {
+    int start = 0;
+    int end = length - 1;
+    while (start < end) {
+        char temp = str[start];
+        str[start] = str[end];
+        str[end] = temp;
+        start++;
+        end--;
+    }
+}
+
+char* ulltoa(unsigned long long value, char* str, int base) {
+    if (base < 2 || base > 36) {
+        *str = '\0';
+        return str;
+    }
+
+    int i = 0;
+
+    if (value == 0) {
+        str[i++] = '0';
+        str[i] = '\0';
+        return str;
+    }
+
+    while (value != 0) {
+        unsigned long long rem = value % base;
+        str[i++] = (rem > 9) ? (char)((rem - 10) + 'a') : (char)(rem + '0');
+        value = value / base;
+    }
+
+    str[i] = '\0';
+
+    reverse(str, i);
+
+    return str;
+}
+
+char* utoa(unsigned int value, char* str, int base) {
+    return ulltoa(value, str, base);
+}
+
+char* ultoa(unsigned long value, char* str, int base) {
+    return ulltoa(value, str, base);
+}
+
+static char* signed_toa(long long value, char* str, int base) {
+    int i = 0;
+    bool isNegative = false;
+    unsigned long long uvalue;
+
+    if (value < 0 && base == 10) {
+        isNegative = true;
+        uvalue = (unsigned long long)(~value + 1);
+    } else {
+        uvalue = (unsigned long long)value;
+    }
+
+    if (uvalue == 0) {
+        str[i++] = '0';
+        str[i] = '\0';
+        return str;
+    }
+
+    while (uvalue != 0) {
+        unsigned long long rem = uvalue % base;
+        str[i++] = (rem > 9) ? (char)((rem - 10) + 'a') : (char)(rem + '0');
+        uvalue = uvalue / base;
+    }
+
+    if (isNegative) {
+        str[i++] = '-';
+    }
+
+    str[i] = '\0';
+    reverse(str, i);
+
+    return str;
+}
+
+char* itoa(int value, char* str, int base) {
+    return signed_toa((long long)value, str, base);
+}
+
+char* ltoa(long value, char* str, int base) {
+    return signed_toa((long long)value, str, base);
+}
+
+char* lltoa(long long value, char* str, int base) {
+    return signed_toa(value, str, base);
+}

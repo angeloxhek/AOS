@@ -12,7 +12,7 @@ static uint64_t vfs_server_tid = 0;
 
 static void ensure_vfs_init() {
     if (vfs_server_tid == 0) {
-        vfs_server_tid = syscall_get_driver_tid(DT_VFS);
+        vfs_server_tid = get_driver_tid(DT_VFS);
     }
 }
 
@@ -26,9 +26,9 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
     req->type = MSG_TYPE_VFS;
     req->subtype = MSG_SUBTYPE_QUERY;
 
-    syscall_ipc_send(vfs_server_tid, req);
+    ipc_send(vfs_server_tid, req);
 
-    syscall_ipc_recv_filtered(
+    ipc_recv_ex(
         vfs_server_tid,
         MSG_TYPE_VFS,
         MSG_SUBTYPE_RESPONSE,
