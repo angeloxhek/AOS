@@ -135,14 +135,14 @@ int vfs_write(int fd, const void* buf, int count) {
     return -1;
 }
 
-int vfs_readdir(int fd, int index, vfs_dirent_t* out_entry) {
+int vfs_readdir(int fd, vfs_dirent_t* out_entry) {
     if (fd < 0 || !out_entry) return 0;
     message_t req;
     message_t resp;
 
     req.param1 = VFS_CMD_LIST;
     req.param2 = fd;
-    req.param3 = index;
+    req.param3 = 0;
     req.payload_ptr = 0;
     req.payload_size = 0;
 

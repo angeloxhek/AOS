@@ -14,10 +14,8 @@ void scan_directory(const char* current_path, int level) {
         return;
     }
     vfs_dirent_t entry;
-    int index = 0;
-    while (vfs_readdir(fd, index, &entry) == 1) {
+    while (vfs_readdir(fd, &entry) == 1) {
         if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0) {
-            index++;
             continue;
         }
         print_indent(level);
@@ -52,7 +50,6 @@ void scan_directory(const char* current_path, int level) {
         else {
             printf("%s [size: %d]\n", entry.name, (int)entry.size);
         }
-        index++;
     }
     vfs_close(fd);
 }

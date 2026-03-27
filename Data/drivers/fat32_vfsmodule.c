@@ -74,6 +74,8 @@ typedef struct {
     uint32_t fat_start_lba;
     uint32_t data_start_lba;
 	uint32_t total_clusters;
+	uint64_t cached_lba;
+    uint8_t  cached_sector[512];
 } fat32_instance_t;
 
 typedef struct {
@@ -86,6 +88,17 @@ typedef struct {
 	uint32_t dir_entry_offset;
 } fat32_file_t;
 
+void fat32_read_cached_sector(fat32_instance_t* inst, uint64_t lba, uint8_t* out_buffer) {
+    if (inst->cached_lba == lba) {
+        memcpy(out_buffer, inst->cached_sector, 512);
+        return;
+    }
+    
+    block_read(inst->dev, lba, 1, inst->cached_sector);
+    inst->cached_lba = lba;
+    memcpy(out_buffer, inst->cached_sector, 512);
+}
+
 uint64_t cluster_to_lba(fat32_instance_t* inst, uint32_t cluster) {
     return inst->data_start_lba + ((uint64_t)(cluster - 2) * inst->sectors_per_cluster);
 }
@@ -96,7 +109,7 @@ uint32_t get_next_cluster(fat32_instance_t* inst, uint32_t current_cluster) {
     uint32_t ent_offset = fat_offset % inst->bytes_per_sector;
 
     uint8_t buffer[512];
-    block_read(inst->dev, fat_sector, 1, buffer);
+    fat32_read_cached_sector(inst, fat_sector, buffer);
 
     uint32_t val = *(uint32_t*)&buffer[ent_offset];
     return val & 0x0FFFFFFF;
@@ -197,6 +210,9 @@ fs_instance_t fat32_mount(block_dev_t* dev) {
 	uint32_t total_sectors = bpb->total_sectors_32 != 0 ? bpb->total_sectors_32 : bpb->total_sectors_16;
     uint32_t data_sectors = total_sectors - inst->data_start_lba;
     inst->total_clusters = data_sectors / inst->sectors_per_cluster;
+	
+	inst->cached_lba = (uint64_t)-1;
+    memset(inst->cached_sector, 0, 512);
 
     free(buf);
     return (fs_instance_t)inst;
@@ -472,31 +488,56 @@ int fat32_write(fs_instance_t fs, fs_file_handle_t f, const void* buf, uint64_t 
     return bytes_written;
 }
 
-int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, int index, fs_dirent_t* out) {
+int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offset, fs_dirent_t* out) {
     fat32_instance_t* inst = (fat32_instance_t*)fs;
     fat32_file_t* dir = (fat32_file_t*)dir_handle;
     
     if (!(dir->attributes & FAT_ATTR_DIRECTORY) && dir->first_cluster != inst->root_cluster) return 0;
+    
+    // Если мы уже дошли до конца в прошлый раз
+    if (*offset == (uint64_t)-1) return 0;
 
-    uint32_t cluster = dir->first_cluster;
+    uint32_t cluster;
+    uint32_t byte_in_cluster;
+
+    if (*offset == 0) {
+        // Первый вызов: начинаем с начала корневого/текущего кластера директории
+        cluster = dir->first_cluster;
+        byte_in_cluster = 0;
+    } else {
+        // Распаковываем нашу закладку
+        cluster = (uint32_t)(*offset >> 32);
+        byte_in_cluster = (uint32_t)(*offset & 0xFFFFFFFF);
+    }
+
     uint8_t buffer[512];
-    int count = 0;
     char lfn_temp[256];
     uint8_t lfn_checksum = 0;
     memset(lfn_temp, 0, 256);
     
+    uint32_t cluster_size_bytes = inst->sectors_per_cluster * 512;
+
     while (cluster < 0x0FFFFFF8 && cluster >= 2) {
         uint64_t lba = cluster_to_lba(inst, cluster);
-        for (int s = 0; s < inst->sectors_per_cluster; s++) {
-            block_read(inst->dev, lba + s, 1, buffer);
+        uint32_t start_sector = byte_in_cluster / 512;
+        uint32_t start_entry  = (byte_in_cluster % 512) / 32;
+
+        for (uint32_t s = start_sector; s < inst->sectors_per_cluster; s++) {
+            fat32_read_cached_sector(inst, lba + s, buffer);
             fat32_dir_entry_t* entries = (fat32_dir_entry_t*)buffer;
-            for (int i = 0; i < 16; i++) {
-                if ((entries[i].name[0] & 0xFF) == 0) return 0;
-				if ((entries[i].name[0] & 0xFF) == 0xE5) {
-					memset(lfn_temp, 0, 256);
-					lfn_checksum = 0;
-					continue;
-				}
+            
+            for (uint32_t i = start_entry; i < 16; i++) {
+                byte_in_cluster = (s * 512) + (i * 32);
+
+                if ((entries[i].name[0] & 0xFF) == 0x00) {
+                    *offset = (uint64_t)-1; // EOF
+                    return 0;
+                }
+                if ((entries[i].name[0] & 0xFF) == 0xE5) {
+                    memset(lfn_temp, 0, 256);
+                    lfn_checksum = 0;
+                    continue;
+                }
                 if (entries[i].attr == 0x0F) { 
                     fat32_lfn_entry_t* lfn = (fat32_lfn_entry_t*)&entries[i];
                     if (lfn->order & 0x40) {
@@ -506,30 +547,45 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, int index, fs_d
                     fat32_collect_lfn_chars(lfn, lfn_temp);
                     continue;
                 }
-                if (entries[i].attr & 0x08) {
+                if (entries[i].attr & 0x08) { // Volume ID
                     memset(lfn_temp, 0, 256);
                     continue; 
                 }
-                if (count == index) {
-                    uint8_t sfn_sum = fat32_checksum((unsigned char*)entries[i].name);
-                    if (lfn_temp[0] != 0 && sfn_sum == lfn_checksum) {
-                        strncpy(out->name, lfn_temp, 256);
-                    } else {
-                        fat32_format_sfn(out->name, entries[i].name);
-                    }
-                    out->size = entries[i].file_size;
-                    out->type = (entries[i].attr & FAT_ATTR_DIRECTORY) ? VFS_FILE_TYPE_DIR : VFS_FILE_TYPE_REGULAR;
-                    return 1;
+
+                uint8_t sfn_sum = fat32_checksum((unsigned char*)entries[i].name);
+                if (lfn_temp[0] != 0 && sfn_sum == lfn_checksum) {
+                    strncpy(out->name, lfn_temp, 256);
+                } else {
+                    fat32_format_sfn(out->name, entries[i].name);
                 }
-                memset(lfn_temp, 0, 256);
-                lfn_checksum = 0;
-                count++;
+                out->size = entries[i].file_size;
+                out->type = (entries[i].attr & FAT_ATTR_DIRECTORY) ? VFS_FILE_TYPE_DIR : VFS_FILE_TYPE_REGULAR;
+                
+                uint32_t next_byte = byte_in_cluster + 32;
+                uint32_t next_cluster = cluster;
+                
+                if (next_byte >= cluster_size_bytes) {
+                    next_cluster = get_next_cluster(inst, cluster);
+                    next_byte = 0;
+                }
+
+                if (next_cluster >= 0x0FFFFFF8) {
+                    *offset = (uint64_t)-1;
+                } else {
+                    *offset = ((uint64_t)next_cluster << 32) | next_byte; 
+                }
+                
+                return 1;
             }
+            start_entry = 0;
         }
         cluster = get_next_cluster(inst, cluster);
+        byte_in_cluster = 0;
+        start_sector = 0;
     }
     
-    return 0; // EOF
+    *offset = (uint64_t)-1;
+    return 0; 
 }
 
 void fat32_get_label(fs_instance_t fs, char* out_label) {

@@ -623,7 +623,6 @@ void handle_vfs_request(message_t* req) {
         
         case VFS_CMD_LIST: {
             int fd = req->param2;
-            int index = req->param3;
             
             vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
             if (!f) { resp.param1 = VFS_ERR_PERM; break; }
@@ -633,33 +632,42 @@ void handle_vfs_request(message_t* req) {
             int res = 0;
 
             if (f->type == VFS_TYPE_DIR) {
-                vfs_node_t* child = f->dir.node->children;
-                int i = 0;
-                while (child && i < index) {
-                    child = child->next;
-                    i++;
-                }
-                
-                if (child) {
-					if (child == f->dir.node || strcmp(child->name, f->dir.node->name) == 0){
-						printf("VFS: GRAPH LOOP DETECTED!\n");
-                        resp.param1 = VFS_ERR_UNKNOWN;
-                        break; 
-					}
-                    strlcpy(dirent.name, child->name, sizeof(dirent.name));
-                    dirent.size = 0;
-                    
-                    if (child->type == VFS_TYPE_DIR || child->type == VFS_TYPE_MOUNT_POINT) {
-                        dirent.type = VFS_FILE_TYPE_DIR;
-                    } else if (child->type == VFS_TYPE_SYMLINK) {
-                        dirent.type = VFS_FILE_TYPE_SYMLINK;
-                    } else if (child->type == VFS_TYPE_DEVICE_FILE) {
-                        dirent.type = VFS_FILE_TYPE_DEVICE;
+                if (f->offset == (uint64_t)-1) {
+                    res = 0; 
+                } else {
+                    vfs_node_t* child;
+                    if (f->offset == 0) {
+                        child = f->dir.node->children;
                     } else {
-                        dirent.type = VFS_FILE_TYPE_REGULAR;
+                        child = (vfs_node_t*)f->offset; 
                     }
-                    
-                    res = 1;
+                    if (child) {
+                        if (child == f->dir.node || strcmp(child->name, f->dir.node->name) == 0){
+                            printf("VFS: GRAPH LOOP DETECTED!\n");
+                            resp.param1 = VFS_ERR_UNKNOWN;
+                            break; 
+                        }
+                        strlcpy(dirent.name, child->name, sizeof(dirent.name));
+                        dirent.size = 0;
+                        if (child->type == VFS_TYPE_DIR || child->type == VFS_TYPE_MOUNT_POINT) {
+                            dirent.type = VFS_FILE_TYPE_DIR;
+                        } else if (child->type == VFS_TYPE_SYMLINK) {
+                            dirent.type = VFS_FILE_TYPE_SYMLINK;
+                        } else if (child->type == VFS_TYPE_DEVICE_FILE) {
+                            dirent.type = VFS_FILE_TYPE_DEVICE;
+                        } else {
+                            dirent.type = VFS_FILE_TYPE_REGULAR;
+                        }
+                        res = 1;
+                        if (child->next != 0) {
+                            f->offset = (uint64_t)child->next;
+                        } else {
+                            f->offset = (uint64_t)-1;
+                        }
+                    } else {
+                        res = 0;
+                        f->offset = (uint64_t)-1;
+                    }
                 }
             } 
             else if (f->type == VFS_TYPE_MOUNT_POINT) {
@@ -667,7 +675,10 @@ void handle_vfs_request(message_t* req) {
                     fs_dirent_t fs_ent;
 					memset(&fs_ent, 0, sizeof(fs_dirent_t));
                     res = f->mounted_file.driver->readdir(
-                        f->mounted_file.fs, f->mounted_file.handle, index, &fs_ent
+                        f->mounted_file.fs, 
+                        f->mounted_file.handle, 
+                        &f->offset,
+                        &fs_ent
                     );
                     if (res) {
                         strlcpy(dirent.name, fs_ent.name, sizeof(dirent.name));

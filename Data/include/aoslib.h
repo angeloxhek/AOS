@@ -327,7 +327,7 @@ int vfs_open(const char* path);
 int vfs_close(int fd);
 int vfs_read(int fd, void* buf, int count);
 int vfs_write(int fd, const void* buf, int count);
-int vfs_readdir(int fd, int index, vfs_dirent_t* out_entry);
+int vfs_readdir(int fd, vfs_dirent_t* out_entry);
 
 #endif
 
