@@ -40,12 +40,16 @@
 #define SYS_PRINT                   16
 #define SYS_GET_PROC_INFO           17
 #define SYS_GET_THREAD_INFO         18
+#define SYS_SHM_ALLOC               19
+#define SYS_SHM_ALLOW               20
+#define SYS_SHM_MAP                 21
+#define SYS_SHM_FREE                22
 
 #define SYS_RES_OK                   0
 #define SYS_RES_INVALID             -1
 #define SYS_RES_NO_PERM             -2
 #define SYS_RES_ALREADY             -3
-#define SYS_RES_BUFFER_TOO_SMALL    -4
+#define SYS_RES_RESERVED1           -4
 #define SYS_RES_QUEUE_EMPTY         -5
 #define SYS_RES_DSK_ERR             -6
 #define SYS_RES_RANGE               -7
@@ -94,8 +98,7 @@ typedef struct message_t {
     uint64_t param1;
     uint64_t param2;
     uint64_t param3;
-	uint8_t* payload_ptr;
-    uint64_t payload_size;
+	uint8_t  data[64];
 } __attribute__((packed, aligned(8))) message_t;
 
 typedef enum {
@@ -248,6 +251,11 @@ uint64_t get_disk_count(void);
 uint64_t get_partition_count(void);
 uint64_t get_disk_info(uint64_t index, disk_info_t* pinfo);
 uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo);
+
+uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr);
+int shm_allow(uint64_t shm_id, uint64_t target_tid);
+void* shm_map(uint64_t shm_id);
+int shm_free(uint64_t shm_id);
 #endif
 
 #ifdef AOSLIB_STRING
@@ -327,7 +335,7 @@ int vfs_open(const char* path);
 int vfs_close(int fd);
 int vfs_read(int fd, void* buf, int count);
 int vfs_write(int fd, const void* buf, int count);
-int vfs_readdir(int fd, vfs_dirent_t* out_entry);
+int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries);
 
 #endif
 

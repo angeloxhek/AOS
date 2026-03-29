@@ -161,6 +161,9 @@ thread_t* zombies_list = 0;
 
 uint8_t default_fpu_state[512] __attribute__((aligned(16)));
 
+shm_object_t* shm_global_list = 0;
+uint64_t next_shm_id = 1;
+
 // --------------------------
 //           ASM
 // --------------------------
@@ -1144,6 +1147,47 @@ void syscall_handler(syscall_regs_t* regs) {
             break;
         }
 		
+		case SYS_SHM_ALLOC: {
+			uint64_t size = regs->rdi;
+			uint64_t* user_out_vaddr = (uint64_t*)regs->rsi;
+			
+			uint64_t out_vaddr = 0;
+			uint64_t shm_id = shm_alloc(size, &out_vaddr);
+			
+			if (shm_id != 0 && user_out_vaddr != 0) {
+				// Записываем виртуальный адрес в память пользователя
+				*user_out_vaddr = out_vaddr;
+			}
+			
+			regs->rax = shm_id;
+			break;
+		}
+
+		case SYS_SHM_ALLOW: {
+			uint64_t shm_id = regs->rdi;
+			uint64_t target_tid = regs->rsi;
+			
+			int result = shm_allow(shm_id, target_tid);
+			regs->rax = (uint64_t)result;
+			break;
+		}
+
+		case SYS_SHM_MAP: {
+			uint64_t shm_id = regs->rdi;
+			
+			uint64_t vaddr = shm_map(shm_id);
+			regs->rax = vaddr;
+			break;
+		}
+
+		case SYS_SHM_FREE: {
+			uint64_t shm_id = regs->rdi;
+			
+			int result = shm_free(shm_id);
+			regs->rax = (uint64_t)result;
+			break;
+		}
+		
         default: {
             kprint("Unknown Syscall invoked!\n");
             regs->rax = SYS_RES_INVALID;
@@ -1773,6 +1817,8 @@ process_t* create_process(const char* name) {
         pml4_virt[i] = kernel_entries[i - 256];
     }
     pml4_virt[510] = pml4_phys | PAGE_PRESENT | PAGE_WRITE;
+	
+	new_proc->next_shm_vaddr = 0x600000000000ULL; 
 
     temp_unmap();
     return new_proc;
@@ -2020,6 +2066,18 @@ thread_t* get_thread_by_id(uint64_t tid) {
         t = t->next;
     } while (t != ready_queue);
     return 0;
+}
+
+process_t* get_process_by_id(uint32_t pid) {
+    thread_t* t = ready_queue;
+    if (!t) return 0;
+    do {
+        if (t->owner && t->owner->id == pid) {
+            return t->owner;
+        }
+        t = t->next;
+    } while (t != ready_queue);
+    return 0; 
 }
 
 int64_t register_driver(driver_type_t type, const char* user_name) {
@@ -2363,19 +2421,6 @@ int64_t ipc_send(uint64_t dest_tid, message_t* user_msg) {
 	kernel_memset(node, 0, sizeof(msg_node_t));
     node->msg = *user_msg;
     node->msg.sender_tid = current_thread->tid;
-	if (user_msg->payload_size > 0 && user_msg->payload_ptr != 0) {
-        void* kbuffer = kernel_malloc(user_msg->payload_size);
-        if (!kbuffer) {
-            kernel_free(node);
-            asm volatile("sti");
-            return SYS_RES_KERNEL_ERR;
-        }
-        kernel_memcpy(kbuffer, user_msg->payload_ptr, user_msg->payload_size);
-        node->msg.payload_ptr = (uint8_t*)kbuffer;
-    } else {
-        node->msg.payload_ptr = 0;
-        node->msg.payload_size = 0;
-    }
     node->next = 0;
     if (target->msg_queue_tail) {
         target->msg_queue_tail->next = node;
@@ -2407,21 +2452,6 @@ int64_t ipc_receive(message_t* user_msg_out) {
         asm volatile("cli");
         if (current_thread->msg_queue_head) {
             msg_node_t* node = current_thread->msg_queue_head;
-            uint8_t* user_dest_ptr = user_msg_out->payload_ptr;
-            uint64_t user_max_size = user_msg_out->payload_size;
-            void* kernel_ptr = node->msg.payload_ptr;
-            uint64_t actual_size = 0;
-            if (kernel_ptr != 0) {
-                 actual_size = node->msg.payload_size;
-            }
-            if (actual_size > user_max_size) {
-                user_msg_out->payload_size = actual_size;
-                user_msg_out->type = node->msg.type;
-                user_msg_out->subtype = node->msg.subtype;
-                user_msg_out->sender_tid = node->msg.sender_tid;
-                asm volatile("sti");
-                return SYS_RES_BUFFER_TOO_SMALL;
-            }
             current_thread->msg_queue_head = node->next;
             if (!current_thread->msg_queue_head) {
                 current_thread->msg_queue_tail = 0;
@@ -2433,18 +2463,6 @@ int64_t ipc_receive(message_t* user_msg_out) {
                 }
             }
             *user_msg_out = node->msg;
-            if (actual_size > 0 && kernel_ptr != 0) {
-                if (user_dest_ptr != 0) {
-                    kernel_memcpy(user_dest_ptr, kernel_ptr, actual_size);
-                    user_msg_out->payload_ptr = user_dest_ptr;
-                } else {
-                    user_msg_out->payload_ptr = 0;
-                }
-                kernel_free(kernel_ptr);
-            } else {
-                user_msg_out->payload_ptr = 0;
-                user_msg_out->payload_size = 0;
-            }
             kernel_free(node);
             asm volatile("sti");
             return SYS_RES_OK;
@@ -2454,6 +2472,200 @@ int64_t ipc_receive(message_t* user_msg_out) {
         schedule();
 		asm volatile("sti");
     }
+}
+
+
+// -------------------------
+//       Shared Memory
+// -------------------------
+
+void shm_init() {
+    shm_global_list = 0;
+    next_shm_id = 1;
+}
+
+shm_object_t* shm_find_by_id(uint64_t id) {
+    if (id == 0) return 0;
+    
+    shm_object_t* current = shm_global_list;
+    while (current != 0) {
+        if (current->id == id) {
+            return current;
+        }
+        current = current->next;
+    }
+    return 0;
+}
+
+void shm_add(shm_object_t* obj) {
+    obj->next = shm_global_list;
+    shm_global_list = obj;
+}
+
+void shm_remove(shm_object_t* obj) {
+    if (shm_global_list == obj) {
+        shm_global_list = obj->next;
+        return;
+    }
+    
+    shm_object_t* current = shm_global_list;
+    while (current != 0 && current->next != 0) {
+        if (current->next == obj) {
+            current->next = obj->next;
+            return;
+        }
+        current = current->next;
+    }
+}
+
+uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr) {
+    if (size_bytes == 0 || !out_vaddr) return 0;
+
+    uint64_t page_count = (size_bytes + 4095) / 4096;
+
+    shm_object_t* obj = (shm_object_t*)kernel_malloc(sizeof(shm_object_t));
+    if (!obj) return 0;
+    kernel_memset(obj, 0, sizeof(shm_object_t));
+    
+    obj->id = next_shm_id++;
+    obj->owner_pid = current_thread->owner->id;
+    obj->page_count = page_count;
+    
+    obj->phys_pages = (uint64_t*)kernel_malloc(page_count * sizeof(uint64_t));
+    if (!obj->phys_pages) { kernel_free(obj); return 0; }
+
+    uint64_t alloced_pages = 0;
+    for (uint64_t i = 0; i < page_count; i++) {
+        uint64_t phys = pmm_alloc_block();
+        if (!phys) goto oom_cleanup;
+        
+        uint64_t* temp = (uint64_t*)temp_map(phys);
+        kernel_memset(temp, 0, 4096);
+        temp_unmap();
+        
+        obj->phys_pages[i] = phys;
+        alloced_pages++;
+    }
+
+    uint64_t my_vaddr = current_thread->owner->next_shm_vaddr;
+    current_thread->owner->next_shm_vaddr += (page_count * 4096);
+    obj->owner_vaddr = my_vaddr;
+    
+    int flags = PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
+    for (uint64_t i = 0; i < page_count; i++) {
+        map_to_other_pml4(current_thread->owner->page_directory, obj->phys_pages[i], my_vaddr + (i * 4096), flags);
+    }
+    
+    uint64_t current_cr3;
+    asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
+    asm volatile("mov %0, %%cr3" :: "r"(current_cr3));
+    
+    *out_vaddr = my_vaddr;
+    shm_add(obj); 
+    return obj->id;
+
+oom_cleanup:
+    for (uint64_t i = 0; i < alloced_pages; i++) { pmm_free_block(obj->phys_pages[i]); }
+    kernel_free(obj->phys_pages);
+    kernel_free(obj);
+    return 0;
+}
+
+int shm_allow(uint64_t shm_id, uint64_t target_tid) {
+    shm_object_t* obj = shm_find_by_id(shm_id);
+    if (!obj || obj->owner_pid != current_thread->owner->id) return SYS_RES_NO_PERM;
+
+    shm_allow_node_t* node = (shm_allow_node_t*)kernel_malloc(sizeof(shm_allow_node_t));
+    if (!node) return SYS_RES_KERNEL_ERR;
+    
+    node->tid = target_tid;
+    node->next = obj->allow_list;
+    obj->allow_list = node;
+    
+    return SYS_RES_OK;
+}
+
+uint64_t shm_map(uint64_t shm_id) {
+    shm_object_t* obj = shm_find_by_id(shm_id);
+    if (!obj) return 0;
+
+    int has_access = (obj->owner_pid == current_thread->owner->id);
+    shm_allow_node_t* an = obj->allow_list;
+    while (an && !has_access) {
+        if (an->tid == current_thread->tid) {
+            has_access = 1; break;
+        }
+        an = an->next;
+    }
+    if (!has_access) return 0;
+
+    uint64_t target_vaddr = current_thread->owner->next_shm_vaddr;
+    current_thread->owner->next_shm_vaddr += (obj->page_count * 4096);
+
+    int flags = PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
+    for (uint64_t i = 0; i < obj->page_count; i++) {
+        map_to_other_pml4(current_thread->owner->page_directory, obj->phys_pages[i], target_vaddr + (i * 4096), flags);
+    }
+    
+    uint64_t current_cr3;
+    asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
+    asm volatile("mov %0, %%cr3" :: "r"(current_cr3));
+
+    shm_map_node_t* mn = (shm_map_node_t*)kernel_malloc(sizeof(shm_map_node_t));
+    if (!mn) return 0;
+    
+    mn->pid = current_thread->owner->id;
+    mn->vaddr = target_vaddr;
+    mn->next = obj->map_list;
+    obj->map_list = mn;
+    
+    return target_vaddr;
+}
+
+int shm_free(uint64_t shm_id) {
+    shm_object_t* obj = shm_find_by_id(shm_id);
+    if (!obj) return -1; 
+    if (obj->owner_pid != current_thread->owner->id) return -2; 
+
+    shm_map_node_t* mn = obj->map_list;
+    while (mn != NULL) {
+        process_t* target_proc = get_process_by_id(mn->pid); 
+        
+        if (target_proc && target_proc->page_directory) {
+            for (uint64_t i = 0; i < obj->page_count; i++) {
+                map_to_other_pml4(target_proc->page_directory, 0, mn->vaddr + (i * 4096), 0);
+            }
+        }
+        
+        shm_map_node_t* to_free = mn;
+        mn = mn->next;
+        kernel_free(to_free); 
+    }
+    
+    for (uint64_t i = 0; i < obj->page_count; i++) {
+        map_to_other_pml4(current_thread->owner->page_directory, 0, obj->owner_vaddr + (i * 4096), 0);
+    }
+
+    uint64_t current_cr3;
+    asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
+    asm volatile("mov %0, %%cr3" :: "r"(current_cr3));
+
+    for (uint64_t i = 0; i < obj->page_count; i++) {
+        pmm_free_block(obj->phys_pages[i]);
+    }
+
+    shm_allow_node_t* an = obj->allow_list;
+    while (an != NULL) {
+        shm_allow_node_t* to_free = an;
+        an = an->next;
+        kernel_free(to_free);
+    }
+
+    kernel_free(obj->phys_pages);
+    shm_remove(obj);
+    kernel_free(obj);
+    
+    return 0;
 }
 
 
@@ -2514,6 +2726,7 @@ void pausepoint(){
 // ------------------------
 
 void reset_state() {
+	kernel_memset(&state, 0, sizeof(st_flags_t));
 	state.system_flags = CAN_REGISTER_KERNEL_DRIVERS | CAN_PRINT;
 }
 
@@ -2602,10 +2815,6 @@ void kernel_main(boot_info_t* boot_info){
     outb(0x21, 0xFC);
     outb(0xA1, 0xFF);
 	_kprint("IDT & PIC are set! We're safe\n");
-	_kprint("Offset: ");
-	uint64_to_dec(offsetof(thread_t, fpu_state), buff);
-	_kprint(buff);
-	_kprint("\n");
     __asm__ __volatile__("sti");
 	create_kernel_thread(idle_thread);
 	mbr_storage_init(boot_info->specific.mbr.drive_num);

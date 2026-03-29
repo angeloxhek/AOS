@@ -16,7 +16,7 @@ typedef struct {
     int (*read)(fs_instance_t fs, fs_file_handle_t file, void* buf, uint64_t size, uint64_t offset);
     int (*write)(fs_instance_t fs, fs_file_handle_t file, const void* buf, uint64_t size, uint64_t offset);
     void (*close)(fs_instance_t fs, fs_file_handle_t file);
-    int (*readdir)(fs_instance_t fs, fs_file_handle_t dir, uint64_t* offset, fs_dirent_t* out_entry);
+    int (*readdir)(fs_instance_t fs, fs_file_handle_t dir, uint64_t* offset, fs_dirent_t* out_array, int max_entries);
     int (*stat)(fs_instance_t fs, fs_file_handle_t file, fs_dirent_t* out_info);
     void (*get_label)(fs_instance_t fs, char* out_label);
 } fs_driver_t;

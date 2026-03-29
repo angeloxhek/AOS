@@ -488,24 +488,21 @@ int fat32_write(fs_instance_t fs, fs_file_handle_t f, const void* buf, uint64_t 
     return bytes_written;
 }
 
-int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offset, fs_dirent_t* out) {
+int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offset, fs_dirent_t* out_array, int max_entries) {
     fat32_instance_t* inst = (fat32_instance_t*)fs;
     fat32_file_t* dir = (fat32_file_t*)dir_handle;
     
     if (!(dir->attributes & FAT_ATTR_DIRECTORY) && dir->first_cluster != inst->root_cluster) return 0;
     
-    // Если мы уже дошли до конца в прошлый раз
     if (*offset == (uint64_t)-1) return 0;
 
     uint32_t cluster;
     uint32_t byte_in_cluster;
 
     if (*offset == 0) {
-        // Первый вызов: начинаем с начала корневого/текущего кластера директории
         cluster = dir->first_cluster;
         byte_in_cluster = 0;
     } else {
-        // Распаковываем нашу закладку
         cluster = (uint32_t)(*offset >> 32);
         byte_in_cluster = (uint32_t)(*offset & 0xFFFFFFFF);
     }
@@ -516,8 +513,10 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offse
     memset(lfn_temp, 0, 256);
     
     uint32_t cluster_size_bytes = inst->sectors_per_cluster * 512;
+    
+    int entries_read = 0;
 
-    while (cluster < 0x0FFFFFF8 && cluster >= 2) {
+    while (entries_read < max_entries && cluster < 0x0FFFFFF8 && cluster >= 2) {
         uint64_t lba = cluster_to_lba(inst, cluster);
         uint32_t start_sector = byte_in_cluster / 512;
         uint32_t start_entry  = (byte_in_cluster % 512) / 32;
@@ -531,7 +530,7 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offse
 
                 if ((entries[i].name[0] & 0xFF) == 0x00) {
                     *offset = (uint64_t)-1; // EOF
-                    return 0;
+                    return entries_read;    // Возвращаем сколько успели прочитать
                 }
                 if ((entries[i].name[0] & 0xFF) == 0xE5) {
                     memset(lfn_temp, 0, 256);
@@ -552,6 +551,8 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offse
                     continue; 
                 }
 
+                fs_dirent_t* out = &out_array[entries_read];
+
                 uint8_t sfn_sum = fat32_checksum((unsigned char*)entries[i].name);
                 if (lfn_temp[0] != 0 && sfn_sum == lfn_checksum) {
                     strncpy(out->name, lfn_temp, 256);
@@ -561,6 +562,9 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offse
                 out->size = entries[i].file_size;
                 out->type = (entries[i].attr & FAT_ATTR_DIRECTORY) ? VFS_FILE_TYPE_DIR : VFS_FILE_TYPE_REGULAR;
                 
+                memset(lfn_temp, 0, 256);
+                lfn_checksum = 0;
+
                 uint32_t next_byte = byte_in_cluster + 32;
                 uint32_t next_cluster = cluster;
                 
@@ -575,7 +579,11 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offse
                     *offset = ((uint64_t)next_cluster << 32) | next_byte; 
                 }
                 
-                return 1;
+                entries_read++;
+                
+                if (entries_read >= max_entries) {
+                    return entries_read;
+                }
             }
             start_entry = 0;
         }
@@ -584,8 +592,8 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offse
         start_sector = 0;
     }
     
-    *offset = (uint64_t)-1;
-    return 0; 
+    if (entries_read == 0) *offset = (uint64_t)-1;
+    return entries_read; 
 }
 
 void fat32_get_label(fs_instance_t fs, char* out_label) {

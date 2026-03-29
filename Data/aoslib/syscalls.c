@@ -77,15 +77,7 @@ void ipc_recv(message_t* out_msg) {
         return;
     }
 
-    int64_t res = __ipc_recv(out_msg);
-    
-    if (res == SYS_RES_BUFFER_TOO_SMALL) {
-        void* new_buf = malloc(out_msg->payload_size);
-        if (new_buf != (void*)0) {
-            out_msg->payload_ptr = (uint8_t*)new_buf;
-            __ipc_recv(out_msg);
-        }
-    }
+    __ipc_recv(out_msg);
 }
 
 void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
@@ -115,18 +107,8 @@ void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t
 
     message_t temp_msg;
     while (1) {
-        temp_msg.payload_ptr = (void*)0;
-        temp_msg.payload_size = 0;
-        
         int64_t res = __ipc_recv(&temp_msg);
-        
-        if (res == SYS_RES_BUFFER_TOO_SMALL) {
-            void* new_buf = malloc(temp_msg.payload_size);
-            if (new_buf != (void*)0) {
-                temp_msg.payload_ptr = (uint8_t*)new_buf;
-                __ipc_recv(&temp_msg);
-            }
-        }
+		
         if ((tid == 0 || temp_msg.sender_tid == tid) && 
             (type == MSG_TYPE_NONE || temp_msg.type == type) && 
             (subtype == MSG_SUBTYPE_NONE || temp_msg.subtype == subtype)) {
@@ -140,9 +122,6 @@ void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t
                 pending_count++;
             } else {
                 sysprint("[!] Warning: IPC pending buffer overflow, dropping msg\n");
-                if (temp_msg.payload_ptr != (void*)0 && temp_msg.payload_size > 0) {
-                    free(temp_msg.payload_ptr);
-                }
             }
         }
     }
@@ -312,4 +291,20 @@ void* calloc(uint64_t num, uint64_t size) {
         memset(ptr, 0, total_size);
     }
     return ptr;
+}
+
+uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr) {
+    return syscall(SYS_SHM_ALLOC, size_bytes, (uint64_t)out_vaddr, 0, 0, 0);
+}
+
+int shm_allow(uint64_t shm_id, uint64_t target_tid) {
+    return (int)syscall(SYS_SHM_ALLOW, shm_id, target_tid, 0, 0, 0);
+}
+
+void* shm_map(uint64_t shm_id) {
+    return (void*)syscall(SYS_SHM_MAP, shm_id, 0, 0, 0, 0);
+}
+
+int shm_free(uint64_t shm_id) {
+    return (int)syscall(SYS_SHM_FREE, shm_id, 0, 0, 0, 0);
 }

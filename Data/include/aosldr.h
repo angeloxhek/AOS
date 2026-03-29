@@ -208,30 +208,31 @@ typedef struct msg_node_t {
 } msg_node_t;
 
 typedef struct process_t {
-	char              name[32];          // Имя процесса
-    uint32_t          id;                // PID
+	char              name[32];
+    uint32_t          id;
 	uint32_t          sleep_ticks;
-    uint64_t*         page_directory;    // Физический адрес PML4 (CR3)
-    uint64_t          entry_point;       // RIP (точка входа)
+    uint64_t*         page_directory;
+    uint64_t          entry_point;
     uint64_t          rsp;
     uint64_t          rbp;
-	uint64_t          tls_image_vaddr;   // Адрес шаблона в памяти (откуда копировать)
-    uint64_t          tls_file_size;     // Размер инициализированных данных (.tdata)
-    uint64_t          tls_mem_size;      // Полный размер (.tdata + .tbss)
-    uint64_t          tls_align;         // Выравнивание
+	uint64_t          tls_image_vaddr;
+    uint64_t          tls_file_size;
+    uint64_t          tls_mem_size;
+    uint64_t          tls_align;
 	uint64_t          heap_limit;
-    struct process_t* next;              // Для списка процессов
-	uint8_t           state;             // Состояние
+	uint64_t          next_shm_vaddr;
+    struct process_t* next;
+	uint8_t           state;
 } process_t;
 
 typedef struct thread_t {
 	uint64_t         tid;
-    uint64_t         rsp;             // Вершина стека ЯДРА (сохраненный контекст)
-    uint64_t         stack_base;      // База стека ядра (для free)
-    uint64_t         cr3;             // Физический адрес PML4
+    uint64_t         rsp;
+    uint64_t         stack_base;
+    uint64_t         cr3;
 	uint64_t         fs_base;
 	uint64_t         wake_up_time;
-	struct thread_t* next;            // Для списка
+	struct thread_t* next;
 	struct thread_t* next_zombie;
 	struct thread_t* next_waiter;
 	void*            owned_mutexes; // Reserved
@@ -247,7 +248,7 @@ typedef struct thread_t {
 /*typedef struct mutex_t {
     int locked;
     thread_t* owner;
-    thread_t* wait_queue; // Очередь ожидающих потоков
+    thread_t* wait_queue;
 	mutex_t* next_owned;
 } mutex_t;*/
 
@@ -262,6 +263,28 @@ typedef struct driver_info_t {
 	char name[DRIVER_NAME_MAX];
 	struct driver_info_t* next;
 } driver_info_t;
+
+typedef struct shm_allow_node {
+    uint64_t tid;
+    struct shm_allow_node* next;
+} shm_allow_node_t;
+
+typedef struct shm_map_node {
+    uint64_t pid;
+    uint64_t vaddr;
+    struct shm_map_node* next;
+} shm_map_node_t;
+
+typedef struct shm_object {
+    uint64_t id;
+    uint64_t owner_pid;
+    uint64_t owner_vaddr;
+    uint64_t* phys_pages;
+    uint64_t  page_count;
+    shm_allow_node_t* allow_list;
+    shm_map_node_t*   map_list;
+    struct shm_object* next;
+} shm_object_t;
 	
 
 // --------------------------
@@ -441,6 +464,7 @@ void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_
 void create_kernel_thread(void (*entry)(void));
 int kill_thread(thread_t* target, int exit_code);
 thread_t* get_thread_by_id(uint64_t tid);
+process_t* get_process_by_id(uint32_t pid);
 int64_t register_driver(driver_type_t type, const char* user_name);
 uint64_t get_driver_tid(driver_type_t type);
 uint64_t get_driver_tid_by_name(const char* name);
@@ -489,6 +513,19 @@ int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* ou
 
 int64_t ipc_send(uint64_t dest_tid, message_t* msg);
 int64_t ipc_receive(message_t* out_msg);
+
+// -------------------------
+//       Shared Memory
+// -------------------------
+
+void shm_init();
+shm_object_t* shm_find_by_id(uint64_t id);
+void shm_add(shm_object_t* obj);
+void shm_remove(shm_object_t* obj);
+uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr);
+int shm_allow(uint64_t shm_id, uint64_t target_tid);
+uint64_t shm_map(uint64_t shm_id);
+int shm_free(uint64_t shm_id);
 
 
 // -------------------------
