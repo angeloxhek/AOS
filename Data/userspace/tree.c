@@ -7,23 +7,17 @@ static inline void print_indent(int level) {
     printf("|-- ");
 }
 
-void scan_directory(const char* current_path, int level) {
-    int fd = vfs_open(current_path);
-    if (fd < 0) {
-        printf(" [Error: failed to open %s]\n", current_path);
-        return;
-    }
-    
+void scan_directory(int dir_fd, int level) {
     #define BATCH_SIZE 32
     vfs_dirent_t* entries = (vfs_dirent_t*)calloc(BATCH_SIZE, sizeof(vfs_dirent_t));
-	if (!entries) {
+    if (!entries) {
         printf(" [Error: Out of memory for entries]\n");
-        vfs_close(fd);
         return;
     }
+
     int entries_read = 0;
 
-    while ((entries_read = vfs_readdir(fd, entries, BATCH_SIZE)) > 0) {
+    while ((entries_read = vfs_readdir(dir_fd, entries, BATCH_SIZE)) > 0) {
         
         for (int i = 0; i < entries_read; i++) {
             vfs_dirent_t* entry = &entries[i];
@@ -36,26 +30,14 @@ void scan_directory(const char* current_path, int level) {
             
             if (entry->type == VFS_FILE_TYPE_DIR) {
                 printf("%s/\n", entry->name);
-                uint64_t path_len = strlen(current_path);
-                int needs_slash = 0;
-                if (path_len > 0) {
-                    needs_slash = (current_path[path_len - 1] != '/');
-                }
-                uint64_t new_len = path_len + needs_slash + strlen(entry->name) + 1;
-                char* new_path = (char*)malloc(new_len);
-                if (new_path) {
-                    memset(new_path, 0, new_len);
-                    strcpy(new_path, current_path);
-                    if (needs_slash) {
-                        strcat(new_path, "/");
-                    }
-                    strcat(new_path, entry->name);
-                    
-                    scan_directory(new_path, level + 1);
-                    
-                    free(new_path);
+                
+                int child_fd = vfs_openat(dir_fd, entry->name);
+                
+                if (child_fd >= 0) {
+                    scan_directory(child_fd, level + 1);
+                    vfs_close(child_fd);
                 } else {
-                    printf(" [Error: Out of memory]\n");
+                    printf(" [Error: failed to open %s]\n", entry->name);
                 }
             } 
             else if (entry->type == VFS_FILE_TYPE_SYMLINK) {
@@ -69,14 +51,23 @@ void scan_directory(const char* current_path, int level) {
             }
         }
     }
+    
     free(entries);
-    vfs_close(fd);
 }
 
 int main(int argc, char** argv) {
     printf("System Tree Scan Root (/):\n");
     printf(".\n");
-    scan_directory("/", 0);
+    
+    int root_fd = vfs_open("/");
+    
+    if (root_fd >= 0) {
+        scan_directory(root_fd, 0);
+        vfs_close(root_fd);
+    } else {
+        printf("Error: Could not open root directory!\n");
+    }
 
     printf("\nScan complete.\n");
+    return 0;
 }

@@ -299,37 +299,49 @@ int find_entry_in_cluster_chain(fat32_instance_t* inst, uint32_t start_cluster, 
     return 0;
 }
 
-fs_file_handle_t fat32_open(fs_instance_t fs, const char* path) {
-    fat32_instance_t* inst = (fat32_instance_t*)fs;
-    const char* p = path;
-    if (*p == '/') p++;
-    fat32_file_t* handle = malloc(sizeof(fat32_file_t));
-    if (*p == 0) {
-        handle->first_cluster = inst->root_cluster;
-        handle->current_cluster = inst->root_cluster;
-        handle->current_offset = 0;
-        handle->attributes = FAT_ATTR_DIRECTORY;
-        handle->size_bytes = 0;
-        return (fs_file_handle_t)handle;
-    }
+fs_file_handle_t fat32_open_from_cluster(fat32_instance_t* inst, uint32_t start_cluster, const char* path) {
+    if (!path || path[0] == 0) return 0;
+
     char path_copy[256];
-    strncpy(path_copy, p, 256);
-    
-    uint32_t current_cluster = inst->root_cluster;
+    strncpy(path_copy, path, 255);
+    path_copy[255] = 0;
+
+    fat32_file_t* handle = malloc(sizeof(fat32_file_t));
+    if (!handle) return 0;
+
+    uint32_t current_cluster = start_cluster;
     char* token = strtok(path_copy, "/");
-    while (token != 0) {
+
+    while (token != NULL) {
         if (!find_entry_in_cluster_chain(inst, current_cluster, token, handle)) {
             free(handle);
             return 0;
         }
-        token = strtok(0, "/");
-        if (token != 0 && !(handle->attributes & FAT_ATTR_DIRECTORY)) {
+        token = strtok(NULL, "/");
+        if (token != NULL && !(handle->attributes & FAT_ATTR_DIRECTORY)) {
             free(handle);
             return 0;
         }
         current_cluster = handle->first_cluster;
     }
+
     return (fs_file_handle_t)handle;
+}
+
+fs_file_handle_t fat32_open(fs_instance_t fs, const char* path) {
+    fat32_instance_t* inst = (fat32_instance_t*)fs;
+    return fat32_open_from_cluster(inst, inst->root_cluster, path);
+}
+
+fs_file_handle_t fat32_openat(fs_instance_t fs, fs_file_handle_t dir_handle, const char* path) {
+    fat32_instance_t* inst = (fat32_instance_t*)fs;
+    fat32_file_t* parent = (fat32_file_t*)dir_handle;
+    
+    if (!(parent->attributes & FAT_ATTR_DIRECTORY) && parent->first_cluster != inst->root_cluster) {
+        return 0; 
+    }
+
+    return fat32_open_from_cluster(inst, parent->first_cluster, path);
 }
 
 int fat32_read(fs_instance_t fs, fs_file_handle_t f, void* buf, uint64_t size, uint64_t offset) {
@@ -641,6 +653,7 @@ fs_driver_t fat32_driver = {
     .mount = fat32_mount,
     .umount = fat32_umount,
     .open = fat32_open,
+	.openat = fat32_openat,
     .read = fat32_read,
 	.write = fat32_write,
     .close = fat32_close,

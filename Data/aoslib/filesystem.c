@@ -60,6 +60,29 @@ int vfs_open(const char* path) {
     return -1;
 }
 
+int vfs_openat(int dir_fd, const char* name) {
+    if (dir_fd < 0 || !name) return -1;
+    
+    int len = strlen(name);
+    if (len >= 64) return -1; 
+    
+    message_t req;
+    message_t resp;
+    
+    memset(&req, 0, sizeof(message_t));
+
+    req.param1 = VFS_CMD_OPENAT;
+    req.param2 = dir_fd;
+
+    memcpy(req.data, name, len + 1);
+
+    if (vfs_rpc_call(&req, &resp) == 0) {
+        return (int)resp.param2;
+    }
+    
+    return -1;
+}
+
 int vfs_close(int fd) {
     if (fd < 0) return -1;
 

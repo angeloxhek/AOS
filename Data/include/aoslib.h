@@ -70,11 +70,12 @@
 
 typedef enum {
     VFS_CMD_OPEN  = 1,
-    VFS_CMD_CLOSE = 2,
-    VFS_CMD_READ  = 3,
-    VFS_CMD_WRITE = 4,
-    VFS_CMD_STAT  = 5,
-    VFS_CMD_LIST  = 6
+	VFS_CMD_OPENAT,
+    VFS_CMD_CLOSE,
+    VFS_CMD_READ,
+    VFS_CMD_WRITE,
+    VFS_CMD_STAT,
+    VFS_CMD_LIST
 } vfs_cmd_t;
 
 typedef enum {
@@ -332,6 +333,7 @@ int64_t block_read(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer)
 int64_t block_write(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
 void vfs_init();
 int vfs_open(const char* path);
+int vfs_openat(int dir_fd, const char* name);
 int vfs_close(int fd);
 int vfs_read(int fd, void* buf, int count);
 int vfs_write(int fd, const void* buf, int count);
