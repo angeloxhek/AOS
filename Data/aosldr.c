@@ -749,28 +749,24 @@ void isr_handler(registers_t *r) {
 			}
 			kernel_error(0x7, r->int_no, r->rip, r->err_code, 0);
 		}
-		kprint_error("Process: ");
+		// Userspace exception — kill the faulting process instead of kernel panic
+		kprint_error("Killing process: ");
 		kprint_error(current_thread->owner->name);
 		kprint_error(" (PID: ");
 		char pid_buf[32];
 		uint64_to_dec(current_thread->owner->id, pid_buf);
 		kprint_error(pid_buf);
-		kprint_error(")\n");
-		kprint_error("Thread TID: ");
-		uint64_to_dec(current_thread->tid, pid_buf);
+		kprint_error(") due to exception ");
+		uint64_to_dec(r->int_no, pid_buf);
+		kprint_error(pid_buf);
+		kprint_error(" at RIP=0x");
+		uint64_to_hex(r->rip, pid_buf);
 		kprint_error(pid_buf);
 		kprint_error("\n");
-		if (r->int_no == 14) {
-			uint64_t fault_addr;
-			__asm__ volatile("mov %%cr2, %0" : "=r" (fault_addr));
-			kernel_error(0x7, r->int_no, fault_addr, r->err_code, r->rip);
-		} else if (r->int_no == 6) {
-			kernel_error(0x7, r->int_no, r->rip, r->rsp, r->err_code);
-		} else if (r->int_no == 13) {
-			kernel_error(0x7, r->int_no, r->err_code, r->rip, r->cs);
-		}
-		kernel_error(0x7, r->int_no, r->rip, r->err_code, 0);
-		__builtin_unreachable();
+		state.system_flags &= ~KERNEL_PANIC;
+		kill_thread(current_thread, -((int)r->int_no));
+		schedule();
+		return;
     } else if (r->int_no == 33) {
         uint8_t scancode = inb(0x60);
         if (keyboard_driver_tid != 0) {
