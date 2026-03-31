@@ -873,6 +873,10 @@ void syscall_handler(syscall_regs_t* regs) {
     switch (syscall_nr) {
         case SYS_PRINT: {
             const char* user_msg = (const char*)regs->rdi;
+			if (!is_valid_user_pointer(user_msg)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
 			kprint(user_msg);
 			regs->rax = SYS_RES_OK;
             break;
@@ -896,11 +900,19 @@ void syscall_handler(syscall_regs_t* regs) {
 		case SYS_IPC_SEND: {
             uint64_t dest = regs->rdi;
             message_t* user_msg = (message_t*)regs->rsi;
+			if (!is_valid_user_pointer(user_msg)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
             regs->rax = ipc_send(dest, user_msg);
             break;
         }
         case SYS_IPC_RECV: {
             message_t* user_msg_buffer = (message_t*)regs->rdi;
+			if (!is_valid_user_pointer(user_msg_buffer)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
             regs->rax = ipc_receive(user_msg_buffer);
             break;
         }
@@ -912,9 +924,15 @@ void syscall_handler(syscall_regs_t* regs) {
             regs->rax = get_driver_tid((driver_type_t)regs->rdi);
             break;
 
-        case SYS_GET_DRIVER_TID_BY_NAME:
-            regs->rax = get_driver_tid_by_name((const char*)regs->rdi);
+        case SYS_GET_DRIVER_TID_BY_NAME: {
+			const char* name_ptr = (const char*)regs->rdi;
+			if (!is_valid_user_pointer(name_ptr)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
+            regs->rax = get_driver_tid_by_name(name_ptr);
             break;
+		}
 			
 		case SYS_GET_SYSTEM_INFO: {
 			system_info_t* info = (system_info_t*)regs->rdi;
@@ -969,7 +987,11 @@ void syscall_handler(syscall_regs_t* regs) {
 			uint64_t lba    = regs->rsi;
 			uint64_t count  = regs->rdx;
 			void* buffer    = (void*)regs->r10;
-			
+
+			if (!is_valid_user_pointer(buffer)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
 			ide_device_t* target_dev = 0;
 			for (int i = 0; i < ide_count; i++) {
 				if (mounted_ides[i].id == dev_id) {
@@ -984,13 +1006,17 @@ void syscall_handler(syscall_regs_t* regs) {
 			regs->rax = ide_read_sectors(target_dev, lba, count, buffer) ? SYS_RES_OK : SYS_RES_DSK_ERR;
 			break;
 		}
-		
+
 		case SYS_BLOCK_WRITE: {
             uint64_t dev_id = regs->rdi;
             uint64_t lba    = regs->rsi;
             uint64_t count  = regs->rdx;
             const void* buffer = (const void*)regs->r10;
-            
+
+			if (!is_valid_user_pointer(buffer)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
             ide_device_t* target_dev = 0;
             for (int i = 0; i < ide_count; i++) {
                 if (mounted_ides[i].id == dev_id) {
@@ -1014,6 +1040,10 @@ void syscall_handler(syscall_regs_t* regs) {
 		case SYS_GET_DISK_INFO: {
 			uint64_t idx = regs->rdi;
 			disk_info_t* user_info = (disk_info_t*)regs->rsi;
+			if (!is_valid_user_pointer(user_info)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
 			if (idx >= ide_count) {
 				regs->rax = SYS_RES_INVALID;
 				break;
@@ -1040,6 +1070,10 @@ void syscall_handler(syscall_regs_t* regs) {
 		case SYS_GET_PARTITION_INFO: {
 			uint64_t idx = regs->rdi;
 			partition_info_t* user_info = (partition_info_t*)regs->rsi;
+			if (!is_valid_user_pointer(user_info)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
 			if (idx >= volume_count) {
 				regs->rax = SYS_RES_INVALID;
 				break;
@@ -1150,12 +1184,11 @@ void syscall_handler(syscall_regs_t* regs) {
 		case SYS_SHM_ALLOC: {
 			uint64_t size = regs->rdi;
 			uint64_t* user_out_vaddr = (uint64_t*)regs->rsi;
-			
+
 			uint64_t out_vaddr = 0;
 			uint64_t shm_id = shm_alloc(size, &out_vaddr);
-			
-			if (shm_id != 0 && user_out_vaddr != 0) {
-				// Записываем виртуальный адрес в память пользователя
+
+			if (shm_id != 0 && user_out_vaddr != 0 && is_valid_user_pointer(user_out_vaddr)) {
 				*user_out_vaddr = out_vaddr;
 			}
 			
