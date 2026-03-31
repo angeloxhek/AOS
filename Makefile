@@ -43,6 +43,14 @@ AOSLDR_C_OBJ   := $(TEMPDIR)/caosldr.o
 AOSLDR_ELF     := $(TEMPDIR)/aosldr.elf
 AOSLDR_MAP     := $(TEMPDIR)/aosldr.map
 
+# Kernel modules (split from aosldr.c)
+KERNEL_MOD_SRCS := $(SRCDIR)/pmm.c $(SRCDIR)/vmm.c $(SRCDIR)/sched.c \
+                   $(SRCDIR)/ipc.c $(SRCDIR)/syscall.c $(SRCDIR)/ide.c \
+                   $(SRCDIR)/elf.c $(SRCDIR)/console.c $(SRCDIR)/shm.c
+KERNEL_MOD_OBJS := $(TEMPDIR)/pmm.o $(TEMPDIR)/vmm.o $(TEMPDIR)/sched.o \
+                   $(TEMPDIR)/ipc.o $(TEMPDIR)/syscall.o $(TEMPDIR)/ide.o \
+                   $(TEMPDIR)/elf.o $(TEMPDIR)/console.o $(TEMPDIR)/shm.o
+
 # aoslib
 AOSLIB_SRCS := $(SRCDIR)/aoslib/syscalls.c \
                $(SRCDIR)/aoslib/filesystem.c \
@@ -102,10 +110,14 @@ $(AOSLDR_ASM_OBJ): $(SRCDIR)/aosldr.asm | dirs
 $(AOSLDR_C_OBJ): $(SRCDIR)/aosldr.c | dirs
 	$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
 
+# Kernel modules
+$(TEMPDIR)/%.o: $(SRCDIR)/%.c | dirs
+	$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
+
 # Link ELF
-$(AOSLDR_ELF): $(AOSLDR_ASM_OBJ) $(AOSLDR_C_OBJ) $(KERNEL_LD) | dirs
+$(AOSLDR_ELF): $(AOSLDR_ASM_OBJ) $(AOSLDR_C_OBJ) $(KERNEL_MOD_OBJS) $(KERNEL_LD) | dirs
 	$(LD) $(LDFLAGS) -T $(KERNEL_LD) -Map $(AOSLDR_MAP) -o $@ \
-		$(AOSLDR_ASM_OBJ) $(AOSLDR_C_OBJ)
+		$(AOSLDR_ASM_OBJ) $(AOSLDR_C_OBJ) $(KERNEL_MOD_OBJS)
 
 # Extract flat binary
 $(AOSLDR_BIN): $(AOSLDR_ELF) | dirs
@@ -137,9 +149,9 @@ drivers: dirs aoslib $(KBDDRIVER_ELF) $(VFSDRIVER_ELF)
 $(KBDDRIVER_OBJ): $(SRCDIR)/drivers/kbddriver.c | dirs
 	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
 
-$(KBDDRIVER_ELF): $(KBDDRIVER_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o $(TEMPDIR)/start.o $(DRIVER_LD) | dirs
+$(KBDDRIVER_ELF): $(KBDDRIVER_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o $(TEMPDIR)/filesystem.o $(TEMPDIR)/start.o $(DRIVER_LD) | dirs
 	$(LD) $(LDFLAGS) -N -Map $(TEMPDIR)/kbddriver.map -T $(DRIVER_LD) \
-		$(KBDDRIVER_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o $(TEMPDIR)/start.o \
+		$(KBDDRIVER_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o $(TEMPDIR)/filesystem.o $(TEMPDIR)/start.o \
 		-o $@
 
 # -- vfsdriver --
