@@ -1,189 +1,90 @@
-# AOS Build System
-# Replaces aosbuild.sh with proper Make dependency tracking.
-
-# ── Tools ────────────────────────────────────────────────────────────
 CC      := gcc
 LD      := ld
 NASM    := nasm
 OBJCOPY := objcopy
 
-# ── Flags ────────────────────────────────────────────────────────────
 CFLAGS_KERNEL := -m64 -g3 -O0 -Wall -fno-omit-frame-pointer \
                  -mcmodel=kernel -mno-red-zone -ffreestanding \
                  -mgeneral-regs-only -fno-pic -fno-pie -fstack-protector
-
 CFLAGS_USER   := -m64 -Wall -fno-omit-frame-pointer \
-                 -ffreestanding -fno-pic -fno-pie \
-                 -fno-asynchronous-unwind-tables
-
+                 -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
 DEPFLAGS       = -MMD -MP -MF $(@:.o=.d)
-
 LDFLAGS       := -m elf_x86_64 --no-warn-rwx-segments
 
-# ── Directories ──────────────────────────────────────────────────────
-SRCDIR   := Data
-BUILDDIR := Build
-TEMPDIR  := Temp
-DEBUGDIR := $(BUILDDIR)/Debug
-VOLDIR   := $(BUILDDIR)/FirstVolume
-DRVDIR   := $(VOLDIR)/Drivers
+SRCDIR  := Data
+BUILDDIR:= Build
+TEMPDIR := Temp
+DRVDIR  := $(BUILDDIR)/FirstVolume/Drivers
 
-# ── Output files ─────────────────────────────────────────────────────
-PBR_BIN          := $(BUILDDIR)/pbr.bin
-PBRSCAN_BIN      := $(DEBUGDIR)/pbrscan.bin
-AOSLDR_BIN       := $(VOLDIR)/AOSLDR.BIN
-KBDDRIVER_ELF    := $(DRVDIR)/KBDDRIVER.ELF
-VFSDRIVER_ELF    := $(DRVDIR)/VFSDRIVER.ELF
-TREE_ELF         := $(VOLDIR)/tree.elf
+KERNEL_MODS := pmm vmm sched ipc syscall ide elf console shm
+KERNEL_MOD_OBJS := $(patsubst %,$(TEMPDIR)/%.o,$(KERNEL_MODS))
 
-# ── Intermediate objects ─────────────────────────────────────────────
-# Kernel / loader
-AOSLDR_ASM_OBJ := $(TEMPDIR)/asmaosldr.o
-AOSLDR_C_OBJ   := $(TEMPDIR)/caosldr.o
-AOSLDR_ELF     := $(TEMPDIR)/aosldr.elf
-AOSLDR_MAP     := $(TEMPDIR)/aosldr.map
+.PHONY: all clean dirs
 
-# Kernel modules (split from aosldr.c)
-KERNEL_MOD_SRCS := $(SRCDIR)/pmm.c $(SRCDIR)/vmm.c $(SRCDIR)/sched.c \
-                   $(SRCDIR)/ipc.c $(SRCDIR)/syscall.c $(SRCDIR)/ide.c \
-                   $(SRCDIR)/elf.c $(SRCDIR)/console.c $(SRCDIR)/shm.c
-KERNEL_MOD_OBJS := $(TEMPDIR)/pmm.o $(TEMPDIR)/vmm.o $(TEMPDIR)/sched.o \
-                   $(TEMPDIR)/ipc.o $(TEMPDIR)/syscall.o $(TEMPDIR)/ide.o \
-                   $(TEMPDIR)/elf.o $(TEMPDIR)/console.o $(TEMPDIR)/shm.o
+all: dirs $(BUILDDIR)/pbr.bin $(BUILDDIR)/FirstVolume/AOSLDR.BIN \
+     $(DRVDIR)/KBDDRIVER.ELF $(DRVDIR)/VFSDRIVER.ELF \
+     $(BUILDDIR)/FirstVolume/tree.elf $(BUILDDIR)/FirstVolume/SHELL.ELF
 
-# aoslib
-AOSLIB_SRCS := $(SRCDIR)/aoslib/syscalls.c \
-               $(SRCDIR)/aoslib/filesystem.c \
-               $(SRCDIR)/aoslib/string.c \
-               $(SRCDIR)/aoslib/start.c
-AOSLIB_OBJS := $(TEMPDIR)/syscalls.o \
-               $(TEMPDIR)/filesystem.o \
-               $(TEMPDIR)/string.o \
-               $(TEMPDIR)/start.o
-
-# Drivers
-KBDDRIVER_OBJ    := $(TEMPDIR)/kbddriver.o
-VFSDRIVER_OBJ    := $(TEMPDIR)/vfsdriver.o
-FAT32_VFS_OBJ   := $(TEMPDIR)/fat32_vfsmodule.o
-
-# Userspace
-TREE_OBJ := $(TEMPDIR)/tree.o
-
-# Linker scripts
-KERNEL_LD  := $(SRCDIR)/aosldr.ld
-DRIVER_LD  := $(SRCDIR)/drivers/vfsdriver.ld
-
-# Collect all dependency files
-ALL_DEPS := $(wildcard $(TEMPDIR)/*.d)
-
-# ── Phony targets ────────────────────────────────────────────────────
-.PHONY: all clean pbr kernel aoslib drivers userspace dirs
-
-# ── Default target ───────────────────────────────────────────────────
-all: dirs pbr kernel drivers userspace
-
-# ── Directory creation ───────────────────────────────────────────────
 dirs:
-	@mkdir -p $(DEBUGDIR) $(DRVDIR) $(TEMPDIR)
+	@mkdir -p $(BUILDDIR)/Debug $(DRVDIR) $(TEMPDIR)
 
-# ══════════════════════════════════════════════════════════════════════
-#  PBR & debug tools
-# ══════════════════════════════════════════════════════════════════════
-pbr: dirs $(PBR_BIN) $(PBRSCAN_BIN)
-
-$(PBR_BIN): $(SRCDIR)/pbr.asm | dirs
+# PBR
+$(BUILDDIR)/pbr.bin: $(SRCDIR)/pbr.asm | dirs
 	$(NASM) -o $@ $<
 
-$(PBRSCAN_BIN): $(SRCDIR)/fat32scan.asm | dirs
-	$(NASM) -o $@ $<
-
-# ══════════════════════════════════════════════════════════════════════
-#  Kernel (AOSLDR)
-# ══════════════════════════════════════════════════════════════════════
-kernel: dirs $(AOSLDR_BIN)
-
-# Assembly object
-$(AOSLDR_ASM_OBJ): $(SRCDIR)/aosldr.asm | dirs
+# Kernel
+$(TEMPDIR)/asmaosldr.o: $(SRCDIR)/aosldr.asm | dirs
 	$(NASM) -f elf64 -o $@ $<
 
-# C object (kernel flags)
-$(AOSLDR_C_OBJ): $(SRCDIR)/aosldr.c | dirs
+$(TEMPDIR)/caosldr.o: $(SRCDIR)/aosldr.c | dirs
 	$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
 
-# Kernel modules
 $(TEMPDIR)/%.o: $(SRCDIR)/%.c | dirs
 	$(CC) $(CFLAGS_KERNEL) $(DEPFLAGS) -c $< -o $@
 
-# Link ELF
-$(AOSLDR_ELF): $(AOSLDR_ASM_OBJ) $(AOSLDR_C_OBJ) $(KERNEL_MOD_OBJS) $(KERNEL_LD) | dirs
-	$(LD) $(LDFLAGS) -T $(KERNEL_LD) -Map $(AOSLDR_MAP) -o $@ \
-		$(AOSLDR_ASM_OBJ) $(AOSLDR_C_OBJ) $(KERNEL_MOD_OBJS)
+$(TEMPDIR)/aosldr.elf: $(TEMPDIR)/asmaosldr.o $(TEMPDIR)/caosldr.o $(KERNEL_MOD_OBJS) | dirs
+	$(LD) $(LDFLAGS) -T $(SRCDIR)/aosldr.ld -Map $(TEMPDIR)/aosldr.map -o $@ $^
 
-# Extract flat binary
-$(AOSLDR_BIN): $(AOSLDR_ELF) | dirs
+$(BUILDDIR)/FirstVolume/AOSLDR.BIN: $(TEMPDIR)/aosldr.elf | dirs
 	$(OBJCOPY) -O binary -S -R .bss -R .note -R .comment -R .note.gnu.property $< $@
 
-# ══════════════════════════════════════════════════════════════════════
-#  AOSLIB (shared user-space library objects)
-# ══════════════════════════════════════════════════════════════════════
-aoslib: dirs $(AOSLIB_OBJS)
-
+# AOSLIB
 $(TEMPDIR)/syscalls.o: $(SRCDIR)/aoslib/syscalls.c | dirs
 	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
-
 $(TEMPDIR)/filesystem.o: $(SRCDIR)/aoslib/filesystem.c | dirs
 	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
-
 $(TEMPDIR)/string.o: $(SRCDIR)/aoslib/string.c | dirs
 	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
-
 $(TEMPDIR)/start.o: $(SRCDIR)/aoslib/start.c | dirs
 	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
 
-# ══════════════════════════════════════════════════════════════════════
-#  Drivers
-# ══════════════════════════════════════════════════════════════════════
-drivers: dirs aoslib $(KBDDRIVER_ELF) $(VFSDRIVER_ELF)
+AOSLIB := $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o $(TEMPDIR)/filesystem.o $(TEMPDIR)/start.o
 
-# -- kbddriver --
-$(KBDDRIVER_OBJ): $(SRCDIR)/drivers/kbddriver.c | dirs
+# Drivers
+$(TEMPDIR)/kbddriver.o: $(SRCDIR)/drivers/kbddriver.c | dirs
 	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
+$(DRVDIR)/KBDDRIVER.ELF: $(TEMPDIR)/kbddriver.o $(AOSLIB) | dirs
+	$(LD) $(LDFLAGS) -N -T $(SRCDIR)/drivers/vfsdriver.ld $^ -o $@
 
-$(KBDDRIVER_ELF): $(KBDDRIVER_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o $(TEMPDIR)/filesystem.o $(TEMPDIR)/start.o $(DRIVER_LD) | dirs
-	$(LD) $(LDFLAGS) -N -Map $(TEMPDIR)/kbddriver.map -T $(DRIVER_LD) \
-		$(KBDDRIVER_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o $(TEMPDIR)/filesystem.o $(TEMPDIR)/start.o \
-		-o $@
-
-# -- vfsdriver --
-$(VFSDRIVER_OBJ): $(SRCDIR)/drivers/vfsdriver.c | dirs
+$(TEMPDIR)/vfsdriver.o: $(SRCDIR)/drivers/vfsdriver.c | dirs
 	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
-
-$(FAT32_VFS_OBJ): $(SRCDIR)/drivers/fat32_vfsmodule.c | dirs
+$(TEMPDIR)/fat32_vfsmodule.o: $(SRCDIR)/drivers/fat32_vfsmodule.c | dirs
 	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
+$(DRVDIR)/VFSDRIVER.ELF: $(TEMPDIR)/vfsdriver.o $(TEMPDIR)/fat32_vfsmodule.o $(AOSLIB) | dirs
+	$(LD) $(LDFLAGS) -N -T $(SRCDIR)/drivers/vfsdriver.ld $^ -o $@
 
-$(VFSDRIVER_ELF): $(VFSDRIVER_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o $(TEMPDIR)/filesystem.o $(FAT32_VFS_OBJ) $(TEMPDIR)/start.o $(DRIVER_LD) | dirs
-	$(LD) $(LDFLAGS) -N -Map $(TEMPDIR)/vfsdriver.map -T $(DRIVER_LD) \
-		$(VFSDRIVER_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o \
-		$(TEMPDIR)/filesystem.o $(FAT32_VFS_OBJ) $(TEMPDIR)/start.o \
-		-o $@
-
-# ══════════════════════════════════════════════════════════════════════
-#  User-Space programs
-# ══════════════════════════════════════════════════════════════════════
-userspace: dirs aoslib $(TREE_ELF)
-
-$(TREE_OBJ): $(SRCDIR)/userspace/tree.c | dirs
+# Userspace
+$(TEMPDIR)/tree.o: $(SRCDIR)/userspace/tree.c | dirs
 	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
+$(BUILDDIR)/FirstVolume/tree.elf: $(TEMPDIR)/tree.o $(AOSLIB) | dirs
+	$(LD) $(LDFLAGS) -N -T $(SRCDIR)/drivers/vfsdriver.ld $^ -o $@
 
-$(TREE_ELF): $(TREE_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o $(TEMPDIR)/filesystem.o $(TEMPDIR)/start.o $(DRIVER_LD) | dirs
-	$(LD) $(LDFLAGS) -N -Map $(TEMPDIR)/tree.map -T $(DRIVER_LD) \
-		$(TREE_OBJ) $(TEMPDIR)/syscalls.o $(TEMPDIR)/string.o \
-		$(TEMPDIR)/filesystem.o $(TEMPDIR)/start.o \
-		-o $@
+$(TEMPDIR)/shell.o: $(SRCDIR)/userspace/shell.c | dirs
+	$(CC) $(CFLAGS_USER) $(DEPFLAGS) -c $< -o $@
+$(BUILDDIR)/FirstVolume/SHELL.ELF: $(TEMPDIR)/shell.o $(AOSLIB) | dirs
+	$(LD) $(LDFLAGS) -N -T $(SRCDIR)/drivers/vfsdriver.ld $^ -o $@
 
-# ── Clean ────────────────────────────────────────────────────────────
 clean:
 	rm -rf $(BUILDDIR) $(TEMPDIR)
 
-# ── Include auto-generated dependencies ──────────────────────────────
--include $(ALL_DEPS)
+-include $(wildcard $(TEMPDIR)/*.d)

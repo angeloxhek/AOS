@@ -1,73 +1,43 @@
 #include "../include/aoslib.h"
 
-static inline void print_indent(int level) {
-    for (int i = 0; i < level; i++) {
-        printf("|   ");
-    }
-    printf("|-- ");
-}
+static const char sc2a[128] = {
+    0,27,'1','2','3','4','5','6','7','8','9','0','-','=','\b',
+    '\t','q','w','e','r','t','y','u','i','o','p','[',']','\n',
+    0,'a','s','d','f','g','h','j','k','l',';','\'','`',
+    0,'\\','z','x','c','v','b','n','m',',','.','/',0,'*',0,' '
+};
 
-void scan_directory(int dir_fd, int level) {
-    #define BATCH_SIZE 32
-    vfs_dirent_t* entries = (vfs_dirent_t*)calloc(BATCH_SIZE, sizeof(vfs_dirent_t));
-    if (!entries) {
-        printf(" [Error: Out of memory for entries]\n");
-        return;
-    }
-
-    int entries_read = 0;
-
-    while ((entries_read = vfs_readdir(dir_fd, entries, BATCH_SIZE)) > 0) {
-        
-        for (int i = 0; i < entries_read; i++) {
-            vfs_dirent_t* entry = &entries[i];
-
-            if (strcmp(entry->name, ".") == 0 || strcmp(entry->name, "..") == 0) {
-                continue;
-            }
-            
-            print_indent(level);
-            
-            if (entry->type == VFS_FILE_TYPE_DIR) {
-                printf("%s/\n", entry->name);
-                
-                int child_fd = vfs_openat(dir_fd, entry->name);
-                
-                if (child_fd >= 0) {
-                    scan_directory(child_fd, level + 1);
-                    vfs_close(child_fd);
-                } else {
-                    printf(" [Error: failed to open %s]\n", entry->name);
-                }
-            } 
-            else if (entry->type == VFS_FILE_TYPE_SYMLINK) {
-                printf("%s [symlink]\n", entry->name);
-            }
-            else if (entry->type == VFS_FILE_TYPE_DEVICE) {
-                printf("%s [device]\n", entry->name);
-            }
-            else {
-                printf("%s [size: %d]\n", entry->name, (int)entry->size);
-            }
-        }
-    }
-    
-    free(entries);
+void do_ls(const char* path) {
+    int fd = vfs_open(path);
+    if (fd < 0) { printf("err\n"); return; }
+    vfs_dirent_t e[16]; int n;
+    while ((n = vfs_readdir(fd, e, 16)) > 0)
+        for (int i = 0; i < n; i++) printf("  %s\n", e[i].name);
+    vfs_close(fd);
 }
 
 int main(int argc, char** argv) {
-    printf("System Tree Scan Root (/):\n");
-    printf(".\n");
-    
-    int root_fd = vfs_open("/");
-    
-    if (root_fd >= 0) {
-        scan_directory(root_fd, 0);
-        vfs_close(root_fd);
-    } else {
-        printf("Error: Could not open root directory!\n");
+    printf("AOS Shell\nType: ls, info, help\naos> ");
+    char cmd[64]; int pos = 0;
+    while (1) {
+        uint8_t sc = get_scancode();
+        if (sc == 0 || sc >= 58) continue;
+        char c = sc2a[sc];
+        if (c == 0) continue;
+        if (c == '\n') {
+            printf("\n"); cmd[pos] = 0;
+            if (strcmp(cmd,"ls")==0) do_ls("/");
+            else if (strcmp(cmd,"info")==0) {
+                system_info_t si; get_sysinfo(&si);
+                printf("uptime: %d\n",(int)si.uptime);
+            } else if (strcmp(cmd,"help")==0) {
+                printf("ls info help\n");
+            } else if (pos>0) printf("? %s\n",cmd);
+            pos=0; printf("aos> ");
+        } else if (c=='\b') {
+            if (pos>0) { pos--; printf("\b \b"); }
+        } else if (pos<62) {
+            cmd[pos++]=c; char s[2]={c,0}; printf("%s",s);
+        }
     }
-
-    printf("\nScan complete.\n");
-    return 0;
 }

@@ -13,6 +13,14 @@ IDT_INTERRUPTS
 #undef X
 
 extern uint32_t boot_ver;
+extern void syscall_entry(void);
+extern void switch_to_task(thread_t* current, thread_t* next);
+extern void trampoline_enter_user();
+extern void trampoline_enter_kernel();
+
+// -------------------------
+//   Global Variable Definitions
+// -------------------------
 
 const uint8_t (*font)[256][16];
 
@@ -39,10 +47,6 @@ uint64_t max_blocks = 0;
 uint64_t used_blocks = 0;
 uint64_t bitmap_size = 0;
 
-#define PHYS_ASM_PDPT   0x81000
-#define PHYS_ASM_PD     0x82000
-#define PHYS_HHDM_PDPT  0x84000
-#define PHYS_HHDM_PD    0x85000
 uint64_t* pml4_table_virt = 0;
 
 const unsigned char const kbd_us[128] =
@@ -111,6 +115,15 @@ kernel_tcb_t kernel_tcb = {
     .canary = 0xDEADBEEF
 };
 
+#define MSR_EFER    0xC0000080
+#define MSR_STAR    0xC0000081
+#define MSR_LSTAR   0xC0000082
+#define MSR_SFMASK  0xC0000084
+
+#define KERNEL_CODE_SEG 0x08
+#define USER_DATA_SEG   0x18
+#define USER_SEG_BASE   0x10
+
 process_t kernel_process;
 
 thread_t* current_thread;
@@ -131,6 +144,11 @@ uint8_t default_fpu_state[512] __attribute__((aligned(16)));
 
 shm_object_t* shm_global_list = 0;
 uint64_t next_shm_id = 1;
+
+#define PHYS_ASM_PDPT   0x81000
+#define PHYS_ASM_PD     0x82000
+#define PHYS_HHDM_PDPT  0x84000
+#define PHYS_HHDM_PD    0x85000
 
 
 // --------------------------
@@ -317,7 +335,7 @@ void isr_handler(registers_t *r) {
 			}
 			kernel_error(0x7, r->int_no, r->rip, r->err_code, 0);
 		}
-		// Userspace exception -- kill the faulting process instead of kernel panic
+		// Userspace exception — kill the faulting process instead of kernel panic
 		kprint_error("Killing process: ");
 		kprint_error(current_thread->owner->name);
 		kprint_error(" (PID: ");
@@ -346,6 +364,7 @@ void isr_handler(registers_t *r) {
             msg.param2 = 0;
             msg.param3 = 0;
             ipc_send(keyboard_driver_tid, &msg);
+        } else {
         }
         outb(0x20, 0x20);
     } else if (r->int_no == 32) {
@@ -463,7 +482,6 @@ void* kernel_malloc(uint64_t size) {
         malloc_initialized = 1;
     }
 restart_search:
-    ;
     malloc_header_t* current = free_list_start;
     malloc_header_t* last = 0;
     while (current) {
@@ -540,229 +558,6 @@ void* kernel_malloc_aligned(uint64_t size, uint64_t alignment) {
 
 
 // -------------------------
-//          FAT32
-// -------------------------
-
-void fat32_entry_to_dirent(struct fat32_dir_entry* raw, fat32_dirent_t* out) {
-    kernel_memset(out->name, 0, 256);
-
-    kernel_memcpy(out->name, raw->name, 11);
-
-    out->cluster = ((uint64_t)raw->cluster_high << 16) | (uint64_t)raw->cluster_low;
-    out->size = (uint64_t)raw->file_size;
-    out->attr = raw->attr;
-
-    out->write_date   = raw->wrt_date;
-    out->write_time   = raw->wrt_time;
-}
-
-void fat32_collect_lfn_chars(struct fat32_lfn_entry* lfn, char* lfn_buffer) {
-    int order = lfn->order & 0x1F;
-    if (order < 1 || order > 20) return;
-
-    int index = (order - 1) * 13;
-    if (index < 0 || index + 13 > 255) return;
-
-    for (int i = 0; i < 5; i++)  lfn_buffer[index++] = (char)(lfn->name1[i] & 0xFF);
-    for (int i = 0; i < 6; i++)  lfn_buffer[index++] = (char)(lfn->name2[i] & 0xFF);
-    for (int i = 0; i < 2; i++)  lfn_buffer[index++] = (char)(lfn->name3[i] & 0xFF);
-}
-
-void fat32_format_sfn(char* dest, const char* sfn_name) {
-    int p = 0;
-    for (int i = 0; i < 8; i++) {
-        if (sfn_name[i] == ' ') break;
-        dest[p++] = sfn_name[i];
-    }
-    if (sfn_name[8] != ' ') {
-        dest[p++] = '.';
-        for (int i = 8; i < 11; i++) {
-            if (sfn_name[i] == ' ') break;
-            dest[p++] = sfn_name[i];
-        }
-    }
-    dest[p] = '\0';
-}
-
-unsigned char fat32_checksum(unsigned char *pName) {
-    unsigned char sum = 0;
-    for (int i = 11; i; i--) {
-        sum = ((sum & 1) << 7) + (sum >> 1) + *pName++;
-    }
-    return sum;
-}
-
-fat32_dirent_t* fat32_read_dir(volume_t* v, fat32_dirent_t* dir_entry, int* out_count) {
-    uint8_t buffer[512];
-    uint32_t start_cluster = (dir_entry == 0) ? v->root_cluster : (uint32_t)dir_entry->cluster;
-    uint32_t current_cluster = start_cluster;
-    int total_files = 0;
-
-    while (current_cluster < 0x0FFFFFF8 && current_cluster >= 2) {
-        uint64_t lba = cluster_to_lba(v, current_cluster);
-        for (uint32_t s = 0; s < v->sec_per_clus; s++) {
-            ide_read_sector(&v->device, lba + s, buffer);
-            struct fat32_dir_entry* dir = (struct fat32_dir_entry*)buffer;
-            for (int i = 0; i < 16; i++) {
-                if (dir[i].name[0] == 0x00) goto count_finished;
-                if (dir[i].name[0] == 0xE5) continue;
-                if (dir[i].attr == 0x0F) continue;
-                if (dir[i].attr & 0x08) continue;
-                total_files++;
-            }
-        }
-        current_cluster = get_next_cluster(v, current_cluster);
-    }
-
-count_finished:
-    if (total_files == 0) {
-        *out_count = 0;
-        return 0;
-    }
-
-    fat32_dirent_t* result_array = (fat32_dirent_t*)kernel_malloc(sizeof(fat32_dirent_t) * total_files);
-    if (!result_array) {
-        *out_count = 0;
-        return 0;
-    }
-
-    current_cluster = start_cluster;
-    int current_index = 0;
-    char lfn_temp[256];
-    uint8_t lfn_checksum = 0;
-    kernel_memset(lfn_temp, 0, 256);
-
-    while (current_cluster < 0x0FFFFFF8 && current_cluster >= 2) {
-        uint64_t lba = cluster_to_lba(v, current_cluster);
-        for (uint32_t s = 0; s < v->sec_per_clus; s++) {
-            ide_read_sector(&v->device, lba + s, buffer);
-            struct fat32_dir_entry* dir = (struct fat32_dir_entry*)buffer;
-
-            for (int i = 0; i < 16; i++) {
-                if (dir[i].name[0] == 0x00) {
-                    *out_count = current_index;
-                    return result_array;
-                }
-                if (dir[i].name[0] == 0xE5) {
-                    kernel_memset(lfn_temp, 0, 256);
-                    lfn_checksum = 0;
-                    continue;
-                }
-
-                if (dir[i].attr == 0x0F) {
-                    struct fat32_lfn_entry* lfn = (struct fat32_lfn_entry*)&dir[i];
-
-                    if (lfn->order & 0x40) {
-                        kernel_memset(lfn_temp, 0, 256);
-                        lfn_checksum = lfn->checksum;
-                    }
-
-                    fat32_collect_lfn_chars(lfn, lfn_temp);
-                    continue;
-                }
-
-                if (dir[i].attr & 0x08) {
-                    kernel_memset(lfn_temp, 0, 256);
-                    continue;
-                }
-
-                fat32_entry_to_dirent(&dir[i], &result_array[current_index]);
-                uint8_t sfn_sum = fat32_checksum((unsigned char*)dir[i].name);
-                if (lfn_temp[0] != 0 && sfn_sum == lfn_checksum) {
-                    kernel_memcpy(result_array[current_index].name, lfn_temp, 256);
-                } else {
-                    fat32_format_sfn(result_array[current_index].name, dir[i].name);
-                }
-                kernel_memset(lfn_temp, 0, 256);
-                lfn_checksum = 0;
-                current_index++;
-                if (current_index >= total_files) {
-                     *out_count = current_index;
-                     return result_array;
-                }
-            }
-        }
-        current_cluster = get_next_cluster(v, current_cluster);
-    }
-    *out_count = current_index;
-    return result_array;
-}
-
-int fat32_find_in_dir(volume_t* v, fat32_dirent_t* dir_entry, const char* search_name, fat32_dirent_t* result) {
-    if (dir_entry != 0 && !(dir_entry->attr & 0x10)) return 0;
-
-    char name_upper[256];
-    kernel_memcpy(name_upper, search_name, 255);
-    name_upper[255] = 0;
-    kernel_to_upper(name_upper);
-
-    int count = 0;
-    fat32_dirent_t* file_list = fat32_read_dir(v, dir_entry, &count);
-
-    if (!file_list) return 0;
-
-    int found = 0;
-    for (int i = 0; i < count; i++) {
-        char file_name_upper[256];
-        kernel_memcpy(file_name_upper, file_list[i].name, 256);
-        kernel_to_upper(file_name_upper);
-
-        if (kernel_strcmp(file_name_upper, name_upper) == 0) {
-            *result = file_list[i];
-            found = 1;
-            break;
-        }
-    }
-
-    kernel_free(file_list);
-    return found;
-}
-
-void* fat32_read_file(volume_t* v, fat32_dirent_t* file, uint64_t* out_size) {
-    if (file == 0 || (file->attr & 0x10)) return 0;
-    uint8_t* destination = (uint8_t*)kernel_malloc(file->size);
-    if (!destination) {
-        return 0;
-    }
-    if (out_size != 0) {
-        *out_size = file->size;
-    }
-    uint32_t cluster = (uint32_t)file->cluster;
-    uint64_t bytes_left = file->size;
-    uint64_t offset = 0;
-    uint8_t temp_sector[512];
-
-    while (bytes_left > 0 && cluster < 0x0FFFFFF8 && cluster >= 2) {
-        uint64_t lba = cluster_to_lba(v, cluster);
-        uint64_t cluster_size = v->sec_per_clus * 512;
-        if (bytes_left >= cluster_size) {
-            ide_read_sectors(&v->device, lba, v->sec_per_clus, destination + offset);
-            offset += cluster_size;
-            bytes_left -= cluster_size;
-        }
-        else {
-            for (uint32_t i = 0; i < v->sec_per_clus && bytes_left > 0; i++) {
-                if (bytes_left >= 512) {
-                    ide_read_sector(&v->device, lba + i, destination + offset);
-                    offset += 512;
-                    bytes_left -= 512;
-                } else {
-                    ide_read_sector(&v->device, lba + i, temp_sector);
-                    kernel_memcpy(destination + offset, temp_sector, bytes_left);
-                    bytes_left = 0;
-                    break;
-                }
-            }
-        }
-        if (bytes_left > 0) {
-            cluster = get_next_cluster(v, cluster);
-        }
-    }
-    return (void*)destination;
-}
-
-
-// -------------------------
 //         Process
 // -------------------------
 
@@ -798,11 +593,6 @@ process_t* create_process(const char* name) {
     return new_proc;
 }
 
-
-// -------------------------
-//      Driver Registry
-// -------------------------
-
 int64_t register_driver(driver_type_t type, const char* user_name) {
     char name_buf[DRIVER_NAME_MAX];
     kernel_memset(name_buf, 0, DRIVER_NAME_MAX);
@@ -833,6 +623,7 @@ int64_t register_driver(driver_type_t type, const char* user_name) {
     kernel_memcpy(new_driver->name, name_buf, DRIVER_NAME_MAX);
     new_driver->next = drivers_list_head;
     drivers_list_head = new_driver;
+    if (type == DT_KEYBOARD) keyboard_driver_tid = current_thread->tid;
     asm volatile("sti");
     return 0;
 }
@@ -950,7 +741,7 @@ void kernel_main(boot_info_t* boot_info){
     hhdm_pdpt[0] = PHYS_HHDM_PD | 0x3;
     phys_addr = 0;
     for (int i = 0; i < 512; i++) {
-        hhdm_pd[i] = phys_addr | 0x83;
+        hhdm_pd[i] = phys_addr | 0x83 | PAGE_NX;
         phys_addr += 0x200000;
     }
     pml4[510] = PHYS_PML4 | 0x3;
@@ -1058,8 +849,8 @@ void kernel_main(boot_info_t* boot_info){
 	uint64_to_dec(tid, buff);
 	kprint(buff);
 	kprint("\n");
-	kprint("Load tree.elf\n");
-	if (!fat32_find_in_dir(system_volume, 0, "tree.elf", &file)){
+	kprint("Load SHELL.ELF\n");
+	if (!fat32_find_in_dir(system_volume, 0, "SHELL.ELF", &file)){
 		kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
 	}
 	kernel_memset(driver, 0, sizeof(elf_load_result_t));

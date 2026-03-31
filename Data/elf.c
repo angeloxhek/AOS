@@ -1,5 +1,7 @@
 #include "include/kernel_internal.h"
 
+#define PF_X 1
+
 // -------------------------
 //           ELF
 // -------------------------
@@ -34,7 +36,7 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
         return;
     }
     Elf64_Phdr* phdr = (Elf64_Phdr*)(raw_data + hdr->e_phoff);
-    uint64_t max_vaddr = 0;
+	uint64_t max_vaddr = 0;
 
     for (int i = 0; i < hdr->e_phnum; i++) {
         if (phdr[i].p_type == PT_LOAD) {
@@ -52,8 +54,13 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
             uint64_t end_page   = (vaddr + memsz + 4095) & PAGE_MASK;
             uint64_t page_count = (end_page - start_page) / 4096;
 
-            if (vaddr + memsz > max_vaddr) {
+			if (vaddr + memsz > max_vaddr) {
                 max_vaddr = vaddr + memsz;
+            }
+
+            uint64_t elf_page_flags = PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
+            if (!(phdr[i].p_flags & PF_X)) {
+                elf_page_flags |= PAGE_NX;
             }
 
             for (uint64_t p = 0; p < page_count; p++) {
@@ -65,7 +72,7 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
                 } else {
                     phys = pmm_alloc_block();
                     map_to_other_pml4(proc->page_directory, phys, curr_virt,
-                                      PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+                                      elf_page_flags);
                 }
                 void* ptr = temp_map(phys);
                 kernel_memset(ptr, 0, 4096);
@@ -92,15 +99,15 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
                 temp_unmap();
             }
         }
-        if (phdr[i].p_type == PT_TLS) {
-            proc->tls_image_vaddr = phdr[i].p_vaddr;
+		if (phdr[i].p_type == PT_TLS) {
+			proc->tls_image_vaddr = phdr[i].p_vaddr;
             proc->tls_file_size   = phdr[i].p_filesz;
             proc->tls_mem_size    = phdr[i].p_memsz;
             proc->tls_align       = phdr[i].p_align;
-        }
+		}
     }
 
-    if (max_vaddr > 0) {
+	if (max_vaddr > 0) {
         proc->heap_limit = (max_vaddr + 4095) & ~((uint64_t)4095);
     } else {
         proc->heap_limit = 0x40000000;
@@ -156,7 +163,7 @@ void start_elf_process(elf_load_result_t* res) {
         map_to_other_pml4(res->proc->page_directory,
                           phys_page,
                           user_stack_virt - (i * PAGE_SIZE),
-                          PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+                          PAGE_PRESENT | PAGE_WRITE | PAGE_USER | PAGE_NX);
         kernel_memset((void*)P2V(phys_page), 0, PAGE_SIZE);
     }
     uint64_t user_rsp = user_stack_virt + PAGE_SIZE;

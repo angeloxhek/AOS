@@ -104,6 +104,10 @@ void vmm_unmap_page(uint64_t virt) {
     }
 }
 
+// -------------------------
+//         Process VMM
+// -------------------------
+
 uint64_t get_current_pml4() {
     uint64_t pml4;
     asm volatile("mov %%cr3, %0" : "=r"(pml4));

@@ -6,6 +6,7 @@
 
 void put_pixel(uint32_t x, uint32_t y, uint32_t color) {
     if (x >= video->width || y >= video->height) return;
+    // offset = (y * pitch) + (x * (bpp / 8))
     uint64_t offset = (y * video->pitch) + (x * (video->bpp / 8));
     uint32_t* pixel = (uint32_t*)(video->framebuffer_addr + offset);
     *pixel = color;
@@ -20,17 +21,17 @@ void _kclear() {
         }
     }
 
-    if (!(state.system_flags & CAN_PRINT)) return;
+	if (!(state.system_flags & CAN_PRINT)) return;
     cursor_x = 0;
     cursor_y = 0;
 }
 
 void kclear() {
     if (!(state.system_flags & CAN_PRINT)) return;
-    uint64_t irq_state = spinlock_irq_save();
+	uint64_t irq_state = spinlock_irq_save();
     spinlock_acquire(&kprint_lock);
-    _kclear();
-    spinlock_release(&kprint_lock);
+	_kclear();
+	spinlock_release(&kprint_lock);
     spinlock_irq_restore(irq_state);
 }
 
@@ -38,7 +39,7 @@ void kprint_scroll() {
     if (!(state.system_flags & CAN_PRINT)) return;
     uint32_t font_h = 16;
     uint64_t bytes_to_move = (uint64_t)video->pitch * (video->height - font_h);
-    uint8_t* fb = (uint8_t*)video->framebuffer_addr;
+	uint8_t* fb = (uint8_t*)video->framebuffer_addr;
     kernel_memcpy(fb, fb + (font_h * video->pitch), bytes_to_move);
     uint8_t* bottom_part = fb + bytes_to_move;
     uint64_t bottom_size = (uint64_t)font_h * video->pitch;
@@ -93,10 +94,10 @@ void _kprint(const char* str) {
 
 void kprint(const char* str) {
     if (!(state.system_flags & CAN_PRINT)) return;
-    uint64_t irq_state = spinlock_irq_save();
+	uint64_t irq_state = spinlock_irq_save();
     spinlock_acquire(&kprint_lock);
     _kprint(str);
-    spinlock_release(&kprint_lock);
+	spinlock_release(&kprint_lock);
     spinlock_irq_restore(irq_state);
 }
 
@@ -109,10 +110,10 @@ void _kprint_error(const char* str) {
 
 void kprint_error(const char* str) {
     if (!(state.system_flags & CAN_PRINT)) return;
-    uint64_t irq_state = spinlock_irq_save();
+	uint64_t irq_state = spinlock_irq_save();
     spinlock_acquire(&kprint_lock);
     _kprint_error(str);
-    spinlock_release(&kprint_lock);
+	spinlock_release(&kprint_lock);
     spinlock_irq_restore(irq_state);
 }
 
@@ -143,7 +144,7 @@ void uint32_to_hex(uint32_t value, char* out_buffer) { // buff size 9
     out_buffer[5] = hex_digits[(value >> 8) & 0x0F];
     out_buffer[6] = hex_digits[(value >> 4) & 0x0F];
     out_buffer[7] = hex_digits[value & 0x0F];
-    out_buffer[8] = 0;
+	out_buffer[8] = 0;
 }
 
 void uint64_to_hex(uint64_t value, char* out_buffer) { // buff size 17
@@ -194,55 +195,56 @@ void uint64_to_dec(uint64_t value, char* out_buffer) { // buff size 21
 }
 
 
-// -------------------------
+// --------------------------
 //          Debug
-// -------------------------
+// --------------------------
 
 __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4) {
-    asm volatile("cli");
+	asm volatile("cli");
+	//kclear();
     _kprint_error("KERNEL STOP: 0x");
-    char buff[17];
-    uint64_to_hex(code, buff);
-    _kprint_error(buff);
-    _kprint_error(" (");
-    if (code < KERNEL_MESSAGES_COUNT)
-        _kprint_error(kernel_messages[code]);
-    else
-        _kprint_error("UNKNOWN");
+	char buff[17];
+	uint64_to_hex(code, buff);
+	_kprint_error(buff);
+	_kprint_error(" (");
+	if (code < KERNEL_MSG_COUNT)
+		_kprint_error(kernel_messages[code]);
+	else
+		_kprint_error("UNKNOWN");
     _kprint_error(")\nARGS: 0x");
-    uint64_to_hex(arg1, buff);
-    _kprint_error(buff);
-    _kprint_error("; 0x");
-    uint64_to_hex(arg2, buff);
-    _kprint_error(buff);
-    _kprint_error("; 0x");
-    uint64_to_hex(arg3, buff);
-    _kprint_error(buff);
-    _kprint_error("; 0x");
-    uint64_to_hex(arg4, buff);
-    _kprint_error(buff);
-    _kprint_error("\nThe system has been halted!");
+	uint64_to_hex(arg1, buff);
+	_kprint_error(buff);
+	_kprint_error("; 0x");
+	uint64_to_hex(arg2, buff);
+	_kprint_error(buff);
+	_kprint_error("; 0x");
+	uint64_to_hex(arg3, buff);
+	_kprint_error(buff);
+	_kprint_error("; 0x");
+	uint64_to_hex(arg4, buff);
+	_kprint_error(buff);
+	_kprint_error("\nThe system has been halted!");
     while (1) {
         asm volatile("hlt");
     }
-    __builtin_unreachable();
+	__builtin_unreachable();
 }
 
 __attribute__((noreturn)) void __stack_chk_fail(void) {
     kernel_error(0x1, (uint64_t)__builtin_return_address(0), 0, 0, 0);
-    __builtin_unreachable();
+	__builtin_unreachable();
 }
 
 __attribute__((noreturn)) void breakpoint(){
-    kprint("Breakpoint :-)");
-    while (1) {
+	kprint("Breakpoint :-)");
+	while (1) {
         asm volatile("cli; hlt");
     }
-    __builtin_unreachable();
+	__builtin_unreachable();
 }
 
 void pausepoint(){
-    kprint("Pausepoint. Press any key to continue :3\n");
-    while ((inb(0x64) & 1) == 0);
+	kprint("Pausepoint. Press any key to continue :3\n");
+	while ((inb(0x64) & 1) == 0);
     inb(0x60);
 }

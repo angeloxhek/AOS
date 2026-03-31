@@ -1,51 +1,47 @@
 #include "include/kernel_internal.h"
 
-extern void switch_to_task(thread_t* current, thread_t* next);
-extern void trampoline_enter_user();
-extern void trampoline_enter_kernel();
-
 // -------------------------
 //        Scheduler
 // -------------------------
 
 void init_scheduler() {
-    kernel_memset(&kernel_process, 0, sizeof(process_t));
+	kernel_memset(&kernel_process, 0, sizeof(process_t));
     kernel_process.id = 0;
     kernel_memcpy(kernel_process.name, "KERNEL", 6);
     kernel_process.page_directory = (uint64_t*)get_current_pml4();
-    kernel_process.entry_point = (uint64_t)kernel_main;
+	kernel_process.entry_point = (uint64_t)kernel_main;
     thread_t* kthread = (thread_t*)kernel_malloc(sizeof(thread_t));
-    if (!kthread) kernel_error(0x5, 0, 0, 0, 0);
-    kernel_memset(kthread, 0, sizeof(thread_t));
-    kthread->stack_base = (uint64_t)kernel_stack;
+	if (!kthread) kernel_error(0x5, 0, 0, 0, 0);
+	kernel_memset(kthread, 0, sizeof(thread_t));
+	kthread->stack_base = (uint64_t)kernel_stack;
     uint64_t current_rsp;
     asm volatile("mov %%rsp, %0" : "=r"(current_rsp));
     kthread->rsp = current_rsp;
     kthread->cr3 = get_current_pml4();
     kthread->state = 1;
-    kthread->owner = &kernel_process;
+	kthread->owner = &kernel_process;
     kthread->next = kthread;
-    kthread->tid = thread_count;
-    thread_count++;
+	kthread->tid = thread_count;
+	thread_count++;
     current_thread = kthread;
     ready_queue = kthread;
 }
 
 thread_t* create_thread_core(uint64_t cr3, process_t* owner) {
     thread_t* t = (thread_t*)kernel_malloc(sizeof(thread_t));
-    if (!t) return 0;
-    kernel_memset(t, 0, sizeof(thread_t));
-    kernel_memcpy(t->fpu_state, default_fpu_state, 512);
+	if (!t) return 0;
+	kernel_memset(t, 0, sizeof(thread_t));
+	kernel_memcpy(t->fpu_state, default_fpu_state, 512);
     void* stack = kernel_malloc(KERNEL_STACK_SIZE);
-    if (!stack) return 0;
+	if (!stack) return 0;
     kernel_memset(stack, 0, KERNEL_STACK_SIZE);
     t->stack_base = (uint64_t)stack;
     t->rsp = (uint64_t)stack + KERNEL_STACK_SIZE;
     t->cr3 = cr3;
     t->state = THREAD_READY;
     t->tid = thread_count;
-    thread_count++;
-    t->owner = owner;
+	thread_count++;
+	t->owner = owner;
     if (ready_queue == 0) {
         ready_queue = t;
         t->next = t;
@@ -57,7 +53,7 @@ thread_t* create_thread_core(uint64_t cr3, process_t* owner) {
 }
 
 void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc) {
-    asm volatile("cli");
+	asm volatile("cli");
     thread_t* t = create_thread_core(cr3_phys, proc);
 
     uint64_t tcb_size = 0x30;
@@ -68,7 +64,7 @@ void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_
 
     for (uint64_t i = 0; i < alloc_pages * PAGE_SIZE; i += PAGE_SIZE) {
         uint64_t phys = pmm_alloc_block();
-        map_to_other_pml4((uint64_t*)cr3_phys, phys, tls_virt + i, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+        map_to_other_pml4((uint64_t*)cr3_phys, phys, tls_virt + i, PAGE_PRESENT | PAGE_WRITE | PAGE_USER | PAGE_NX);
     }
 
     uint64_t old_cr3 = get_current_pml4();
@@ -79,7 +75,7 @@ void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_
         kernel_memset((void*)(tls_virt + proc->tls_file_size), 0, proc->tls_mem_size - proc->tls_file_size);
     }
 
-    uint64_t fs_base = tls_virt + proc->tls_mem_size;
+	uint64_t fs_base = tls_virt + proc->tls_mem_size;
 
     aos_tcb_t* tcb = (aos_tcb_t*)fs_base;
 
@@ -115,11 +111,11 @@ void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_
     *(--sp) = 0;     // RBX
 
     t->rsp = (uint64_t)sp;
-    asm volatile("sti");
+	asm volatile("sti");
 }
 
 void create_kernel_thread(void (*entry)(void)) {
-    asm volatile("cli");
+	asm volatile("cli");
     thread_t* t = create_thread_core(get_current_pml4(), &kernel_process);
 
     uint64_t* sp = (uint64_t*)t->rsp;
@@ -137,11 +133,11 @@ void create_kernel_thread(void (*entry)(void)) {
     *(--sp) = 0; // RBX
 
     t->rsp = (uint64_t)sp;
-    asm volatile("sti");
+	asm volatile("sti");
 }
 
 void schedule() {
-    thread_t* t = ready_queue;
+	thread_t* t = ready_queue;
     do {
         if (t->state == THREAD_BLOCKED && t->wake_up_time > 0) {
             if (ticks >= t->wake_up_time) {
@@ -157,23 +153,50 @@ void schedule() {
     while (next->state > 1 && next != prev) {
         next = next->next;
     }
-    if (next->state > 1) {
+	if (next->state > 1) {
         next = get_thread_by_id(1);
     }
     if (next == prev) return;
     current_thread = next;
-    if (prev->state == THREAD_RUNNING) prev->state = THREAD_READY;
+	if (prev->state == THREAD_RUNNING) prev->state = THREAD_READY;
     next->state = THREAD_RUNNING;
     tss.rsp0 = next->stack_base + KERNEL_STACK_SIZE;
-    kernel_tcb.kernel_rsp = next->stack_base + KERNEL_STACK_SIZE;
-    switch_to_task(prev, next);
+	kernel_tcb.kernel_rsp = next->stack_base + KERNEL_STACK_SIZE;
+	switch_to_task(prev, next);
 }
 
 int kill_thread(thread_t* target, int exit_code) {
-    if (target->tid == 1) return SYS_RES_NO_PERM;
+	if (target->tid == 1) return SYS_RES_NO_PERM;
     asm volatile("cli");
     target->state = THREAD_ZOMBIE;
-    target->exit_code = exit_code;
+	target->exit_code = exit_code;
+    /*mutex_t* m = target->owned_mutexes;
+    while (m) {
+        mutex_t* next_m = m->next_owned;
+        if (m->wait_queue) {
+            thread_t* waiter = m->wait_queue;
+            thread_t* prev_waiter = 0;
+            while (waiter && waiter->state == THREAD_ZOMBIE) {
+                break;
+            }
+            if (waiter) {
+                m->wait_queue = waiter->next_waiter;
+                waiter->state = THREAD_READY;
+                m->owner = waiter;
+                m->locked = 0;
+                m->owner = 0;
+            } else {
+                m->locked = 0;
+                m->owner = 0;
+            }
+        } else {
+            m->locked = 0;
+            m->owner = 0;
+        }
+        m->next_owned = 0;
+        m = next_m;
+    }
+    target->owned_mutexes = 0;*/
     thread_t* prev = target;
     while (prev->next != target) {
         prev = prev->next;
@@ -184,10 +207,10 @@ int kill_thread(thread_t* target, int exit_code) {
     if (ready_queue == target) {
         ready_queue = target->next;
     }
-    target->next_zombie = zombies_list;
+	target->next_zombie = zombies_list;
     zombies_list = target;
-    asm volatile("sti");
-    return SYS_RES_OK;
+	asm volatile("sti");
+	return SYS_RES_OK;
 }
 
 thread_t* get_thread_by_id(uint64_t tid) {
@@ -212,9 +235,9 @@ process_t* get_process_by_id(uint32_t pid) {
     return 0;
 }
 
-int get_driver_tid_sleep_wrapper(void* arg) {
-    return get_driver_tid(*(driver_type_t*)arg);
-}
+// -------------------------
+//          Timers
+// -------------------------
 
 void sleep(uint64_t ms) {
     uint64_t ticks_to_wait = ms / 10;
@@ -225,7 +248,7 @@ void sleep(uint64_t ms) {
     current_thread->state = THREAD_BLOCKED;
 
     schedule();
-    asm volatile("sti");
+	asm volatile("sti");
 }
 
 int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result) {
@@ -255,4 +278,8 @@ int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* ou
     }
     if (out_result) *out_result = res;
     return 1;
+}
+
+int get_driver_tid_sleep_wrapper(void* arg) {
+    return get_driver_tid(*(driver_type_t*)arg);
 }

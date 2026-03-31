@@ -1,7 +1,5 @@
 #include "include/kernel_internal.h"
 
-extern void syscall_entry(void);
-
 #define MSR_EFER    0xC0000080
 #define MSR_STAR    0xC0000081
 #define MSR_LSTAR   0xC0000082
@@ -11,12 +9,10 @@ extern void syscall_entry(void);
 #define USER_DATA_SEG   0x18
 #define USER_SEG_BASE   0x10
 
-// -------------------------
-//        Syscall
-// -------------------------
+extern void syscall_entry(void);
 
 void init_syscall() {
-    kernel_tcb.kernel_rsp = (uint64_t)(kernel_stack + sizeof(kernel_stack));
+	kernel_tcb.kernel_rsp = (uint64_t)(kernel_stack + sizeof(kernel_stack));
     uint64_t efer = rdmsr(MSR_EFER);
     wrmsr(MSR_EFER, efer | 1 | (1 << 11)); // SCE + NXE
     uint64_t star = ((uint64_t)USER_SEG_BASE << 48) | ((uint64_t)KERNEL_CODE_SEG << 32);
@@ -47,50 +43,50 @@ void syscall_handler(syscall_regs_t* regs) {
     switch (syscall_nr) {
         case SYS_PRINT: {
             const char* user_msg = (const char*)regs->rdi;
-            if (!is_valid_user_pointer(user_msg)) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
-            kprint(user_msg);
-            regs->rax = SYS_RES_OK;
+			if (!is_valid_user_pointer(user_msg)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
+			kprint(user_msg);
+			regs->rax = SYS_RES_OK;
             break;
         }
         case SYS_EXIT: {
-            int exit_code = (int)regs->rdi;
-            uint64_t tid = (uint64_t)regs->rsi;
-            thread_t* th;
-            if (tid == 0) { th = current_thread; }
-            else {
-                th = get_thread_by_id(tid);
-                if (th == 0) {
-                    regs->rax = SYS_RES_INVALID;
-                    break;
-                }
-            }
-            regs->rax = kill_thread(th, exit_code);
-            if (tid == 0) schedule();
-            break;
-        }
-        case SYS_IPC_SEND: {
+			int exit_code = (int)regs->rdi;
+			uint64_t tid = (uint64_t)regs->rsi;
+			thread_t* th;
+			if (tid == 0) { th = current_thread; }
+			else {
+				th = get_thread_by_id(tid);
+				if (th == 0) {
+					regs->rax = SYS_RES_INVALID;
+					break;
+				}
+			}
+			regs->rax = kill_thread(th, exit_code);
+			if (tid == 0) schedule();
+			break;
+		}
+		case SYS_IPC_SEND: {
             uint64_t dest = regs->rdi;
             message_t* user_msg = (message_t*)regs->rsi;
-            if (!is_valid_user_pointer(user_msg)) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
+			if (!is_valid_user_pointer(user_msg)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
             regs->rax = ipc_send(dest, user_msg);
             break;
         }
         case SYS_IPC_RECV: {
             message_t* user_msg_buffer = (message_t*)regs->rdi;
-            if (!is_valid_user_pointer(user_msg_buffer)) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
+			if (!is_valid_user_pointer(user_msg_buffer)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
             regs->rax = ipc_receive(user_msg_buffer);
             break;
         }
-        case SYS_REGISTER_DRIVER:
+		case SYS_REGISTER_DRIVER:
             regs->rax = register_driver((driver_type_t)regs->rdi, (const char*)regs->rsi);
             break;
 
@@ -99,98 +95,98 @@ void syscall_handler(syscall_regs_t* regs) {
             break;
 
         case SYS_GET_DRIVER_TID_BY_NAME: {
-            const char* name_ptr = (const char*)regs->rdi;
-            if (!is_valid_user_pointer(name_ptr)) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
+			const char* name_ptr = (const char*)regs->rdi;
+			if (!is_valid_user_pointer(name_ptr)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
             regs->rax = get_driver_tid_by_name(name_ptr);
             break;
-        }
+		}
 
-        case SYS_GET_SYSTEM_INFO: {
-            system_info_t* info = (system_info_t*)regs->rdi;
-            if (is_valid_user_pointer(info)) {
-                info->flags = state.system_flags;
-                info->cpu_flags = state.cpu_flags;
-                info->uptime = ticks;
-                info->fs_base = current_thread->fs_base;
-                info->gs_base = rdmsr(0xC0000102);
-                info->kernel_gs_base = rdmsr(0xC0000101);
-                regs->rax = SYS_RES_OK;
-            } else {
-                regs->rax = SYS_RES_INVALID;
-            }
-            break;
-        }
+		case SYS_GET_SYSTEM_INFO: {
+			system_info_t* info = (system_info_t*)regs->rdi;
+			if (is_valid_user_pointer(info)) {
+				info->flags = state.system_flags;
+				info->cpu_flags = state.cpu_flags;
+				info->uptime = ticks;
+				info->fs_base = current_thread->fs_base;
+				info->gs_base = rdmsr(0xC0000102);
+				info->kernel_gs_base = rdmsr(0xC0000101);
+				regs->rax = SYS_RES_OK;
+			} else {
+				regs->rax = SYS_RES_INVALID;
+			}
+			break;
+		}
 
-        case SYS_SBRK: {
-            asm volatile("cli");
-            int64_t increment = (int64_t)regs->rdi;
-            process_t* proc = current_thread->owner;
-            uint64_t old_brk = proc->heap_limit;
-            if (increment == 0) {
-                regs->rax = old_brk;
-                asm volatile("sti");
-                break;
-            }
-            uint64_t new_brk = old_brk + increment;
-            uint64_t old_page_limit = (old_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-            uint64_t new_page_limit = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-            if (new_page_limit > old_page_limit) {
-                uint64_t pages_needed = (new_page_limit - old_page_limit) / PAGE_SIZE;
-                for (uint64_t i = 0; i < pages_needed; i++) {
-                    uint64_t phys_addr = pmm_alloc_block();
-                    if (!phys_addr) {
-                        regs->rax = SYS_RES_KERNEL_ERR;
-                        asm volatile("sti");
-                        return;
-                    }
-                    map_to_other_pml4(proc->page_directory, phys_addr, old_page_limit + (i * PAGE_SIZE), PAGE_USER | PAGE_WRITE | PAGE_PRESENT);
-                    kernel_memset((void*)P2V(phys_addr), 0, PAGE_SIZE);
-                }
-            }
-            proc->heap_limit = new_brk;
-            regs->rax = old_brk;
-            asm volatile("sti");
-            break;
-        }
+		case SYS_SBRK: {
+			asm volatile("cli");
+			int64_t increment = (int64_t)regs->rdi;
+			process_t* proc = current_thread->owner;
+			uint64_t old_brk = proc->heap_limit;
+			if (increment == 0) {
+				regs->rax = old_brk;
+				asm volatile("sti");
+				break;
+			}
+			uint64_t new_brk = old_brk + increment;
+			uint64_t old_page_limit = (old_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+			uint64_t new_page_limit = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+			if (new_page_limit > old_page_limit) {
+				uint64_t pages_needed = (new_page_limit - old_page_limit) / PAGE_SIZE;
+				for (uint64_t i = 0; i < pages_needed; i++) {
+					uint64_t phys_addr = pmm_alloc_block();
+					if (!phys_addr) {
+						regs->rax = SYS_RES_KERNEL_ERR;
+						asm volatile("sti");
+						return;
+					}
+					map_to_other_pml4(proc->page_directory, phys_addr, old_page_limit + (i * PAGE_SIZE), PAGE_USER | PAGE_WRITE | PAGE_PRESENT | PAGE_NX);
+					kernel_memset((void*)P2V(phys_addr), 0, PAGE_SIZE);
+				}
+			}
+			proc->heap_limit = new_brk;
+			regs->rax = old_brk;
+			asm volatile("sti");
+			break;
+		}
 
-        case SYS_BLOCK_READ: {
-            uint64_t dev_id = regs->rdi;
-            uint64_t lba    = regs->rsi;
-            uint64_t count  = regs->rdx;
-            void* buffer    = (void*)regs->r10;
+		case SYS_BLOCK_READ: {
+			uint64_t dev_id = regs->rdi;
+			uint64_t lba    = regs->rsi;
+			uint64_t count  = regs->rdx;
+			void* buffer    = (void*)regs->r10;
 
-            if (!is_valid_user_pointer(buffer)) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
-            ide_device_t* target_dev = 0;
-            for (int i = 0; i < ide_count; i++) {
-                if (mounted_ides[i].id == dev_id) {
-                    target_dev = &mounted_ides[i];
-                    break;
-                }
-            }
-            if (!target_dev) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
-            regs->rax = ide_read_sectors(target_dev, lba, count, buffer) ? SYS_RES_OK : SYS_RES_DSK_ERR;
-            break;
-        }
+			if (!is_valid_user_pointer(buffer)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
+			ide_device_t* target_dev = 0;
+			for (int i = 0; i < ide_count; i++) {
+				if (mounted_ides[i].id == dev_id) {
+					target_dev = &mounted_ides[i];
+					break;
+				}
+			}
+			if (!target_dev) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
+			regs->rax = ide_read_sectors(target_dev, lba, count, buffer) ? SYS_RES_OK : SYS_RES_DSK_ERR;
+			break;
+		}
 
-        case SYS_BLOCK_WRITE: {
+		case SYS_BLOCK_WRITE: {
             uint64_t dev_id = regs->rdi;
             uint64_t lba    = regs->rsi;
             uint64_t count  = regs->rdx;
             const void* buffer = (const void*)regs->r10;
 
-            if (!is_valid_user_pointer(buffer)) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
+			if (!is_valid_user_pointer(buffer)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
             ide_device_t* target_dev = 0;
             for (int i = 0; i < ide_count; i++) {
                 if (mounted_ides[i].id == dev_id) {
@@ -206,60 +202,60 @@ void syscall_handler(syscall_regs_t* regs) {
             break;
         }
 
-        case SYS_GET_DISK_COUNT: {
-            regs->rax = ide_count;
-            break;
-        }
+		case SYS_GET_DISK_COUNT: {
+			regs->rax = ide_count;
+			break;
+		}
 
-        case SYS_GET_DISK_INFO: {
-            uint64_t idx = regs->rdi;
-            disk_info_t* user_info = (disk_info_t*)regs->rsi;
-            if (!is_valid_user_pointer(user_info)) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
-            if (idx >= ide_count) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
-            ide_device_t* dev = &mounted_ides[idx];
-            user_info->id = idx;
-            user_info->sector_size = 512;
-            user_info->type = DISK_TYPE_IDE;
-            user_info->total_sectors = 0;
-            kernel_strcpy(user_info->model, "Generic IDE Drive");
-            regs->rax = SYS_RES_OK;
-            break;
-        }
+		case SYS_GET_DISK_INFO: {
+			uint64_t idx = regs->rdi;
+			disk_info_t* user_info = (disk_info_t*)regs->rsi;
+			if (!is_valid_user_pointer(user_info)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
+			if (idx >= ide_count) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
+			ide_device_t* dev = &mounted_ides[idx];
+			user_info->id = idx;
+			user_info->sector_size = 512;
+			user_info->type = DISK_TYPE_IDE;
+			user_info->total_sectors = 0;
+			kernel_strcpy(user_info->model, "Generic IDE Drive");
+			regs->rax = SYS_RES_OK;
+			break;
+		}
 
-        case SYS_GET_PARTITION_COUNT: {
-            regs->rax = volume_count;
-            break;
-        }
+		case SYS_GET_PARTITION_COUNT: {
+			regs->rax = volume_count;
+			break;
+		}
 
-        case SYS_GET_PARTITION_INFO: {
-            uint64_t idx = regs->rdi;
-            partition_info_t* user_info = (partition_info_t*)regs->rsi;
-            if (!is_valid_user_pointer(user_info)) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
-            if (idx >= volume_count) {
-                regs->rax = SYS_RES_INVALID;
-                break;
-            }
-            volume_t* vol = &mounted_volumes[idx];
-            user_info->id = vol->id;
-            user_info->parent_disk_id = vol->device.id;
-            user_info->start_lba = vol->partition_lba;
-            user_info->size_sectors = vol->sector_count;
-            user_info->bootable = vol->active;
-            user_info->partition_type = 0x0B; // FAT32
-            regs->rax = SYS_RES_OK;
-            break;
-        }
+		case SYS_GET_PARTITION_INFO: {
+			uint64_t idx = regs->rdi;
+			partition_info_t* user_info = (partition_info_t*)regs->rsi;
+			if (!is_valid_user_pointer(user_info)) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
+			if (idx >= volume_count) {
+				regs->rax = SYS_RES_INVALID;
+				break;
+			}
+			volume_t* vol = &mounted_volumes[idx];
+			user_info->id = vol->id;
+			user_info->parent_disk_id = vol->device.id;
+			user_info->start_lba = vol->partition_lba;
+			user_info->size_sectors = vol->sector_count;
+			user_info->bootable = vol->active;
+			user_info->partition_type = 0x0B;
+			regs->rax = SYS_RES_OK;
+			break;
+		}
 
-        case SYS_GET_PROC_INFO: {
+		case SYS_GET_PROC_INFO: {
             uint32_t target_pid = (uint32_t)regs->rdi;
             proc_info_user_t* user_ptr = (proc_info_user_t*)regs->rsi;
 
@@ -343,45 +339,45 @@ void syscall_handler(syscall_regs_t* regs) {
             break;
         }
 
-        case SYS_SHM_ALLOC: {
-            uint64_t size = regs->rdi;
-            uint64_t* user_out_vaddr = (uint64_t*)regs->rsi;
+		case SYS_SHM_ALLOC: {
+			uint64_t size = regs->rdi;
+			uint64_t* user_out_vaddr = (uint64_t*)regs->rsi;
 
-            uint64_t out_vaddr = 0;
-            uint64_t shm_id = shm_alloc(size, &out_vaddr);
+			uint64_t out_vaddr = 0;
+			uint64_t shm_id = shm_alloc(size, &out_vaddr);
 
-            if (shm_id != 0 && user_out_vaddr != 0 && is_valid_user_pointer(user_out_vaddr)) {
-                *user_out_vaddr = out_vaddr;
-            }
+			if (shm_id != 0 && user_out_vaddr != 0 && is_valid_user_pointer(user_out_vaddr)) {
+				*user_out_vaddr = out_vaddr;
+			}
 
-            regs->rax = shm_id;
-            break;
-        }
+			regs->rax = shm_id;
+			break;
+		}
 
-        case SYS_SHM_ALLOW: {
-            uint64_t shm_id = regs->rdi;
-            uint64_t target_tid = regs->rsi;
+		case SYS_SHM_ALLOW: {
+			uint64_t shm_id = regs->rdi;
+			uint64_t target_tid = regs->rsi;
 
-            int result = shm_allow(shm_id, target_tid);
-            regs->rax = (uint64_t)result;
-            break;
-        }
+			int result = shm_allow(shm_id, target_tid);
+			regs->rax = (uint64_t)result;
+			break;
+		}
 
-        case SYS_SHM_MAP: {
-            uint64_t shm_id = regs->rdi;
+		case SYS_SHM_MAP: {
+			uint64_t shm_id = regs->rdi;
 
-            uint64_t vaddr = shm_map(shm_id);
-            regs->rax = vaddr;
-            break;
-        }
+			uint64_t vaddr = shm_map(shm_id);
+			regs->rax = vaddr;
+			break;
+		}
 
-        case SYS_SHM_FREE: {
-            uint64_t shm_id = regs->rdi;
+		case SYS_SHM_FREE: {
+			uint64_t shm_id = regs->rdi;
 
-            int result = shm_free(shm_id);
-            regs->rax = (uint64_t)result;
-            break;
-        }
+			int result = shm_free(shm_id);
+			regs->rax = (uint64_t)result;
+			break;
+		}
 
         default: {
             kprint("Unknown Syscall invoked!\n");
