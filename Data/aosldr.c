@@ -143,7 +143,7 @@ kernel_tcb_t kernel_tcb = {
 #define USER_DATA_SEG   0x18 
 #define USER_SEG_BASE   0x10
 
-#define KERNEL_STACK_SIZE 4096
+#define KERNEL_STACK_SIZE 16384
 process_t kernel_process;
 
 thread_t* current_thread;
@@ -161,34 +161,46 @@ thread_t* zombies_list = 0;
 
 uint8_t default_fpu_state[512] __attribute__((aligned(16)));
 
+shm_object_t* shm_global_list = 0;
+uint64_t next_shm_id = 1;
+
 // --------------------------
 //           ASM
 // --------------------------
 
-static inline void outb(uint16_t port, uint8_t val) {
+void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ( "outb %b0, %w1" : : "a"(val), "Nd"(port) : "memory");
 }
 
-static inline uint8_t inb(uint16_t port) {
+uint8_t inb(uint16_t port) {
     uint8_t ret;
     __asm__ volatile ( "inb %w1, %b0" : "=a"(ret) : "Nd"(port) : "memory");
     return ret;
 }
 
-static inline uint16_t inw(uint16_t port) {
+uint16_t inw(uint16_t port) {
     uint16_t ret;
     __asm__ volatile ( "inw %w1, %w0" : "=a"(ret) : "Nd"(port) : "memory");
     return ret;
 }
 
-static inline void outw(uint16_t port, uint16_t val) {
+void outw(uint16_t port, uint16_t val) {
     __asm__ volatile ( "outw %w0, %w1" : : "a"(val), "Nd"(port) : "memory");
 }
 
-static inline void insw(uint16_t port, void* addr, uint32_t count) {
+void insw(uint16_t port, void* addr, uint32_t count) {
     __asm__ volatile (
         "cld; rep insw"
         : "+D" (addr), "+c" (count)
+        : "d" (port)
+        : "memory"
+    );
+}
+
+void outsw(uint16_t port, const void* addr, uint32_t count) {
+    __asm__ volatile (
+        "cld; rep outsw"
+        : "+S" (addr), "+c" (count)
         : "d" (port)
         : "memory"
     );
@@ -438,8 +450,8 @@ void kernel_memcpy(void* dest, const void* src, uint64_t n) {
     uint64_t* d1 = dest;
     const uint64_t* s1 = src;
     while (n1--) *d1++ = *s1++;
-	uint8_t* d2 = dest;
-    const uint8_t* s2 = src;
+	uint8_t* d2 = (uint8_t*)d1;
+    const uint8_t* s2 = (const uint8_t*)s1;
 	while (n2--) *d2++ = *s2++;
 }
 
@@ -706,6 +718,9 @@ void schedule() {
     while (next->state > 1 && next != prev) {
         next = next->next;
     }
+	if (next->state > 1) {
+        next = get_thread_by_id(1);
+    }
     if (next == prev) return;
     current_thread = next;
 	if (prev->state == THREAD_RUNNING) prev->state = THREAD_READY;
@@ -954,6 +969,7 @@ void syscall_handler(syscall_regs_t* regs) {
 			uint64_t lba    = regs->rsi;
 			uint64_t count  = regs->rdx;
 			void* buffer    = (void*)regs->r10;
+			
 			ide_device_t* target_dev = 0;
 			for (int i = 0; i < ide_count; i++) {
 				if (mounted_ides[i].id == dev_id) {
@@ -968,6 +984,27 @@ void syscall_handler(syscall_regs_t* regs) {
 			regs->rax = ide_read_sectors(target_dev, lba, count, buffer) ? SYS_RES_OK : SYS_RES_DSK_ERR;
 			break;
 		}
+		
+		case SYS_BLOCK_WRITE: {
+            uint64_t dev_id = regs->rdi;
+            uint64_t lba    = regs->rsi;
+            uint64_t count  = regs->rdx;
+            const void* buffer = (const void*)regs->r10;
+            
+            ide_device_t* target_dev = 0;
+            for (int i = 0; i < ide_count; i++) {
+                if (mounted_ides[i].id == dev_id) {
+                    target_dev = &mounted_ides[i];
+                    break;
+                }
+            }
+            if (!target_dev) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+            regs->rax = ide_write_sectors(target_dev, lba, count, buffer) ? SYS_RES_OK : SYS_RES_DSK_ERR;
+            break;
+        }
 		
 		case SYS_GET_DISK_COUNT: {
 			regs->rax = ide_count;
@@ -1016,6 +1053,138 @@ void syscall_handler(syscall_regs_t* regs) {
 			user_info->bootable = vol->active;
 			user_info->partition_type = 0x0B; // FAT32 (или брать реальный тип из MBR)
 			regs->rax = SYS_RES_OK;
+			break;
+		}
+		
+		case SYS_GET_PROC_INFO: {
+            uint32_t target_pid = (uint32_t)regs->rdi;
+            proc_info_user_t* user_ptr = (proc_info_user_t*)regs->rsi;
+
+            if (!is_valid_user_pointer(user_ptr)) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+
+            // Ищем процесс. 
+            // ВАЖНО: Если у вас нет глобального списка процессов (process_list_head),
+            // вы можете найти его, перебрав ready_queue и посмотрев t->owner->id
+            process_t* target_proc = 0;
+            thread_t* t = ready_queue;
+            if (t) {
+                do {
+                    if (t->owner->id == target_pid) {
+                        target_proc = t->owner;
+                        break;
+                    }
+                    t = t->next;
+                } while (t != ready_queue);
+            }
+
+            if (!target_proc) {
+                regs->rax = SYS_RES_NOTFOUND; // Процесс не найден (возможно зомби или убит)
+                break;
+            }
+
+            // Безопасно заполняем временную структуру в ядре
+            proc_info_user_t info;
+            kernel_memset(&info, 0, sizeof(proc_info_user_t));
+            info.pid = target_proc->id;
+            kernel_memcpy(info.name, target_proc->name, 32);
+            info.state = target_proc->state;
+            info.heap_limit = target_proc->heap_limit;
+            
+            // Подсчет потоков
+            info.threads_count = 0;
+            t = ready_queue;
+            if (t) {
+                do {
+                    if (t->owner->id == target_pid) info.threads_count++;
+                    t = t->next;
+                } while (t != ready_queue);
+            }
+
+            // Копируем пользователю
+            kernel_memcpy(user_ptr, &info, sizeof(proc_info_user_t));
+            regs->rax = SYS_RES_OK;
+            break;
+        }
+
+        case SYS_GET_THREAD_INFO: {
+            uint64_t target_tid = regs->rdi;
+            thread_info_user_t* user_ptr = (thread_info_user_t*)regs->rsi;
+
+            if (!is_valid_user_pointer(user_ptr)) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+
+            thread_t* target_thread = get_thread_by_id(target_tid);
+            
+            // Если нет в активных, можно поискать в zombies_list (опционально)
+            if (!target_thread) {
+                thread_t* z = zombies_list;
+                while (z) {
+                    if (z->tid == target_tid) { target_thread = z; break; }
+                    z = z->next_zombie;
+                }
+            }
+
+            if (!target_thread) {
+                regs->rax = SYS_RES_NOTFOUND; // Поток не найден
+                break;
+            }
+
+            thread_info_user_t info;
+            kernel_memset(&info, 0, sizeof(thread_info_user_t));
+            info.tid = target_thread->tid;
+            info.parent_pid = target_thread->owner->id;
+            info.state = target_thread->state;
+            info.waiting_for_msg = target_thread->waiting_for_msg;
+            info.wake_up_time = target_thread->wake_up_time;
+
+            kernel_memcpy(user_ptr, &info, sizeof(thread_info_user_t));
+            regs->rax = SYS_RES_OK;
+            break;
+        }
+		
+		case SYS_SHM_ALLOC: {
+			uint64_t size = regs->rdi;
+			uint64_t* user_out_vaddr = (uint64_t*)regs->rsi;
+			
+			uint64_t out_vaddr = 0;
+			uint64_t shm_id = shm_alloc(size, &out_vaddr);
+			
+			if (shm_id != 0 && user_out_vaddr != 0) {
+				// Записываем виртуальный адрес в память пользователя
+				*user_out_vaddr = out_vaddr;
+			}
+			
+			regs->rax = shm_id;
+			break;
+		}
+
+		case SYS_SHM_ALLOW: {
+			uint64_t shm_id = regs->rdi;
+			uint64_t target_tid = regs->rsi;
+			
+			int result = shm_allow(shm_id, target_tid);
+			regs->rax = (uint64_t)result;
+			break;
+		}
+
+		case SYS_SHM_MAP: {
+			uint64_t shm_id = regs->rdi;
+			
+			uint64_t vaddr = shm_map(shm_id);
+			regs->rax = vaddr;
+			break;
+		}
+
+		case SYS_SHM_FREE: {
+			uint64_t shm_id = regs->rdi;
+			
+			int result = shm_free(shm_id);
+			regs->rax = (uint64_t)result;
 			break;
 		}
 		
@@ -1138,6 +1307,43 @@ int ide_read_sectors(ide_device_t* dev, uint64_t lba, uint16_t count, uint8_t* b
 
 int ide_read_sector(ide_device_t* dev, uint64_t lba, uint8_t* buffer) {
 	return ide_read_sectors(dev, lba, 1, buffer);
+}
+
+int ide_write_sectors(ide_device_t* dev, uint64_t lba, uint16_t count, const uint8_t* buffer) {
+    if (!sleep_while_zero(ide_wait_ready, (void*)dev, 5000, 0)) return 0;
+    
+    uint16_t io = dev->io_base;
+    uint8_t slave_bit = (dev->drive_select & 0x10);
+    
+    outb(io + 6, 0x40 | slave_bit); 
+    
+    outb(io + 2, (uint8_t)(count >> 8));
+    outb(io + 2, (uint8_t)count);
+    outb(io + 3, (uint8_t)(lba >> 24)); 
+    outb(io + 3, (uint8_t)lba);
+    outb(io + 4, (uint8_t)(lba >> 32));
+    outb(io + 4, (uint8_t)(lba >> 8));
+    outb(io + 5, (uint8_t)(lba >> 40));
+    outb(io + 5, (uint8_t)(lba >> 16));
+    
+    outb(io + 7, ATA_CMD_WRITE_PIO_EXT);
+    
+    int res = 0;
+    for (int i = 0; i < count; i++) {
+        if (!sleep_while_zero(ide_wait_drq, (void*)dev, 5000, &res) || res == 2) {
+            return 0; 
+        }
+        outsw(io, buffer + (i * 512), 256);
+    }
+    
+    outb(io + 7, ATA_CMD_CACHE_FLUSH_EXT);
+    if (!sleep_while_zero(ide_wait_ready, (void*)dev, 5000, 0)) return 0;
+    
+    return 1;
+}
+
+int ide_write_sector(ide_device_t* dev, uint64_t lba, const uint8_t* buffer) {
+    return ide_write_sectors(dev, lba, 1, buffer);
 }
 
 
@@ -1611,6 +1817,8 @@ process_t* create_process(const char* name) {
         pml4_virt[i] = kernel_entries[i - 256];
     }
     pml4_virt[510] = pml4_phys | PAGE_PRESENT | PAGE_WRITE;
+	
+	new_proc->next_shm_vaddr = 0x600000000000ULL; 
 
     temp_unmap();
     return new_proc;
@@ -1844,8 +2052,8 @@ int kill_thread(thread_t* target, int exit_code) {
     if (ready_queue == target) {
         ready_queue = target->next;
     }
-	target->next = zombies_list;
-	zombies_list = target;
+	target->next_zombie = zombies_list;
+    zombies_list = target;
 	asm volatile("sti");
 	return SYS_RES_OK;
 }
@@ -1858,6 +2066,18 @@ thread_t* get_thread_by_id(uint64_t tid) {
         t = t->next;
     } while (t != ready_queue);
     return 0;
+}
+
+process_t* get_process_by_id(uint32_t pid) {
+    thread_t* t = ready_queue;
+    if (!t) return 0;
+    do {
+        if (t->owner && t->owner->id == pid) {
+            return t->owner;
+        }
+        t = t->next;
+    } while (t != ready_queue);
+    return 0; 
 }
 
 int64_t register_driver(driver_type_t type, const char* user_name) {
@@ -2153,9 +2373,9 @@ void sleep(uint64_t ms) {
     asm volatile("cli");
     current_thread->wake_up_time = ticks + ticks_to_wait;
     current_thread->state = THREAD_BLOCKED;
-    asm volatile("sti");
 
     schedule();
+	asm volatile("sti");
 }
 
 int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result) {
@@ -2201,19 +2421,6 @@ int64_t ipc_send(uint64_t dest_tid, message_t* user_msg) {
 	kernel_memset(node, 0, sizeof(msg_node_t));
     node->msg = *user_msg;
     node->msg.sender_tid = current_thread->tid;
-	if (user_msg->payload_size > 0 && user_msg->payload_ptr != 0) {
-        void* kbuffer = kernel_malloc(user_msg->payload_size);
-        if (!kbuffer) {
-            kernel_free(node);
-            asm volatile("sti");
-            return SYS_RES_KERNEL_ERR;
-        }
-        kernel_memcpy(kbuffer, user_msg->payload_ptr, user_msg->payload_size);
-        node->msg.payload_ptr = (uint8_t*)kbuffer;
-    } else {
-        node->msg.payload_ptr = 0;
-        node->msg.payload_size = 0;
-    }
     node->next = 0;
     if (target->msg_queue_tail) {
         target->msg_queue_tail->next = node;
@@ -2245,21 +2452,6 @@ int64_t ipc_receive(message_t* user_msg_out) {
         asm volatile("cli");
         if (current_thread->msg_queue_head) {
             msg_node_t* node = current_thread->msg_queue_head;
-            uint8_t* user_dest_ptr = user_msg_out->payload_ptr;
-            uint64_t user_max_size = user_msg_out->payload_size;
-            void* kernel_ptr = node->msg.payload_ptr;
-            uint64_t actual_size = 0;
-            if (kernel_ptr != 0) {
-                 actual_size = node->msg.payload_size;
-            }
-            if (actual_size > user_max_size) {
-                user_msg_out->payload_size = actual_size;
-                user_msg_out->type = node->msg.type;
-                user_msg_out->subtype = node->msg.subtype;
-                user_msg_out->sender_tid = node->msg.sender_tid;
-                asm volatile("sti");
-                return SYS_RES_BUFFER_TOO_SMALL;
-            }
             current_thread->msg_queue_head = node->next;
             if (!current_thread->msg_queue_head) {
                 current_thread->msg_queue_tail = 0;
@@ -2271,18 +2463,6 @@ int64_t ipc_receive(message_t* user_msg_out) {
                 }
             }
             *user_msg_out = node->msg;
-            if (actual_size > 0 && kernel_ptr != 0) {
-                if (user_dest_ptr != 0) {
-                    kernel_memcpy(user_dest_ptr, kernel_ptr, actual_size);
-                    user_msg_out->payload_ptr = user_dest_ptr;
-                } else {
-                    user_msg_out->payload_ptr = 0;
-                }
-                kernel_free(kernel_ptr);
-            } else {
-                user_msg_out->payload_ptr = 0;
-                user_msg_out->payload_size = 0;
-            }
             kernel_free(node);
             asm volatile("sti");
             return SYS_RES_OK;
@@ -2292,6 +2472,200 @@ int64_t ipc_receive(message_t* user_msg_out) {
         schedule();
 		asm volatile("sti");
     }
+}
+
+
+// -------------------------
+//       Shared Memory
+// -------------------------
+
+void shm_init() {
+    shm_global_list = 0;
+    next_shm_id = 1;
+}
+
+shm_object_t* shm_find_by_id(uint64_t id) {
+    if (id == 0) return 0;
+    
+    shm_object_t* current = shm_global_list;
+    while (current != 0) {
+        if (current->id == id) {
+            return current;
+        }
+        current = current->next;
+    }
+    return 0;
+}
+
+void shm_add(shm_object_t* obj) {
+    obj->next = shm_global_list;
+    shm_global_list = obj;
+}
+
+void shm_remove(shm_object_t* obj) {
+    if (shm_global_list == obj) {
+        shm_global_list = obj->next;
+        return;
+    }
+    
+    shm_object_t* current = shm_global_list;
+    while (current != 0 && current->next != 0) {
+        if (current->next == obj) {
+            current->next = obj->next;
+            return;
+        }
+        current = current->next;
+    }
+}
+
+uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr) {
+    if (size_bytes == 0 || !out_vaddr) return 0;
+
+    uint64_t page_count = (size_bytes + 4095) / 4096;
+
+    shm_object_t* obj = (shm_object_t*)kernel_malloc(sizeof(shm_object_t));
+    if (!obj) return 0;
+    kernel_memset(obj, 0, sizeof(shm_object_t));
+    
+    obj->id = next_shm_id++;
+    obj->owner_pid = current_thread->owner->id;
+    obj->page_count = page_count;
+    
+    obj->phys_pages = (uint64_t*)kernel_malloc(page_count * sizeof(uint64_t));
+    if (!obj->phys_pages) { kernel_free(obj); return 0; }
+
+    uint64_t alloced_pages = 0;
+    for (uint64_t i = 0; i < page_count; i++) {
+        uint64_t phys = pmm_alloc_block();
+        if (!phys) goto oom_cleanup;
+        
+        uint64_t* temp = (uint64_t*)temp_map(phys);
+        kernel_memset(temp, 0, 4096);
+        temp_unmap();
+        
+        obj->phys_pages[i] = phys;
+        alloced_pages++;
+    }
+
+    uint64_t my_vaddr = current_thread->owner->next_shm_vaddr;
+    current_thread->owner->next_shm_vaddr += (page_count * 4096);
+    obj->owner_vaddr = my_vaddr;
+    
+    int flags = PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
+    for (uint64_t i = 0; i < page_count; i++) {
+        map_to_other_pml4(current_thread->owner->page_directory, obj->phys_pages[i], my_vaddr + (i * 4096), flags);
+    }
+    
+    uint64_t current_cr3;
+    asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
+    asm volatile("mov %0, %%cr3" :: "r"(current_cr3));
+    
+    *out_vaddr = my_vaddr;
+    shm_add(obj); 
+    return obj->id;
+
+oom_cleanup:
+    for (uint64_t i = 0; i < alloced_pages; i++) { pmm_free_block(obj->phys_pages[i]); }
+    kernel_free(obj->phys_pages);
+    kernel_free(obj);
+    return 0;
+}
+
+int shm_allow(uint64_t shm_id, uint64_t target_tid) {
+    shm_object_t* obj = shm_find_by_id(shm_id);
+    if (!obj || obj->owner_pid != current_thread->owner->id) return SYS_RES_NO_PERM;
+
+    shm_allow_node_t* node = (shm_allow_node_t*)kernel_malloc(sizeof(shm_allow_node_t));
+    if (!node) return SYS_RES_KERNEL_ERR;
+    
+    node->tid = target_tid;
+    node->next = obj->allow_list;
+    obj->allow_list = node;
+    
+    return SYS_RES_OK;
+}
+
+uint64_t shm_map(uint64_t shm_id) {
+    shm_object_t* obj = shm_find_by_id(shm_id);
+    if (!obj) return 0;
+
+    int has_access = (obj->owner_pid == current_thread->owner->id);
+    shm_allow_node_t* an = obj->allow_list;
+    while (an && !has_access) {
+        if (an->tid == current_thread->tid) {
+            has_access = 1; break;
+        }
+        an = an->next;
+    }
+    if (!has_access) return 0;
+
+    uint64_t target_vaddr = current_thread->owner->next_shm_vaddr;
+    current_thread->owner->next_shm_vaddr += (obj->page_count * 4096);
+
+    int flags = PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
+    for (uint64_t i = 0; i < obj->page_count; i++) {
+        map_to_other_pml4(current_thread->owner->page_directory, obj->phys_pages[i], target_vaddr + (i * 4096), flags);
+    }
+    
+    uint64_t current_cr3;
+    asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
+    asm volatile("mov %0, %%cr3" :: "r"(current_cr3));
+
+    shm_map_node_t* mn = (shm_map_node_t*)kernel_malloc(sizeof(shm_map_node_t));
+    if (!mn) return 0;
+    
+    mn->pid = current_thread->owner->id;
+    mn->vaddr = target_vaddr;
+    mn->next = obj->map_list;
+    obj->map_list = mn;
+    
+    return target_vaddr;
+}
+
+int shm_free(uint64_t shm_id) {
+    shm_object_t* obj = shm_find_by_id(shm_id);
+    if (!obj) return -1; 
+    if (obj->owner_pid != current_thread->owner->id) return -2; 
+
+    shm_map_node_t* mn = obj->map_list;
+    while (mn != NULL) {
+        process_t* target_proc = get_process_by_id(mn->pid); 
+        
+        if (target_proc && target_proc->page_directory) {
+            for (uint64_t i = 0; i < obj->page_count; i++) {
+                map_to_other_pml4(target_proc->page_directory, 0, mn->vaddr + (i * 4096), 0);
+            }
+        }
+        
+        shm_map_node_t* to_free = mn;
+        mn = mn->next;
+        kernel_free(to_free); 
+    }
+    
+    for (uint64_t i = 0; i < obj->page_count; i++) {
+        map_to_other_pml4(current_thread->owner->page_directory, 0, obj->owner_vaddr + (i * 4096), 0);
+    }
+
+    uint64_t current_cr3;
+    asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
+    asm volatile("mov %0, %%cr3" :: "r"(current_cr3));
+
+    for (uint64_t i = 0; i < obj->page_count; i++) {
+        pmm_free_block(obj->phys_pages[i]);
+    }
+
+    shm_allow_node_t* an = obj->allow_list;
+    while (an != NULL) {
+        shm_allow_node_t* to_free = an;
+        an = an->next;
+        kernel_free(to_free);
+    }
+
+    kernel_free(obj->phys_pages);
+    shm_remove(obj);
+    kernel_free(obj);
+    
+    return 0;
 }
 
 
@@ -2352,6 +2726,7 @@ void pausepoint(){
 // ------------------------
 
 void reset_state() {
+	kernel_memset(&state, 0, sizeof(st_flags_t));
 	state.system_flags = CAN_REGISTER_KERNEL_DRIVERS | CAN_PRINT;
 }
 
@@ -2440,10 +2815,6 @@ void kernel_main(boot_info_t* boot_info){
     outb(0x21, 0xFC);
     outb(0xA1, 0xFF);
 	_kprint("IDT & PIC are set! We're safe\n");
-	_kprint("Offset: ");
-	uint64_to_dec(offsetof(thread_t, fpu_state), buff);
-	_kprint(buff);
-	_kprint("\n");
     __asm__ __volatile__("sti");
 	create_kernel_thread(idle_thread);
 	mbr_storage_init(boot_info->specific.mbr.drive_num);

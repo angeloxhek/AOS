@@ -12,7 +12,7 @@ static uint64_t vfs_server_tid = 0;
 
 static void ensure_vfs_init() {
     if (vfs_server_tid == 0) {
-        vfs_server_tid = syscall_get_driver_tid(DT_VFS);
+        vfs_server_tid = get_driver_tid(DT_VFS);
     }
 }
 
@@ -26,9 +26,9 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
     req->type = MSG_TYPE_VFS;
     req->subtype = MSG_SUBTYPE_QUERY;
 
-    syscall_ipc_send(vfs_server_tid, req);
+    ipc_send(vfs_server_tid, req);
 
-    syscall_ipc_recv_filtered(
+    ipc_recv_ex(
         vfs_server_tid,
         MSG_TYPE_VFS,
         MSG_SUBTYPE_RESPONSE,
@@ -44,16 +44,37 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
 
 int vfs_open(const char* path) {
     if (!path) return -1;
-
+	int len = strlen(path);
+    if (len >= 64) return -1;
+	
     message_t req;
     message_t resp;
 
     req.param1 = VFS_CMD_OPEN;
-    req.payload_ptr = (uint8_t*)path;
-    req.payload_size = strlen(path) + 1;
+    memcpy(req.data, path, len + 1);
 
-    resp.payload_ptr = 0;
-    resp.payload_size = 0;
+    if (vfs_rpc_call(&req, &resp) == 0) {
+        return (int)resp.param2;
+    }
+    
+    return -1;
+}
+
+int vfs_openat(int dir_fd, const char* name) {
+    if (dir_fd < 0 || !name) return -1;
+    
+    int len = strlen(name);
+    if (len >= 64) return -1; 
+    
+    message_t req;
+    message_t resp;
+    
+    memset(&req, 0, sizeof(message_t));
+
+    req.param1 = VFS_CMD_OPENAT;
+    req.param2 = dir_fd;
+
+    memcpy(req.data, name, len + 1);
 
     if (vfs_rpc_call(&req, &resp) == 0) {
         return (int)resp.param2;
@@ -70,14 +91,9 @@ int vfs_close(int fd) {
 
     req.param1 = VFS_CMD_CLOSE;
     req.param2 = fd;
-    
-    req.payload_ptr = 0;
-    req.payload_size = 0;
-    resp.payload_ptr = 0;
-    resp.payload_size = 0;
 
     if (vfs_rpc_call(&req, &resp) == 0) {
-        return 0; // Успех
+        return 0;
     }
     
     return -1;
@@ -85,81 +101,109 @@ int vfs_close(int fd) {
 
 int vfs_read(int fd, void* buf, int count) {
     if (fd < 0 || !buf || count == 0) return 0;
+    
+    ensure_vfs_init();
+
+    void* shm_vaddr = 0;
+    uint64_t shm_id = shm_alloc((uint64_t)count, &shm_vaddr);
+    if (!shm_id) return -1;
+
+    shm_allow(shm_id, vfs_server_tid);
+
     message_t req;
     message_t resp;
+    memset(&req, 0, sizeof(message_t));
 	
     req.param1 = VFS_CMD_READ;
     req.param2 = fd;
     req.param3 = count;
-    req.payload_ptr = 0;
-    req.payload_size = 0;
+    
+    *(uint64_t*)(req.data) = shm_id;
 	
-    resp.payload_ptr = 0;
-    resp.payload_size = 0;
-	
+    int bytes_read = -1;
+
     if (vfs_rpc_call(&req, &resp) == 0) {
-        if (resp.payload_ptr) {
-            uint64_t copy_size = resp.payload_size;
-            if (copy_size > (uint64_t)count) {
-                copy_size = count;
-            }
-			
-            memcpy(buf, resp.payload_ptr, copy_size);
-            free(resp.payload_ptr);
-            return (int)copy_size; 
+        bytes_read = (int)resp.param2;
+        
+        if (bytes_read > 0) {
+            memcpy(buf, shm_vaddr, bytes_read);
         }
-        return 0;
     }
-    return -1;
+
+    shm_free(shm_id);
+
+    return bytes_read;
 }
 
 int vfs_write(int fd, const void* buf, int count) {
     if (fd < 0 || !buf || count == 0) return 0;
 
+    ensure_vfs_init();
+
+    void* shm_vaddr = 0;
+    uint64_t shm_id = shm_alloc((uint64_t)count, &shm_vaddr);
+    if (!shm_id) return -1;
+
+    memcpy(shm_vaddr, buf, count);
+
+    shm_allow(shm_id, vfs_server_tid);
+
     message_t req;
     message_t resp;
+    memset(&req, 0, sizeof(message_t));
 
     req.param1 = VFS_CMD_WRITE;
     req.param2 = fd;
-    
-    req.payload_ptr = (uint8_t*)buf;
-    req.payload_size = count;
+    req.param3 = count;
+    *(uint64_t*)(req.data) = shm_id;
 
-    resp.payload_ptr = 0;
-    resp.payload_size = 0;
+    int bytes_written = -1;
 
     if (vfs_rpc_call(&req, &resp) == 0) {
-        return (int)resp.payload_size;
+        bytes_written = (int)resp.param2;
     }
     
-    return -1;
+    shm_free(shm_id);
+
+    return bytes_written;
 }
 
-int vfs_readdir(int fd, int index, vfs_dirent_t* out_entry) {
-    if (fd < 0 || !out_entry) return 0;
+int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries) {
+    if (fd < 0 || !out_entries || max_entries <= 0) return 0;
+    
+    ensure_vfs_init();
+
+    void* shm_vaddr = 0;
+    uint64_t size = max_entries * sizeof(vfs_dirent_t);
+    uint64_t shm_id = shm_alloc(size, &shm_vaddr);
+    if (!shm_id) return -1;
+
+    shm_allow(shm_id, vfs_server_tid);
+
     message_t req;
     message_t resp;
+    memset(&req, 0, sizeof(message_t));
 
     req.param1 = VFS_CMD_LIST;
     req.param2 = fd;
-    req.param3 = index;
-    req.payload_ptr = 0;
-    req.payload_size = 0;
+    req.param3 = max_entries;
+    *(uint64_t*)(req.data) = shm_id;
 
-    resp.payload_ptr = 0;
-    resp.payload_size = 0;
+    int entries_read = 0;
 
     if (vfs_rpc_call(&req, &resp) == 0) {
-        if (resp.payload_ptr) {
-            uint64_t copy_size = resp.payload_size;
-            if (copy_size > sizeof(vfs_dirent_t)) {
-                copy_size = sizeof(vfs_dirent_t);
-            }
-            memcpy(out_entry, resp.payload_ptr, copy_size);
-            
-            free(resp.payload_ptr);
+        entries_read = (int)resp.param2;
+        
+        if (entries_read > 0) {
+            // Данные уже лежат в SHM. Копируем их в массив пользователя.
+            memcpy(out_entries, shm_vaddr, entries_read * sizeof(vfs_dirent_t));
         }
-        return 1;
+    } else {
+        entries_read = -1;
     }
-    return 0;
+
+    // 4. Уничтожаем
+    shm_free(shm_id);
+
+    return entries_read;
 }

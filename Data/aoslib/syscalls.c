@@ -1,5 +1,6 @@
 #include <stdint.h>
-#define AOSLIB_SYSCALLS_ONLY
+#define AOSLIB_SYSCALLS
+#define AOSLIB_STRING
 #include "../include/aoslib.h"
 
 int64_t syscall(uint64_t nr, uint64_t arg1, uint64_t arg2, uint64_t arg3, 
@@ -24,31 +25,31 @@ int64_t syscall(uint64_t nr, uint64_t arg1, uint64_t arg2, uint64_t arg3,
     return ret;
 }
 
-void syscall_system_print(const char* str) {
+void sysprint(const char* str) {
     syscall(SYS_PRINT, (uint64_t)str, 0, 0, 0, 0);
 }
 
-int64_t __syscall_ipc_recv(message_t* out_msg) {
+int64_t __ipc_recv(message_t* out_msg) {
     return syscall(SYS_IPC_RECV, (uint64_t)out_msg, 0, 0, 0, 0);
 }
 
-int64_t syscall_ipc_send(uint64_t dest_tid, message_t* msg) {
+int64_t ipc_send(uint64_t dest_tid, message_t* msg) {
     return (int)syscall(SYS_IPC_SEND, dest_tid, (uint64_t)msg, 0, 0, 0);
 }
 
-int64_t syscall_register_driver(driver_type_t type, const char* name) {
+int64_t register_driver(driver_type_t type, const char* name) {
     return (int64_t)syscall(SYS_REGISTER_DRIVER, (uint64_t)type, (uint64_t)name, 0, 0, 0);
 }
 
-uint64_t syscall_get_driver_tid(driver_type_t type) {
+uint64_t get_driver_tid(driver_type_t type) {
     return (uint64_t)syscall(SYS_GET_DRIVER_TID, (uint64_t)type, 0, 0, 0, 0);
 }
 
-uint64_t syscall_get_driver_tid_by_name(const char* name) {
+uint64_t get_driver_tid_name(const char* name) {
     return (uint64_t)syscall(SYS_GET_DRIVER_TID_BY_NAME, (uint64_t)name, 0, 0, 0, 0);
 }
 
-int syscall_get_info(system_info_t* info) {
+int get_sysinfo(system_info_t* info) {
     return (int)syscall(SYS_GET_SYSTEM_INFO, (uint64_t)info, 0, 0, 0, 0);
 }
 
@@ -63,12 +64,12 @@ static int pending_count = 0;
 static int head_idx = 0;
 static int tail_idx = 0;
 
-uint64_t syscall_get_msg_count(void) {
+uint64_t get_ipc_count(void) {
     uint64_t kernel_msgs = AOS_GET_TCB()->pending_msgs;
     return (uint64_t)pending_count + kernel_msgs;
 }
 
-void syscall_ipc_recv(message_t* out_msg) {
+void ipc_recv(message_t* out_msg) {
     if (pending_count > 0) {
         *out_msg = pending_messages[head_idx];
         head_idx = (head_idx + 1) % MAX_PENDING;
@@ -76,18 +77,10 @@ void syscall_ipc_recv(message_t* out_msg) {
         return;
     }
 
-    int64_t res = __syscall_ipc_recv(out_msg);
-    
-    if (res == SYS_RES_BUFFER_TOO_SMALL) {
-        void* new_buf = malloc(out_msg->payload_size);
-        if (new_buf != (void*)0) {
-            out_msg->payload_ptr = (uint8_t*)new_buf;
-            __syscall_ipc_recv(out_msg);
-        }
-    }
+    __ipc_recv(out_msg);
 }
 
-void syscall_ipc_recv_filtered(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
+void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
     int curr_idx = head_idx;
     for (int i = 0; i < pending_count; i++) {
         
@@ -114,18 +107,8 @@ void syscall_ipc_recv_filtered(uint64_t tid, msg_type_t type, msg_subtype_t subt
 
     message_t temp_msg;
     while (1) {
-        temp_msg.payload_ptr = (void*)0;
-        temp_msg.payload_size = 0;
-        
-        int64_t res = __syscall_ipc_recv(&temp_msg);
-        
-        if (res == SYS_RES_BUFFER_TOO_SMALL) {
-            void* new_buf = malloc(temp_msg.payload_size);
-            if (new_buf != (void*)0) {
-                temp_msg.payload_ptr = (uint8_t*)new_buf;
-                __syscall_ipc_recv(&temp_msg);
-            }
-        }
+        int64_t res = __ipc_recv(&temp_msg);
+		
         if ((tid == 0 || temp_msg.sender_tid == tid) && 
             (type == MSG_TYPE_NONE || temp_msg.type == type) && 
             (subtype == MSG_SUBTYPE_NONE || temp_msg.subtype == subtype)) {
@@ -138,10 +121,7 @@ void syscall_ipc_recv_filtered(uint64_t tid, msg_type_t type, msg_subtype_t subt
                 tail_idx = (tail_idx + 1) % MAX_PENDING;
                 pending_count++;
             } else {
-                syscall_system_print("[!] Warning: IPC pending buffer overflow, dropping msg\n");
-                if (temp_msg.payload_ptr != (void*)0 && temp_msg.payload_size > 0) {
-                    free(temp_msg.payload_ptr);
-                }
+                sysprint("[!] Warning: IPC pending buffer overflow, dropping msg\n");
             }
         }
     }
@@ -149,23 +129,39 @@ void syscall_ipc_recv_filtered(uint64_t tid, msg_type_t type, msg_subtype_t subt
 
 uint64_t __kbd_driver_tid_cache = 0;
 
-uint8_t syscall_get_kbd_scancode() {
+uint8_t get_scancode() {
     if (__kbd_driver_tid_cache == 0) {
-        __kbd_driver_tid_cache = syscall_get_driver_tid(DT_KEYBOARD);
+        __kbd_driver_tid_cache = get_driver_tid(DT_KEYBOARD);
         if (__kbd_driver_tid_cache == 0) return 0;
     }
     message_t msg;
     msg.type = MSG_TYPE_KEYBOARD;
     msg.subtype = MSG_SUBTYPE_QUERY;
     msg.param1 = 0;
-    int res = syscall_ipc_send(__kbd_driver_tid_cache, &msg);
+    int res = ipc_send(__kbd_driver_tid_cache, &msg);
     if (res < 0) {
         __kbd_driver_tid_cache = 0;
         return 0;
     }
     message_t response;
-    syscall_ipc_recv_filtered(__kbd_driver_tid_cache, MSG_TYPE_KEYBOARD, MSG_SUBTYPE_RESPONSE, &response);
+    ipc_recv_ex(__kbd_driver_tid_cache, MSG_TYPE_KEYBOARD, MSG_SUBTYPE_RESPONSE, &response);
     return (uint8_t)(response.param1 & 0xFF);
+}
+
+uint64_t get_disk_count(void) {
+	return syscall(SYS_GET_DISK_COUNT, 0, 0, 0, 0, 0);
+}
+
+uint64_t get_partition_count(void) {
+	return syscall(SYS_GET_PARTITION_COUNT, 0, 0, 0, 0, 0);
+}
+
+uint64_t get_disk_info(uint64_t index, disk_info_t* pinfo) {
+	return syscall(SYS_GET_DISK_INFO, index, (uint64_t)pinfo, 0, 0, 0);
+}
+
+uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo) {
+	return syscall(SYS_GET_PARTITION_INFO, index, (uint64_t)pinfo, 0, 0, 0);
 }
 
 typedef struct malloc_header {
@@ -295,4 +291,20 @@ void* calloc(uint64_t num, uint64_t size) {
         memset(ptr, 0, total_size);
     }
     return ptr;
+}
+
+uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr) {
+    return syscall(SYS_SHM_ALLOC, size_bytes, (uint64_t)out_vaddr, 0, 0, 0);
+}
+
+int shm_allow(uint64_t shm_id, uint64_t target_tid) {
+    return (int)syscall(SYS_SHM_ALLOW, shm_id, target_tid, 0, 0, 0);
+}
+
+void* shm_map(uint64_t shm_id) {
+    return (void*)syscall(SYS_SHM_MAP, shm_id, 0, 0, 0, 0);
+}
+
+int shm_free(uint64_t shm_id) {
+    return (int)syscall(SYS_SHM_FREE, shm_id, 0, 0, 0, 0);
 }

@@ -18,6 +18,7 @@ __attribute__((noreturn)) void _start(uint64_t arg1, uint64_t arg2) {
         exit_code = driver_main((void*)arg1, (void*)arg2);
     }
     else if (main != (void*)0) {
+		vfs_init();
         exit_code = main((int)arg1, (char**)arg2);
     }
     exit(exit_code);

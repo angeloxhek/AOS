@@ -11,11 +11,11 @@ uint64_t waiting_apps[MAX_WAITERS];
 int waiters_count = 0;
 
 int driver_main(void* reserved1, void* reserved2) {
-    syscall_register_driver(DT_KEYBOARD, 0);
+    register_driver(DT_KEYBOARD, 0);
     
     message_t msg;
     while(1) {
-        syscall_ipc_recv(&msg);
+        ipc_recv(&msg);
         
         if (msg.type == MSG_TYPE_KEYBOARD) {
             if (msg.subtype == MSG_SUBTYPE_SEND) {
@@ -30,7 +30,7 @@ int driver_main(void* reserved1, void* reserved2) {
                         response.type = MSG_TYPE_KEYBOARD;
                         response.subtype = MSG_SUBTYPE_RESPONSE;
                         response.param1 = scancode;
-                        syscall_ipc_send(app_tid, &response);
+                        ipc_send(app_tid, &response);
                     } 
                     else {
                         key_buffer[buf_head] = scancode;
@@ -47,7 +47,7 @@ int driver_main(void* reserved1, void* reserved2) {
                     response.type = MSG_TYPE_KEYBOARD;
                     response.subtype = MSG_SUBTYPE_RESPONSE;
                     response.param1 = scancode;
-                    syscall_ipc_send(msg.sender_tid, &response);
+                    ipc_send(msg.sender_tid, &response);
                 } 
                 else {
                     if (waiters_count < MAX_WAITERS) {
