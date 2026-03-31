@@ -109,8 +109,8 @@ int dev_read_uptime(void* param, void* buf, uint64_t size, uint64_t offset) {
     get_sysinfo(&info);
 
     char text[32];
-    sprintf(text, "%d\n", (int)info.uptime);
-    
+    snprintf(text, sizeof(text), "%d\n", (int)info.uptime);
+
     int len = strlen(text);
     if (offset >= len) return 0;
     if (offset + size > len) size = len - offset;
@@ -123,7 +123,7 @@ int dev_read_flags(void* param, void* buf, uint64_t size, uint64_t offset) {
     get_sysinfo(&info);
 
     char text[32];
-    sprintf(text, "%d\n", (int)info.flags);
+    snprintf(text, sizeof(text), "%d\n", (int)info.flags);
     
     int len = strlen(text);
     if (offset >= len) return 0;
@@ -168,7 +168,8 @@ int dev_write_ctl(void* param, void* buf, uint64_t size, uint64_t offset) {
     block_dev_t* dev = (block_dev_t*)param;
     char cmd[32];
     strncpy(cmd, (char*)buf, size < 31 ? size : 31);
-    
+    cmd[size < 31 ? size : 31] = '\0';
+
     if (strcmp(cmd, "eject") == 0) {
         // syscall(SYS_EJECT_DISK, dev->disk_id...);
         printf("VFS: Ejecting disk %d\n", dev->disk_id);
@@ -251,7 +252,7 @@ void vfs_proc_add_thread(uint64_t tid, uint64_t parent_pid) {
     vfs_mkdir(thread_node, "fd");
 
     char proc_target[64];
-    sprintf(proc_target, "/tasks/p/%s", pid_str);
+    snprintf(proc_target, sizeof(proc_target), "/tasks/p/%s", pid_str);
     vfs_symlink(thread_node, "proc", proc_target);
 
     vfs_node_t* parent_proc_node = find_child(ptasks, pid_str);
@@ -259,7 +260,7 @@ void vfs_proc_add_thread(uint64_t tid, uint64_t parent_pid) {
         vfs_node_t* threads_dir = find_child(parent_proc_node, "threads");
         if (threads_dir) {
             char thread_target[64];
-            sprintf(thread_target, "/tasks/t/%s", tid_str);
+            snprintf(thread_target, sizeof(thread_target), "/tasks/t/%s", tid_str);
             vfs_symlink(threads_dir, tid_str, thread_target);
         }
     }
@@ -331,10 +332,10 @@ void vfs_init_tree() {
             fs_node->mount.fs_inst = fs_inst;
             
             char target[64];
-            sprintf(target, "/hw/%s/%s/fs", disk_name, part_name);
+            snprintf(target, sizeof(target), "/hw/%s/%s/fs", disk_name, part_name);
             
             char link_name[16];
-            sprintf(link_name, "v%d", i);
+            snprintf(link_name, sizeof(link_name), "v%d", i);
             
             vfs_symlink(mnt_id, link_name, target);
 			
@@ -348,7 +349,7 @@ void vfs_init_tree() {
             
             if (strcmp(label, "NO_NAME") != 0) {
                  char id_link[32];
-                 sprintf(id_link, "/mnt/id/v%d", i);
+                 snprintf(id_link, sizeof(id_link), "/mnt/id/v%d", i);
                  vfs_symlink(mnt, label, id_link);
             }
         }
@@ -448,7 +449,11 @@ void vfs_resolve_from(vfs_node_t* start_node, const char* path, vfs_path_result_
             
             int new_len = strlen(next_node->target_path) + 1 + strlen(remainder) + 1;
             char* new_full_path = malloc(new_len);
-			if (!new_full_path) return;
+			if (!new_full_path) {
+				out->error = VFS_ERR_UNKNOWN;
+				free(path_copy);
+				return;
+			}
 			memset(new_full_path, 0, new_len);            
             strlcpy(new_full_path, next_node->target_path, new_len);
             if (*remainder) {
@@ -760,6 +765,9 @@ void handle_vfs_request(message_t* req) {
             int fd = req->param2;
             vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
             if (f) {
+                if (f->type == VFS_TYPE_MOUNT_POINT && f->mounted_file.driver && f->mounted_file.driver->close) {
+                    f->mounted_file.driver->close(f->mounted_file.fs, f->mounted_file.handle);
+                }
                 f->used = 0;
                 resp.param1 = VFS_ERR_OK;
             } else {
