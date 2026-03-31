@@ -1,3 +1,6 @@
+#ifndef ELF_MIN_H
+#define ELF_MIN_H
+
 #include <stdint.h>
 
 // -------------------------
@@ -99,3 +102,5 @@ typedef struct {
     process_t* proc;
     uint32_t result;
 } elf_load_result_t;
+
+#endif /* ELF_MIN_H */
