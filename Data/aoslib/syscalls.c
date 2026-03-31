@@ -34,7 +34,7 @@ int64_t __ipc_recv(message_t* out_msg) {
 }
 
 int64_t ipc_send(uint64_t dest_tid, message_t* msg) {
-    return (int)syscall(SYS_IPC_SEND, dest_tid, (uint64_t)msg, 0, 0, 0);
+    return syscall(SYS_IPC_SEND, dest_tid, (uint64_t)msg, 0, 0, 0);
 }
 
 int64_t register_driver(driver_type_t type, const char* name) {
@@ -185,7 +185,7 @@ void* malloc(uint64_t size) {
         initial_size = ALIGN_PAGE(initial_size);
         
         void* ptr = syscall_sbrk(initial_size);
-        if ((uint64_t)ptr <= 0) return (void*)0;
+        if (ptr == (void*)0 || ptr == (void*)-1) return (void*)0;
         
         free_list_start = (malloc_header_t*)ptr;
         free_list_start->size = initial_size - sizeof(malloc_header_t);
@@ -201,15 +201,15 @@ restart_search:
     
     while (current) {
         if (current->is_free && current->size >= size) {
-            /*if (current->size > size + sizeof(malloc_header_t) + 16) {
+            if (current->size > size + sizeof(malloc_header_t) + 16) {
                 malloc_header_t* next_block = (malloc_header_t*)((uint8_t*)current + sizeof(malloc_header_t) + size);
                 next_block->size = current->size - size - sizeof(malloc_header_t);
                 next_block->is_free = 1;
                 next_block->next = current->next;
-                
+
                 current->size = size;
                 current->next = next_block;
-            }*/
+            }
             current->is_free = 0;
             return (void*)((uint8_t*)current + sizeof(malloc_header_t));
         }
@@ -267,11 +267,7 @@ void* realloc(void* ptr, uint64_t new_size) {
     
     void* new_ptr = malloc(new_size);
     if (new_ptr) {
-        // memcpy нужно реализовать или подключить string.h
-        uint8_t* d = (uint8_t*)new_ptr;
-        uint8_t* s = (uint8_t*)ptr;
-        for(uint64_t i=0; i<header->size; i++) d[i] = s[i];
-        
+        memcpy(new_ptr, ptr, header->size);
         free(ptr);
     }
     return new_ptr;
