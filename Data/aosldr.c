@@ -879,7 +879,7 @@ void syscall_handler(syscall_regs_t* regs) {
         }
         case SYS_EXIT: {
 			int exit_code = (int)regs->rdi;
-			uint64_t tid = (uint64_t)regs->rdi;
+			uint64_t tid = (uint64_t)regs->rsi;
 			thread_t* th;
 			if (tid == 0) { th = current_thread; }
 			else {
@@ -1809,10 +1809,14 @@ void set_current_pml4(uint64_t phys_addr) {
     asm volatile("mov %0, %%cr3" :: "r"(phys_addr));
 }
 
+static volatile int temp_map_lock = 0;
+
 void* temp_map(uint64_t phys_addr) {
+    asm volatile("cli");
     uint64_t* pte = vmm_get_pte(TEMP_PAGE_VIRT, 1);
     *pte = (phys_addr & PAGE_MASK) | PAGE_PRESENT | PAGE_WRITE;
     asm volatile("invlpg (%0)" :: "r"((uint64_t)TEMP_PAGE_VIRT) : "memory");
+    temp_map_lock = 1;
     return (void*)TEMP_PAGE_VIRT;
 }
 
@@ -1820,6 +1824,8 @@ void temp_unmap() {
     uint64_t* pte = vmm_get_pte(TEMP_PAGE_VIRT, 1);
     *pte = 0;
     asm volatile("invlpg (%0)" :: "r"((uint64_t)TEMP_PAGE_VIRT) : "memory");
+    temp_map_lock = 0;
+    asm volatile("sti");
 }
 
 process_t* create_process(const char* name) {
@@ -2202,12 +2208,23 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
     process_t* proc = create_process(file->name);
     result->proc = proc;
 
+    if (hdr->e_phoff >= file_size || hdr->e_phoff + (uint64_t)hdr->e_phnum * sizeof(Elf64_Phdr) > file_size) {
+        kernel_free(raw_data);
+        result->result = ELF_RESULT_INVALID;
+        return;
+    }
     Elf64_Phdr* phdr = (Elf64_Phdr*)(raw_data + hdr->e_phoff);
-	uint64_t max_vaddr = 0; 
+	uint64_t max_vaddr = 0;
 
     for (int i = 0; i < hdr->e_phnum; i++) {
         if (phdr[i].p_type == PT_LOAD) {
             uint64_t vaddr  = phdr[i].p_vaddr;
+            // Reject segments that map into kernel address space
+            if (vaddr >= 0x800000000000ULL) {
+                kernel_free(raw_data);
+                result->result = ELF_RESULT_INVALID;
+                return;
+            }
             uint64_t memsz  = phdr[i].p_memsz;
             uint64_t filesz = phdr[i].p_filesz;
             uint64_t offset = phdr[i].p_offset;
@@ -2269,6 +2286,11 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
         proc->heap_limit = 0x40000000; 
     }
 
+    if (hdr->e_shoff >= file_size || hdr->e_shoff + (uint64_t)hdr->e_shnum * sizeof(Elf64_Shdr) > file_size) {
+        kernel_free(raw_data);
+        result->result = ELF_RESULT_OK;
+        return;
+    }
     Elf64_Shdr* shdr = (Elf64_Shdr*)(raw_data + hdr->e_shoff);
     char* strtab = 0;
     Elf64_Sym* symtab = 0;
