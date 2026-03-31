@@ -152,6 +152,7 @@ uint64_t thread_count = 0;
 
 spinlock_t kprint_lock = 0;
 spinlock_t heap_lock = 0;
+spinlock_t pmm_lock = 0;
 volatile uint64_t ticks = 0;
 
 driver_info_t* drivers_list_head;
@@ -510,19 +511,35 @@ void init_pmm(uint64_t mem_size, uint64_t bitmap_base) {
 }
 
 uint64_t pmm_alloc_block() {
-    if (max_blocks <= used_blocks) return 0; // OOM
+    uint64_t irq = spinlock_irq_save();
+    spinlock_acquire(&pmm_lock);
+    if (max_blocks <= used_blocks) {
+        spinlock_release(&pmm_lock);
+        spinlock_irq_restore(irq);
+        return 0;
+    }
     int64_t frame = mmap_first_free();
-    if (frame == -1) return 0;
+    if (frame == -1) {
+        spinlock_release(&pmm_lock);
+        spinlock_irq_restore(irq);
+        return 0;
+    }
     mmap_set(frame);
     used_blocks++;
     uint64_t addr = (uint64_t)frame * BLOCK_SIZE;
+    spinlock_release(&pmm_lock);
+    spinlock_irq_restore(irq);
     return addr;
 }
 
 void pmm_free_block(uint64_t p_addr) {
+    uint64_t irq = spinlock_irq_save();
+    spinlock_acquire(&pmm_lock);
     uint64_t frame = p_addr / BLOCK_SIZE;
     mmap_unset(frame);
-    used_blocks--;
+    if (used_blocks > 0) used_blocks--;
+    spinlock_release(&pmm_lock);
+    spinlock_irq_restore(irq);
 }
 
 // Инициализация региона (пометить диапазон как свободный)
@@ -850,7 +867,7 @@ void gdt_install() {
 void init_syscall() {
 	kernel_tcb.kernel_rsp = (uint64_t)(kernel_stack + sizeof(kernel_stack));
     uint64_t efer = rdmsr(MSR_EFER);
-    wrmsr(MSR_EFER, efer | 1);
+    wrmsr(MSR_EFER, efer | 1 | (1 << 11)); // SCE + NXE
     uint64_t star = ((uint64_t)USER_SEG_BASE << 48) | ((uint64_t)KERNEL_CODE_SEG << 32);
     wrmsr(MSR_STAR, star);
     wrmsr(MSR_LSTAR, (uint64_t)syscall_entry);
@@ -2003,7 +2020,12 @@ void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_
     tcb->thread_errno = 0;
     tcb->pending_msgs = 0;
     tcb->local_heap   = (void*)0;
-    tcb->stack_canary = 0x595e9fbd94fda766ULL;
+    {
+        uint32_t lo, hi;
+        asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
+        uint64_t rdtsc_val = ((uint64_t)hi << 32) | lo;
+        tcb->stack_canary = rdtsc_val ^ 0x595e9fbd94fda766ULL ^ (uint64_t)t->tid;
+    }
 	
     set_current_pml4(old_cr3);
     t->fs_base = fs_base;
@@ -2866,10 +2888,31 @@ void kernel_main(boot_info_t* boot_info){
     } else {
 		_kprint_error("Warning: FSGSBASE not supported! TLS may be slow.\n");
 	}
+	// Enable SMEP and SMAP if supported
+	{
+		uint32_t eax2 = 7, ebx2, ecx2 = 0, edx2;
+		asm volatile("cpuid" : "=a"(eax2), "=b"(ebx2), "=c"(ecx2), "=d"(edx2) : "a"(eax2), "c"(ecx2));
+		uint64_t cr4;
+		asm volatile("mov %%cr4, %0" : "=r"(cr4));
+		if (ebx2 & (1 << 7)) {
+			cr4 |= (1 << 20); // SMEP
+			_kprint("SMEP enabled\n");
+		}
+		if (ebx2 & (1 << 20)) {
+			cr4 |= (1 << 21); // SMAP
+			_kprint("SMAP enabled\n");
+		}
+		asm volatile("mov %0, %%cr4" :: "r"(cr4));
+	}
 	idt_install();
     pic_remap();
     timer_init(100);
 	init_scheduler();
+	{
+		uint32_t lo, hi;
+		asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
+		kernel_tcb.canary = ((uint64_t)hi << 32 | lo) ^ 0xDEADBEEFCAFEBABEULL;
+	}
     outb(0x21, 0xFC);
     outb(0xA1, 0xFF);
 	_kprint("IDT & PIC are set! We're safe\n");
