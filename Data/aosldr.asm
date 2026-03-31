@@ -192,6 +192,7 @@ get_memory_map:
 
 .loop:
     mov eax, 0xE820
+    mov edx, 0x534D4150    ; reload 'SMAP' (some BIOS clobber edx)
     mov ecx, 24             ; размер одной записи
     int 0x15
     jc .done                ; если Carry Flag, значит конец
