@@ -134,6 +134,7 @@ entry:
     jmp dword 0x08:V2P(init_32bit)
 	
 find_acpi:
+    ; Search 0xE0000-0xFFFFF (128KB) per ACPI spec
     mov ax, 0xE000
     mov es, ax
     xor di, di
@@ -143,9 +144,8 @@ find_acpi:
     jne .next
     cmp dword [es:di+4], 0x20525450 ; "PTR "
     jne .next
-    
-    ; Нашли!
-    ; Вычисляем физический адрес: (es * 16) + di
+
+    ; Found RSDP
     xor eax, eax
     mov ax, es
     shl eax, 4
@@ -158,6 +158,15 @@ find_acpi:
     add di, 16
     cmp di, 0
     jne .search_loop
+    ; If ES was 0xE000, try 0xF000 segment too
+    mov ax, es
+    cmp ax, 0xE000
+    jne .not_found
+    mov ax, 0xF000
+    mov es, ax
+    xor di, di
+    jmp .search_loop
+.not_found:
     ret
 
 find_smbios:
