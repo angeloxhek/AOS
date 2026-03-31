@@ -9,12 +9,14 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 STAGES='6'
 
+trap 'echo -e "${RED}Build failed!${NC}"; exit 1' ERR
+
 echo -e "${GREEN}[1/${STAGES}] Preparing directories...${NC}"
-cd /mnt/c/aos/
+cd "$(dirname "$0")"
 mkdir -p Build/Debug
 mkdir -p Build/FirstVolume/Drivers
 mkdir -p Temp
-rm -f Temp/*.*
+rm -f Temp/*
 
 echo -e "${GREEN}[2/${STAGES}] Compiling PBR and Tools...${NC}"
 nasm -o Build/pbr.bin Data/pbr.asm
@@ -23,8 +25,8 @@ nasm -o Build/Debug/pbrscan.bin Data/fat32scan.asm
 
 echo -e "${GREEN}[3/${STAGES}] Compiling AOSLDR.BIN...${NC}"
 nasm -f elf64 -o Temp/asmaosldr.o Data/aosldr.asm
-gcc -m64 -g3 -O0 -fno-omit-frame-pointer -mcmodel=kernel -mno-red-zone -ffreestanding \
-        -mgeneral-regs-only -fno-pic -fno-pie \
+gcc -m64 -g3 -O0 -Wall -fno-omit-frame-pointer -mcmodel=kernel -mno-red-zone -ffreestanding \
+        -mgeneral-regs-only -fno-pic -fno-pie -fstack-protector \
 	-c Data/aosldr.c -o Temp/caosldr.o
 ld -m elf_x86_64 --no-warn-rwx-segments -T Data/aosldr.ld -Map Temp/aosldr.map -o Temp/aosldr.elf Temp/asmaosldr.o \
         Temp/caosldr.o
