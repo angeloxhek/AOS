@@ -1014,10 +1014,8 @@ void kernel_main(boot_info_t* boot_info){
 			cr4 |= (1 << 20); // SMEP
 			_kprint("SMEP enabled\n");
 		}
-		if (ebx2 & (1 << 20)) {
-			cr4 |= (1 << 21); // SMAP
-			_kprint("SMAP enabled\n");
-		}
+		// SMAP disabled: kernel accesses user memory directly (TCB, IPC)
+		// Enabling SMAP requires stac/clac around every user-memory access
 		asm volatile("mov %0, %%cr4" :: "r"(cr4));
 	}
 	idt_install();

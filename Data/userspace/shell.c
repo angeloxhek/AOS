@@ -51,6 +51,10 @@ void prompt(void) {
 
 // ── Path helpers ────────────────────────────────────────────────
 void resolve_path(const char* input, char* out, int outsize) {
+    if (!input || !*input || strcmp(input, ".") == 0) {
+        strlcpy(out, cwd, outsize);
+        return;
+    }
     if (input[0] == '/') {
         strlcpy(out, input, outsize);
     } else {
