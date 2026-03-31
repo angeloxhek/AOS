@@ -1828,6 +1828,7 @@ void temp_unmap() {
 
 process_t* create_process(const char* name) {
     process_t* new_proc = (process_t*)kernel_malloc(sizeof(process_t));
+	if (!new_proc) return 0;
     kernel_memset(new_proc, 0, sizeof(process_t));
 
     static uint32_t next_pid = 1;
@@ -1926,6 +1927,7 @@ void init_scheduler() {
     kernel_process.page_directory = (uint64_t*)get_current_pml4();
 	kernel_process.entry_point = (uint64_t)kernel_main;
     thread_t* kthread = (thread_t*)kernel_malloc(sizeof(thread_t));
+	if (!kthread) kernel_error(0x5, 0, 0, 0, 0);
 	kernel_memset(kthread, 0, sizeof(thread_t));
 	kthread->stack_base = (uint64_t)kernel_stack; 
     uint64_t current_rsp;
@@ -1943,9 +1945,11 @@ void init_scheduler() {
 
 thread_t* create_thread_core(uint64_t cr3, process_t* owner) {
     thread_t* t = (thread_t*)kernel_malloc(sizeof(thread_t));
+	if (!t) return 0;
 	kernel_memset(t, 0, sizeof(thread_t));
 	kernel_memcpy(t->fpu_state, default_fpu_state, 512);
     void* stack = kernel_malloc(KERNEL_STACK_SIZE);
+	if (!stack) return 0;
     kernel_memset(stack, 0, KERNEL_STACK_SIZE);
     t->stack_base = (uint64_t)stack;
     t->rsp = (uint64_t)stack + KERNEL_STACK_SIZE;
@@ -2714,7 +2718,10 @@ __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64
 	uint64_to_hex(code, buff);
 	_kprint_error(buff);
 	_kprint_error(" (");
-	_kprint_error(kernel_messages[code]);
+	if (code < sizeof(kernel_messages)/sizeof(kernel_messages[0]))
+		_kprint_error(kernel_messages[code]);
+	else
+		_kprint_error("UNKNOWN");
     _kprint_error(")\nARGS: 0x");
 	uint64_to_hex(arg1, buff);
 	_kprint_error(buff);
@@ -2881,6 +2888,7 @@ void kernel_main(boot_info_t* boot_info){
 		kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
 	}
 	elf_load_result_t* driver = (elf_load_result_t*)kernel_malloc(sizeof(elf_load_result_t));
+	if (!driver) kernel_error(0x5, 0, 0, 0, 0);
 	kernel_memset(driver, 0, sizeof(elf_load_result_t));
 	load_elf_raw_fat32(system_volume, &file, driver);
 	if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
