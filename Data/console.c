@@ -70,6 +70,13 @@ void kprint_char(char c, uint32_t color) {
         cursor_y++;
     } else if (c == '\r') {
         cursor_x = 0;
+    } else if (c == '\b') {
+        if (cursor_x > 0) {
+            cursor_x--;
+            _kprint_char(cursor_x * font_w, cursor_y * font_h, ' ', bg_color, bg_color);
+        }
+    } else if (c == '\t') {
+        cursor_x = (cursor_x + 4) & ~3;
     } else {
         _kprint_char(cursor_x * font_w, cursor_y * font_h, c, color, bg_color);
         cursor_x++;
