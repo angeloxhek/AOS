@@ -355,11 +355,32 @@ fs_instance_t fat32_mount(block_dev_t* dev) {
     fat32_bpb_t* bpb = (fat32_bpb_t*)buf;
 
     if (bpb->boot_signature != 0x29 && bpb->boot_signature != 0x28 && buf[510] != 0x55) {
-		printf("Mount failed\n");
+		printf("Mount failed: bad signature\n");
+		free(buf);
+		return 0;
+    }
+    if (buf[511] != 0xAA && bpb->boot_signature != 0x29 && bpb->boot_signature != 0x28) {
+		printf("Mount failed: bad boot marker\n");
+		free(buf);
+		return 0;
+    }
+    if (bpb->bytes_per_sector == 0 || bpb->sectors_per_cluster == 0) {
+		printf("Mount failed: invalid BPB\n");
+		free(buf);
+		return 0;
+    }
+    if (bpb->bytes_per_sector != 512 && bpb->bytes_per_sector != 1024 &&
+        bpb->bytes_per_sector != 2048 && bpb->bytes_per_sector != 4096) {
+		printf("Mount failed: unsupported sector size\n");
+		free(buf);
 		return 0;
     }
 
     fat32_instance_t* inst = malloc(sizeof(fat32_instance_t));
+    if (!inst) {
+		free(buf);
+		return 0;
+    }
     inst->dev = dev;
     inst->bytes_per_sector = bpb->bytes_per_sector;
     inst->sectors_per_cluster = bpb->sectors_per_cluster;
