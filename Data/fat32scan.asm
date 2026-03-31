@@ -43,8 +43,7 @@ start:
 
     mov [DrvNum], dl
 	
-	mov eax, 2048       
-    mov [HiddSec], eax
+    ; Use HiddSec from BPB instead of hardcoded value
 
     ; Приветствие
     mov si, MsgStart
