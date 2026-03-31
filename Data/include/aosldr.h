@@ -359,7 +359,6 @@ void pmm_deinit_region(uint64_t base, uint64_t size);
 //           VMM
 // -------------------------
 
-static inline void invlpg(uint64_t vaddr);
 uint64_t* vmm_get_pte(uint64_t virt, int alloc);
 uint64_t vmm_get_phys_from_pml4(uint64_t* pml4_phys_root, uint64_t virt);
 void vmm_map_page(uint64_t phys, uint64_t virt, uint64_t flags);
@@ -468,6 +467,7 @@ process_t* get_process_by_id(uint32_t pid);
 int64_t register_driver(driver_type_t type, const char* user_name);
 uint64_t get_driver_tid(driver_type_t type);
 uint64_t get_driver_tid_by_name(const char* name);
+int get_driver_tid_sleep_wrapper(void* arg);
 
 
 // -------------------------
