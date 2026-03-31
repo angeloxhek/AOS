@@ -53,6 +53,7 @@ uint64_t bitmap_size = 0;
 #define PAGE_PRESENT   0x1
 #define PAGE_WRITE     0x2
 #define PAGE_USER      0x4
+#define PAGE_NX        (1ULL << 63)
 #define PAGE_FRAME     0x000FFFFFFFFFF000
 #define PAGE_MASK      0xFFFFFFFFFFFFF000
 #define PML4_INDEX(x)  (((x) >> 39) & 0x1FF)
@@ -985,7 +986,7 @@ void syscall_handler(syscall_regs_t* regs) {
 						asm volatile("sti");
 						return;
 					}
-					map_to_other_pml4(proc->page_directory, phys_addr, old_page_limit + (i * PAGE_SIZE), PAGE_USER | PAGE_WRITE | PAGE_PRESENT);
+					map_to_other_pml4(proc->page_directory, phys_addr, old_page_limit + (i * PAGE_SIZE), PAGE_USER | PAGE_WRITE | PAGE_PRESENT | PAGE_NX);
 					kernel_memset((void*)P2V(phys_addr), 0, PAGE_SIZE);
 				}
 			}
@@ -1999,7 +2000,7 @@ void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_
     
     for (uint64_t i = 0; i < alloc_pages * PAGE_SIZE; i += PAGE_SIZE) {
         uint64_t phys = pmm_alloc_block();
-        map_to_other_pml4((uint64_t*)cr3_phys, phys, tls_virt + i, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+        map_to_other_pml4((uint64_t*)cr3_phys, phys, tls_virt + i, PAGE_PRESENT | PAGE_WRITE | PAGE_USER | PAGE_NX);
     }
     
     uint64_t old_cr3 = get_current_pml4();
@@ -2206,6 +2207,8 @@ uint64_t get_driver_tid_by_name(const char* name) {
 //           ELF
 // -------------------------
 
+#define PF_X 1
+
 void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* result) {
     uint64_t file_size = 0;
     uint8_t* raw_data = (uint8_t*)fat32_read_file(v, file, &file_size);
@@ -2258,6 +2261,11 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
                 max_vaddr = vaddr + memsz;
             }
 
+            uint64_t elf_page_flags = PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
+            if (!(phdr[i].p_flags & PF_X)) {
+                elf_page_flags |= PAGE_NX;
+            }
+
             for (uint64_t p = 0; p < page_count; p++) {
                 uint64_t curr_virt = start_page + (p * 4096);
                 uint64_t phys;
@@ -2266,8 +2274,8 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
                     phys = existing_phys;
                 } else {
                     phys = pmm_alloc_block();
-                    map_to_other_pml4(proc->page_directory, phys, curr_virt, 
-                                      PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+                    map_to_other_pml4(proc->page_directory, phys, curr_virt,
+                                      elf_page_flags);
                 }
                 void* ptr = temp_map(phys);
                 kernel_memset(ptr, 0, 4096);
@@ -2355,10 +2363,10 @@ void start_elf_process(elf_load_result_t* res) {
     
     for (uint64_t i = 0; i < stack_pages; i++) {
         uint64_t phys_page = pmm_alloc_block();
-        map_to_other_pml4(res->proc->page_directory, 
-                          phys_page, 
-                          user_stack_virt - (i * PAGE_SIZE), 
-                          PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+        map_to_other_pml4(res->proc->page_directory,
+                          phys_page,
+                          user_stack_virt - (i * PAGE_SIZE),
+                          PAGE_PRESENT | PAGE_WRITE | PAGE_USER | PAGE_NX);
         kernel_memset((void*)P2V(phys_page), 0, PAGE_SIZE);
     }
     uint64_t user_rsp = user_stack_virt + PAGE_SIZE;
@@ -2865,7 +2873,7 @@ void kernel_main(boot_info_t* boot_info){
     hhdm_pdpt[0] = PHYS_HHDM_PD | 0x3;
     phys_addr = 0;
     for (int i = 0; i < 512; i++) {
-        hhdm_pd[i] = phys_addr | 0x83; // 2MB страницы
+        hhdm_pd[i] = phys_addr | 0x83 | PAGE_NX; // 2MB страницы, NX for data
         phys_addr += 0x200000;
     }
     pml4[510] = PHYS_PML4 | 0x3;
