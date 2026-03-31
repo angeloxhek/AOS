@@ -33,8 +33,11 @@ int driver_main(void* reserved1, void* reserved2) {
                         ipc_send(app_tid, &response);
                     } 
                     else {
-                        key_buffer[buf_head] = scancode;
-                        buf_head = (buf_head + 1) % KBD_BUF_SIZE;
+                        int next_head = (buf_head + 1) % KBD_BUF_SIZE;
+                        if (next_head != buf_tail) {
+                            key_buffer[buf_head] = scancode;
+                            buf_head = next_head;
+                        }
                     }
                 }
             }
@@ -52,6 +55,12 @@ int driver_main(void* reserved1, void* reserved2) {
                 else {
                     if (waiters_count < MAX_WAITERS) {
                         waiting_apps[waiters_count++] = msg.sender_tid;
+                    } else {
+                        message_t response;
+                        response.type = MSG_TYPE_KEYBOARD;
+                        response.subtype = MSG_SUBTYPE_RESPONSE;
+                        response.param1 = 0;
+                        ipc_send(msg.sender_tid, &response);
                     }
                 }
             }
