@@ -21,6 +21,7 @@
 
 #define BLOCK_SIZE 4096
 #define TEMP_PAGE_VIRT 0xFFFFFFFFFFE00000
+#define TEMP_PAGES_COUNT 256
 #define KERNEL_STACK_SIZE 16384
 
 /* Global variables declared in aosldr.c, used across modules */

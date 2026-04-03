@@ -66,7 +66,7 @@ uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr) {
 
         uint64_t* temp = (uint64_t*)temp_map(phys);
         kernel_memset(temp, 0, 4096);
-        temp_unmap();
+        temp_unmap(temp);
 
         obj->phys_pages[i] = phys;
         alloced_pages++;

@@ -445,7 +445,7 @@ void* fat32_read_file(volume_t* v, fat32_dirent_t* file, uint64_t* out_size);
 uint64_t get_current_pml4();
 void set_current_pml4(uint64_t phys_addr);
 void* temp_map(uint64_t phys_addr);
-void temp_unmap();
+void temp_unmap(void* virt_ptr);
 process_t* create_process(const char* name);
 uint64_t get_or_alloc_table(uint64_t parent_phys, int index, int flags);
 void map_to_other_pml4(uint64_t* pml4_phys, uint64_t phys, uint64_t virt, int flags);

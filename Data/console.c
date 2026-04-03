@@ -12,7 +12,6 @@ void put_pixel(uint32_t x, uint32_t y, uint32_t color) {
 }
 
 void _kclear() {
-    uint32_t* fb = (uint32_t*)video->framebuffer_addr;
     for (uint32_t y = 0; y < video->height; y++) {
         uint32_t* row = (uint32_t*)(video->framebuffer_addr + y * video->pitch);
         for (uint32_t x = 0; x < video->width; x++) {

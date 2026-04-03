@@ -1,7 +1,7 @@
 #include "include/kernel_internal.h"
 
-spinlock_t temp_map_lock = 0;
-uint64_t saved_irq_flags = 0;
+spinlock_t temp_lock = 0;
+uint64_t temp_bitmap[TEMP_PAGES_COUNT / 64] = {0};
 
 // -------------------------
 //           VMM
@@ -54,35 +54,35 @@ uint64_t vmm_get_phys_from_pml4(uint64_t* pml4_phys_root, uint64_t virt) {
     uint64_t* pml4_virt = (uint64_t*)temp_map((uint64_t)pml4_phys_root);
     uint64_t pml4_entry = pml4_virt[pml4_idx];
     if (!(pml4_entry & PAGE_PRESENT)) {
-        temp_unmap();
+        temp_unmap(pml4_virt);
         return 0;
     }
     uint64_t pdpt_phys = pml4_entry & PAGE_FRAME;
     uint64_t* pdpt_virt = (uint64_t*)temp_map(pdpt_phys);
     uint64_t pdpt_entry = pdpt_virt[pdpt_idx];
     if (!(pdpt_entry & PAGE_PRESENT)) {
-        temp_unmap();
+        temp_unmap(pdpt_virt);
         return 0;
     }
     if (pdpt_entry & 0x80) {
-        temp_unmap();
+        temp_unmap(pdpt_virt);
         return (pdpt_entry & PAGE_FRAME) + (virt & 0x3FFFFFFF);
     }
     uint64_t pd_phys = pdpt_entry & PAGE_FRAME;
     uint64_t* pd_virt = (uint64_t*)temp_map(pd_phys);
     uint64_t pd_entry = pd_virt[pd_idx];
     if (!(pd_entry & PAGE_PRESENT)) {
-        temp_unmap();
+        temp_unmap(pd_virt);
         return 0;
     }
     if (pd_entry & 0x80) {
-        temp_unmap();
+        temp_unmap(pd_virt);
         return (pd_entry & PAGE_FRAME) + (virt & 0x1FFFFF);
     }
     uint64_t pt_phys = pd_entry & PAGE_FRAME;
     uint64_t* pt_virt = (uint64_t*)temp_map(pt_phys);
     uint64_t pt_entry = pt_virt[pt_idx];
-    temp_unmap();
+    temp_unmap(pt_virt);
     if (!(pt_entry & PAGE_PRESENT)) {
         return 0;
     }
@@ -118,22 +118,58 @@ void set_current_pml4(uint64_t phys_addr) {
 }
 
 void* temp_map(uint64_t phys_addr) {
-    uint64_t flags = spinlock_irq_save();
-    spinlock_acquire(&temp_map_lock);
-    saved_irq_flags = flags;
-    uint64_t* pte = vmm_get_pte(TEMP_PAGE_VIRT, 1);
+    uint64_t irq = spinlock_irq_save();
+    spinlock_acquire(&temp_lock);
+
+    int bit = -1;
+    for (int i = 0; i < (TEMP_PAGES_COUNT / 64); i++) {
+        if (temp_bitmap[i] != 0xFFFFFFFFFFFFFFFFULL) {
+            int local_bit = __builtin_ctzll(~temp_bitmap[i]);
+            temp_bitmap[i] |= (1ULL << local_bit);
+            bit = i * 64 + local_bit;
+            break;
+        }
+    }
+
+    spinlock_release(&temp_lock);
+    spinlock_irq_restore(irq);
+
+    if (bit == -1) {
+        kernel_error(0x5, 0x2, 0, 0, 0);
+    }
+
+    uint64_t virt_addr = TEMP_PAGE_VIRT + (bit * 4096ULL);
+
+    uint64_t* pte = vmm_get_pte(virt_addr, 1); 
     *pte = (phys_addr & PAGE_MASK) | PAGE_PRESENT | PAGE_WRITE;
-    asm volatile("invlpg (%0)" :: "r"((uint64_t)TEMP_PAGE_VIRT) : "memory");
-    return (void*)TEMP_PAGE_VIRT;
+    
+    invlpg(virt_addr);
+
+    return (void*)virt_addr;
 }
 
-void temp_unmap() {
-    uint64_t* pte = vmm_get_pte(TEMP_PAGE_VIRT, 1);
-    *pte = 0;
-    asm volatile("invlpg (%0)" :: "r"((uint64_t)TEMP_PAGE_VIRT) : "memory");
-    uint64_t flags_to_restore = saved_irq_flags;
-    spinlock_release(&temp_map_lock);
-    spinlock_irq_restore(flags_to_restore);
+void temp_unmap(void* virt_ptr) {
+    uint64_t virt_addr = (uint64_t)virt_ptr;
+
+    if (virt_addr < TEMP_PAGE_VIRT || virt_addr >= TEMP_PAGE_VIRT + (TEMP_PAGES_COUNT * 4096ULL)) {
+        return; 
+    }
+
+    int bit = (virt_addr - TEMP_PAGE_VIRT) / 4096ULL;
+
+    uint64_t* pte = vmm_get_pte(virt_addr, 0);
+    if (pte) {
+        *pte = 0;
+    }
+    invlpg(virt_addr);
+
+    uint64_t irq = spinlock_irq_save();
+    spinlock_acquire(&temp_lock);
+    
+    temp_bitmap[bit / 64] &= ~(1ULL << (bit % 64));
+    
+    spinlock_release(&temp_lock);
+    spinlock_irq_restore(irq);
 }
 
 uint64_t get_or_alloc_table(uint64_t parent_phys, int index, int flags) {
@@ -142,12 +178,16 @@ uint64_t get_or_alloc_table(uint64_t parent_phys, int index, int flags) {
     if (!(parent_virt[index] & PAGE_PRESENT)) {
         uint64_t new_table_phys = pmm_alloc_block();
         parent_virt[index] = new_table_phys | flags | PAGE_PRESENT | PAGE_WRITE;
+        
         uint64_t* new_table_virt = (uint64_t*)temp_map(new_table_phys);
         kernel_memset(new_table_virt, 0, 4096);
+        
+        temp_unmap(new_table_virt); 
     }
 
-    parent_virt = (uint64_t*)temp_map(parent_phys);
     uint64_t entry = parent_virt[index];
+
+    temp_unmap(parent_virt);
 
     return entry & PAGE_MASK;
 }
@@ -167,7 +207,7 @@ void map_to_other_pml4(uint64_t* pml4_phys, uint64_t phys, uint64_t virt, int fl
     uint64_t* pt_virt = (uint64_t*)temp_map(pt_phys);
     pt_virt[pt_idx] = (phys & PAGE_MASK) | flags;
 
-    temp_unmap();
+    temp_unmap(pt_virt);
 }
 
 void process_map_memory(process_t* proc, uint64_t virt, uint64_t size) {

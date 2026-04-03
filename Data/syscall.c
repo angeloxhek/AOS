@@ -222,7 +222,7 @@ void syscall_handler(syscall_regs_t* regs) {
                 regs->rax = SYS_RES_INVALID;
                 break;
             }
-            ide_device_t* dev = &mounted_ides[idx];
+            //ide_device_t* dev = &mounted_ides[idx];
             user_info->id = idx;
             user_info->sector_size = 512;
             user_info->type = DISK_TYPE_IDE;

@@ -28,7 +28,7 @@ const char* const kernel_messages[] = {
 	"VOLUME_ERROR",
 	"IDE_ERROR",
 	"FS_NOT_FOUND",
-	"MALLOC_ERROR",
+	"MEMORY_ERROR",
 	"DRIVER_ERROR",
 	"ISR_ERROR",
 	"BOOT_INFO_INVALID"
@@ -45,7 +45,7 @@ uint64_t bitmap_size = 0;
 #define PHYS_HHDM_PD    0x85000
 uint64_t* pml4_table_virt = 0;
 
-const unsigned char const kbd_us[128] =
+const unsigned char kbd_us[128] =
 {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8',	/* 9 */
   '9', '0', '-', '=', '\b',	/* Backspace */
@@ -767,7 +767,7 @@ void* fat32_read_file(volume_t* v, fat32_dirent_t* file, uint64_t* out_size) {
 
 process_t* create_process(const char* name) {
     process_t* new_proc = (process_t*)kernel_malloc(sizeof(process_t));
-	if (!new_proc) return 0;
+    if (!new_proc) return 0;
     kernel_memset(new_proc, 0, sizeof(process_t));
 
     static uint32_t next_pid = 1;
@@ -777,23 +777,32 @@ process_t* create_process(const char* name) {
 
     uint64_t pml4_phys = pmm_alloc_block();
     new_proc->page_directory = (uint64_t*)pml4_phys;
+    
     uint64_t* pml4_virt = (uint64_t*)temp_map(pml4_phys);
     kernel_memset(pml4_virt, 0, 4096);
 
+    uint64_t* kernel_entries = (uint64_t*)kernel_malloc(2048); 
+    if (!kernel_entries) {
+        kernel_free(new_proc);
+        return 0;
+    }
+
     uint64_t* kernel_pml4_virt = (uint64_t*)temp_map(get_current_pml4());
-    uint64_t kernel_entries[256];
     for (int i = 256; i < 512; i++) {
         kernel_entries[i - 256] = kernel_pml4_virt[i];
-	}
-    pml4_virt = (uint64_t*)temp_map(pml4_phys);
+    }
+    temp_unmap(kernel_pml4_virt);
+
     for (int i = 256; i < 512; i++) {
         pml4_virt[i] = kernel_entries[i - 256];
     }
     pml4_virt[510] = pml4_phys | PAGE_PRESENT | PAGE_WRITE;
+    temp_unmap(pml4_virt);
 
-	new_proc->next_shm_vaddr = 0x600000000000ULL;
+    kernel_free(kernel_entries); 
 
-    temp_unmap();
+    new_proc->next_shm_vaddr = 0x600000000000ULL;
+
     return new_proc;
 }
 
@@ -1031,7 +1040,7 @@ void kernel_main(boot_info_t* boot_info){
 		kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
 	}
 	elf_load_result_t* driver = (elf_load_result_t*)kernel_malloc(sizeof(elf_load_result_t));
-	if (!driver) kernel_error(0x5, 0, 0, 0, 0);
+	if (!driver) kernel_error(0x5, 0x1, 0, 0, 0);
 	kernel_memset(driver, 0, sizeof(elf_load_result_t));
 	load_elf_raw_fat32(system_volume, &file, driver);
 	if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);

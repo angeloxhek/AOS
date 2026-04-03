@@ -89,7 +89,7 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
                     );
                 }
 
-                temp_unmap();
+                temp_unmap(ptr);
             }
         }
         if (phdr[i].p_type == PT_TLS) {
