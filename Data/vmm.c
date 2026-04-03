@@ -1,5 +1,8 @@
 #include "include/kernel_internal.h"
 
+spinlock_t temp_map_lock = 0;
+uint64_t saved_irq_flags = 0;
+
 // -------------------------
 //           VMM
 // -------------------------
@@ -114,14 +117,13 @@ void set_current_pml4(uint64_t phys_addr) {
     asm volatile("mov %0, %%cr3" :: "r"(phys_addr));
 }
 
-static volatile int temp_map_lock = 0;
-
 void* temp_map(uint64_t phys_addr) {
-    asm volatile("cli");
+    uint64_t flags = spinlock_irq_save();
+    spinlock_acquire(&temp_map_lock);
+    saved_irq_flags = flags;
     uint64_t* pte = vmm_get_pte(TEMP_PAGE_VIRT, 1);
     *pte = (phys_addr & PAGE_MASK) | PAGE_PRESENT | PAGE_WRITE;
     asm volatile("invlpg (%0)" :: "r"((uint64_t)TEMP_PAGE_VIRT) : "memory");
-    temp_map_lock = 1;
     return (void*)TEMP_PAGE_VIRT;
 }
 
@@ -129,8 +131,9 @@ void temp_unmap() {
     uint64_t* pte = vmm_get_pte(TEMP_PAGE_VIRT, 1);
     *pte = 0;
     asm volatile("invlpg (%0)" :: "r"((uint64_t)TEMP_PAGE_VIRT) : "memory");
-    temp_map_lock = 0;
-    asm volatile("sti");
+    uint64_t flags_to_restore = saved_irq_flags;
+    spinlock_release(&temp_map_lock);
+    spinlock_irq_restore(flags_to_restore);
 }
 
 uint64_t get_or_alloc_table(uint64_t parent_phys, int index, int flags) {

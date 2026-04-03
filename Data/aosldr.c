@@ -120,8 +120,6 @@ uint64_t thread_count = 0;
 spinlock_t kprint_lock = 0;
 spinlock_t heap_lock = 0;
 spinlock_t pmm_lock = 0;
-spinlock_t temp_map_lock = 0;
-uint64_t saved_irq_flags = 0;
 volatile uint64_t ticks = 0;
 
 driver_info_t* drivers_list_head;
@@ -766,36 +764,6 @@ void* fat32_read_file(volume_t* v, fat32_dirent_t* file, uint64_t* out_size) {
 // -------------------------
 //         Process
 // -------------------------
-
-uint64_t get_current_pml4() {
-    uint64_t pml4;
-    asm volatile("mov %%cr3, %0" : "=r"(pml4));
-    return pml4;
-}
-
-void set_current_pml4(uint64_t phys_addr) {
-    asm volatile("mov %0, %%cr3" :: "r"(phys_addr));
-}
-
-
-void* temp_map(uint64_t phys_addr) {
-    uint64_t flags = spinlock_irq_save();
-    spinlock_acquire(&temp_map_lock);
-    saved_irq_flags = flags;
-    uint64_t* pte = vmm_get_pte(TEMP_PAGE_VIRT, 1);
-    *pte = (phys_addr & PAGE_MASK) | PAGE_PRESENT | PAGE_WRITE;
-    asm volatile("invlpg (%0)" :: "r"((uint64_t)TEMP_PAGE_VIRT) : "memory");
-    return (void*)TEMP_PAGE_VIRT;
-}
-
-void temp_unmap() {
-    uint64_t* pte = vmm_get_pte(TEMP_PAGE_VIRT, 1);
-    *pte = 0;
-    asm volatile("invlpg (%0)" :: "r"((uint64_t)TEMP_PAGE_VIRT) : "memory");
-    uint64_t flags_to_restore = saved_irq_flags;
-    spinlock_release(&temp_map_lock);
-    spinlock_irq_restore(flags_to_restore);
-}
 
 process_t* create_process(const char* name) {
     process_t* new_proc = (process_t*)kernel_malloc(sizeof(process_t));
