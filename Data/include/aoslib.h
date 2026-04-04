@@ -355,7 +355,6 @@ char* ulltoa(unsigned long long value, char* str, int base);
 
 int64_t block_read(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
 int64_t block_write(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
-void vfs_init();
 int vfs_open(const char* path);
 int vfs_openat(int dir_fd, const char* name);
 int vfs_close(int fd);
