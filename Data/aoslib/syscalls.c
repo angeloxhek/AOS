@@ -304,3 +304,7 @@ void* shm_map(uint64_t shm_id) {
 int shm_free(uint64_t shm_id) {
     return (int)syscall(SYS_SHM_FREE, shm_id, 0, 0, 0, 0);
 }
+
+void thread_yield(void) {
+	syscall(SYS_YIELD, 0, 0, 0, 0, 0);
+}

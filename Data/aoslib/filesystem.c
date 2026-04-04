@@ -195,15 +195,55 @@ int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries) {
         entries_read = (int)resp.param2;
         
         if (entries_read > 0) {
-            // Данные уже лежат в SHM. Копируем их в массив пользователя.
             memcpy(out_entries, shm_vaddr, entries_read * sizeof(vfs_dirent_t));
         }
     } else {
         entries_read = -1;
     }
 
-    // 4. Уничтожаем
     shm_free(shm_id);
 
     return entries_read;
+}
+
+int vfs_flock(int fd, vfs_lock_type_t lock_type) {
+    if (fd < 0) return -1;
+
+    ensure_vfs_init();
+
+    message_t req;
+    message_t resp;
+    memset(&req, 0, sizeof(message_t));
+
+    req.param1 = VFS_CMD_FLOCK;
+    req.param2 = fd;
+    req.param3 = lock_type;
+
+    if (vfs_rpc_call(&req, &resp) == 0) {
+        return 0; // Успех
+    }
+    
+    return -1;
+}
+
+int64_t vfs_seek(int fd, int64_t offset, vfs_seek_t whence) {
+    if (fd < 0) return -1;
+
+    ensure_vfs_init();
+
+    message_t req;
+    message_t resp;
+    memset(&req, 0, sizeof(message_t));
+
+    req.param1 = VFS_CMD_SEEK;
+    req.param2 = fd;
+    req.param3 = whence;
+    
+    *(int64_t*)(req.data) = offset;
+
+    if (vfs_rpc_call(&req, &resp) == 0) {
+        return *(int64_t*)(resp.data);
+    }
+    
+    return -1;
 }

@@ -13,6 +13,12 @@ typedef struct {
 } fs_dirent_t;
 
 typedef struct {
+    uint64_t inode_id;
+    uint64_t size_bytes;
+    uint32_t attributes;
+} fs_stat_t;
+
+typedef struct {
     fs_instance_t (*mount)(block_dev_t* dev);
     void (*umount)(fs_instance_t fs);
     fs_file_handle_t (*open)(fs_instance_t fs, const char* path);
@@ -21,7 +27,7 @@ typedef struct {
     int (*write)(fs_instance_t fs, fs_file_handle_t file, const void* buf, uint64_t size, uint64_t offset);
     void (*close)(fs_instance_t fs, fs_file_handle_t file);
     int (*readdir)(fs_instance_t fs, fs_file_handle_t dir, uint64_t* offset, fs_dirent_t* out_array, int max_entries);
-    int (*stat)(fs_instance_t fs, fs_file_handle_t file, fs_dirent_t* out_info);
+    int (*stat)(fs_instance_t fs, fs_file_handle_t file, fs_stat_t* out_info); 
     void (*get_label)(fs_instance_t fs, char* out_label);
 } fs_driver_t;
 

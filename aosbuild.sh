@@ -60,7 +60,9 @@ gcc -m64 -c Data/aoslib/string.c -o Temp/string.o -fno-omit-frame-pointer \
         -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
 gcc -m64 -c Data/aoslib/start.c -o Temp/start.o -fno-omit-frame-pointer \
         -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
-ar rcs Temp/libaos.a Temp/syscalls.o Temp/filesystem.o Temp/string.o
+gcc -m64 -c Data/aoslib/io.c -o Temp/io.o -fno-omit-frame-pointer \
+        -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
+ar rcs Temp/libaos.a Temp/syscalls.o Temp/filesystem.o Temp/string.o Temp/io.o
 
 echo -e "${GREEN}[5/${STAGES}] Compiling Drivers...${NC}"
 gcc -m64 -c Data/drivers/kbddriver.c -o Temp/kbddriver.o -fno-omit-frame-pointer \

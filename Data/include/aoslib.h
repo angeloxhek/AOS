@@ -8,12 +8,15 @@
 #define AOSLIB_VFS
 #elif defined(AOSLIB_STRING_ONLY)
 #define AOSLIB_STRING
+#elif defined(AOSLIB_IO_ONLY)
+#define AOSLIB_IO
 #elif !defined(AOSKERNEL)
 #define AOSLIB
 #define AOSLIB_START
 #define AOSLIB_SYSCALLS
 #define AOSLIB_VFS
 #define AOSLIB_STRING
+#define AOSLIB_IO
 #endif
 
 #ifndef AOSLIB_DEFINE
@@ -36,7 +39,7 @@
 #define SYS_GET_DISK_INFO           12
 #define SYS_GET_PARTITION_COUNT     13
 #define SYS_GET_PARTITION_INFO      14
-#define SYS_RESERVED1               15
+#define SYS_YIELD                   15
 #define SYS_PRINT                   16
 #define SYS_GET_PROC_INFO           17
 #define SYS_GET_THREAD_INFO         18
@@ -62,6 +65,7 @@
 #define VFS_ERR_PERM                -3
 #define VFS_ERR_ISDIR               -4
 #define VFS_ERR_NOCOMM              -5
+#define VFS_ERR_BUSY                -6
 #define VFS_ERR_UNKNOWN            -99
 
 #define STAT_OK                      0
@@ -75,8 +79,22 @@ typedef enum {
     VFS_CMD_READ,
     VFS_CMD_WRITE,
     VFS_CMD_STAT,
-    VFS_CMD_LIST
+    VFS_CMD_LIST,
+	VFS_CMD_FLOCK,
+	VFS_CMD_SEEK
 } vfs_cmd_t;
+
+typedef enum {
+	VFS_LOCK_UN,
+	VFS_LOCK_SH,
+	VFS_LOCK_EX
+} vfs_lock_type_t;
+
+typedef enum {
+	SEEK_SET,
+	SEEK_CUR,
+	SEEK_END
+} vfs_seek_t;
 
 typedef enum {
     MSG_TYPE_NONE = 0,
@@ -116,7 +134,7 @@ typedef enum {
 #define FSGSBASE (1 << 0)
 
 typedef struct {
-    uint64_t uptime; // Ticks
+    uint64_t uptime;
 	uint64_t fs_base;
     uint64_t gs_base;
     uint64_t kernel_gs_base;
@@ -175,10 +193,10 @@ typedef struct {
 
 typedef enum {
     VFS_FILE_TYPE_UNKNOWN = 0,
-    VFS_FILE_TYPE_REGULAR,    // Обычный файл (текст, бинарник)
-    VFS_FILE_TYPE_DIR,        // Директория
-    VFS_FILE_TYPE_SYMLINK,    // Символическая ссылка
-    VFS_FILE_TYPE_DEVICE      // Устройство (наши raw, ctl, kram)
+    VFS_FILE_TYPE_REGULAR,
+    VFS_FILE_TYPE_DIR,
+    VFS_FILE_TYPE_SYMLINK,
+    VFS_FILE_TYPE_DEVICE
 } vfs_file_type_t;
 
 typedef struct {
@@ -206,6 +224,10 @@ typedef struct {
 } aos_tcb_t;
 
 #define AOS_GET_TCB() ((aos_tcb_t __seg_fs *)0)
+
+typedef struct {
+    volatile int locked;
+} mutex_t;
 
 #ifndef offsetof
     #define offsetof(TYPE, MEMBER)  __builtin_offsetof(TYPE, MEMBER)
@@ -257,6 +279,8 @@ uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr);
 int shm_allow(uint64_t shm_id, uint64_t target_tid);
 void* shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
+
+void thread_yield(void);
 #endif
 
 #ifdef AOSLIB_STRING
@@ -338,6 +362,15 @@ int vfs_close(int fd);
 int vfs_read(int fd, void* buf, int count);
 int vfs_write(int fd, const void* buf, int count);
 int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries);
+int vfs_flock(int fd, vfs_lock_type_t lock_type);
+
+#endif
+
+#ifdef AOSLIB_IO
+
+void mutex_init(mutex_t* m);
+void mutex_lock(mutex_t* m);
+void mutex_unlock(mutex_t* m);
 
 #endif
 

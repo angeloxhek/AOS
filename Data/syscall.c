@@ -382,6 +382,12 @@ void syscall_handler(syscall_regs_t* regs) {
             regs->rax = (uint64_t)result;
             break;
         }
+		
+		case SYS_YIELD: {
+			schedule();
+			regs->rax = SYS_RES_OK;
+            break;
+		}
 
         default: {
             kprint("Unknown Syscall invoked!\n");

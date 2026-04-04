@@ -100,6 +100,7 @@ typedef struct {
 	fat32_cache_t* cache;
 	uint16_t fs_info_sector;
 	uint32_t next_free_cluster_hint;
+	mutex_t cache_lock;
 } fat32_instance_t;
 
 typedef struct {
@@ -117,6 +118,8 @@ void fat32_read_cached_sector(fat32_instance_t* inst, uint64_t lba, uint8_t* out
         block_read(inst->dev, lba, 1, out_buffer);
         return;
     }
+	
+	//mutex_lock(&inst->cache_lock);
 
     uint32_t idx = lba & FAT32_CACHE_MASK;
 
@@ -124,11 +127,19 @@ void fat32_read_cached_sector(fat32_instance_t* inst, uint64_t lba, uint8_t* out
         memcpy(out_buffer, inst->cache->entries[idx].data, 512);
         return;
     }
+	
+	//mutex_unlock(&inst->cache_lock);
 
     block_read(inst->dev, lba, 1, out_buffer);
 
+	//mutex_lock(&inst->cache_lock);
+	
     inst->cache->entries[idx].lba = lba;
     memcpy(inst->cache->entries[idx].data, out_buffer, 512);
+	
+	//mutex_unlock(&inst->cache_lock);
+	
+	// uncomment when multithreading appears in the VFS driver / раскомментировать при появлении многопоточности в драйвере VFS
 }
 
 void fat32_write_cached_sector(fat32_instance_t* inst, uint64_t lba, const uint8_t* in_buffer) {
@@ -382,6 +393,9 @@ fs_instance_t fat32_mount(block_dev_t* dev) {
 		free(buf);
 		return 0;
     }
+	
+	mutex_init(&inst->cache_lock);
+	
     inst->dev = dev;
     inst->bytes_per_sector = bpb->bytes_per_sector;
     inst->sectors_per_cluster = bpb->sectors_per_cluster;
@@ -834,6 +848,20 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offse
     return entries_read; 
 }
 
+int fat32_stat(fs_instance_t fs, fs_file_handle_t f, fs_stat_t* out_info) {
+    if (!f || !out_info) return -1;
+    
+    fat32_file_t* file = (fat32_file_t*)f;
+    
+    memset(out_info, 0, sizeof(fs_stat_t));
+    out_info->size_bytes = file->size_bytes;
+    out_info->attributes = file->attributes;
+    
+    out_info->inode_id = (file->dir_entry_lba << 32) | file->dir_entry_offset;
+    
+    return 0;
+}
+
 void fat32_get_label(fs_instance_t fs, char* out_label) {
     fat32_instance_t* inst = (fat32_instance_t*)fs;
     uint32_t cluster = inst->root_cluster;
@@ -884,5 +912,6 @@ fs_driver_t fat32_driver = {
 	.write = fat32_write,
     .close = fat32_close,
     .readdir = fat32_readdir,
+	.stat = fat32_stat,
     .get_label = fat32_get_label
 };
