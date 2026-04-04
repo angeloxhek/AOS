@@ -21,8 +21,8 @@ typedef struct {
 typedef struct {
     fs_instance_t (*mount)(block_dev_t* dev);
     void (*umount)(fs_instance_t fs);
-    fs_file_handle_t (*open)(fs_instance_t fs, const char* path);
-    fs_file_handle_t (*openat)(fs_instance_t fs, fs_file_handle_t dir_handle, const char* path);
+    fs_file_handle_t (*open)(fs_instance_t fs, const char* path, uint32_t flags);
+    fs_file_handle_t (*openat)(fs_instance_t fs, fs_file_handle_t dir_handle, const char* path, uint32_t flags);
     int (*read)(fs_instance_t fs, fs_file_handle_t file, void* buf, uint64_t size, uint64_t offset);
     int (*write)(fs_instance_t fs, fs_file_handle_t file, const void* buf, uint64_t size, uint64_t offset);
     void (*close)(fs_instance_t fs, fs_file_handle_t file);

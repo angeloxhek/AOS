@@ -31,7 +31,7 @@ void scan_directory(int dir_fd, int level) {
             if (entry->type == VFS_FILE_TYPE_DIR) {
                 printf("%s/\n", entry->name);
                 
-                int child_fd = vfs_openat(dir_fd, entry->name);
+                int child_fd = vfs_openat(dir_fd, entry->name, 0);
                 
                 if (child_fd >= 0) {
                     scan_directory(child_fd, level + 1);
@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
     printf("System Tree Scan Root (/):\n");
     printf(".\n");
     
-    int root_fd = vfs_open("/");
+    int root_fd = vfs_open("/", 0);
     
     if (root_fd >= 0) {
         scan_directory(root_fd, 0);

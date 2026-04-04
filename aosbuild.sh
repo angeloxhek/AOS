@@ -74,8 +74,10 @@ gcc -m64 -c Data/drivers/vfsdriver.c -o Temp/vfsdriver.o -fno-omit-frame-pointer
         -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
 gcc -m64 -c Data/drivers/fat32_vfsmodule.c -o Temp/fat32_vfsmodule.o -fno-omit-frame-pointer \
         -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables 
+gcc -m64 -c Data/drivers/procfs_vfsmodule.c -o Temp/procfs_vfsmodule.o -fno-omit-frame-pointer \
+        -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables 
 ld -m elf_x86_64 -N --no-warn-rwx-segments -Map Temp/vfsdriver.map -T Data/drivers/vfsdriver.ld \
-        Temp/start.o Temp/vfsdriver.o Temp/fat32_vfsmodule.o Temp/libaos.a \
+        Temp/start.o Temp/vfsdriver.o Temp/fat32_vfsmodule.o Temp/procfs_vfsmodule.o Temp/libaos.a \
         -o Build/FirstVolume/DRIVERS/VFSDRIVER.ELF
 
 echo -e "${GREEN}[6/${STAGES}] Compiling User-Space...${NC}"

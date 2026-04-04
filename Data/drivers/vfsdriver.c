@@ -2,7 +2,8 @@
 #include "../include/aoslib.h"
 #include "../include/fs_interface.h"
 
-extern fs_driver_t fat32_driver; 
+extern fs_driver_t fat32_driver;
+extern fs_driver_t procfs_driver;
 
 typedef enum {
     VFS_TYPE_DIR,
@@ -36,8 +37,6 @@ typedef struct vfs_node {
 } vfs_node_t;
 
 vfs_node_t* vfs_root = 0;
-vfs_node_t* ptasks = 0;
-vfs_node_t* ttasks = 0;
 
 typedef struct {
     int id;
@@ -47,6 +46,7 @@ typedef struct {
     vfs_node_type_t type;
 	vfs_node_t* mount_node;
 	uint64_t inode_id;
+	uint32_t flags;
     union {
         struct {
             fs_driver_t* driver;
@@ -254,51 +254,6 @@ vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
     return 0;
 }
 
-void vfs_add_proc(uint64_t pid, const char* proc_name) {
-    char pid_str[21];
-    ulltoa((unsigned long long)pid, pid_str, 10); 
-    
-    vfs_node_t* proc_node = vfs_mkdir(ptasks, pid_str);
-    if (!proc_node) return;
-	
-    vfs_mkdev(proc_node, "name",  0, 0, (void*)pid);
-    vfs_mkdev(proc_node, "state", 0, 0, (void*)pid);
-    vfs_mkdev(proc_node, "mem",   0, 0, (void*)pid);
-    vfs_mkdev(proc_node, "ctl",   0, 0, (void*)pid);
-	
-    vfs_mkdir(proc_node, "threads");
-}
-
-void vfs_proc_add_thread(uint64_t tid, uint64_t parent_pid) {
-    char tid_str[21];
-    char pid_str[21];
-    
-    ulltoa((unsigned long long)tid, tid_str, 10);
-    ulltoa((unsigned long long)parent_pid, pid_str, 10);
-	
-    vfs_node_t* thread_node = vfs_mkdir(ttasks, tid_str);
-    if (!thread_node) return;
-
-    vfs_mkdev(thread_node, "status",  0, 0, (void*)tid);
-    vfs_mkdev(thread_node, "drvinfo", 0, 0, (void*)tid);
-    
-    vfs_mkdir(thread_node, "fd");
-
-    char proc_target[64];
-    snprintf(proc_target, sizeof(proc_target), "/tasks/p/%s", pid_str);
-    vfs_symlink(thread_node, "proc", proc_target);
-
-    vfs_node_t* parent_proc_node = find_child(ptasks, pid_str);
-    if (parent_proc_node) {
-        vfs_node_t* threads_dir = find_child(parent_proc_node, "threads");
-        if (threads_dir) {
-            char thread_target[64];
-            snprintf(thread_target, sizeof(thread_target), "/tasks/t/%s", tid_str);
-            vfs_symlink(threads_dir, tid_str, thread_target);
-        }
-    }
-}
-
 void vfs_init_tree() {
     vfs_root = calloc(1, sizeof(vfs_node_t));
     vfs_root->type = VFS_TYPE_DIR;
@@ -309,9 +264,12 @@ void vfs_init_tree() {
 	vfs_mkdev(hw, "urandom", dev_read_urandom, dev_write_null, 0);
 
     vfs_node_t* sys  = vfs_mkdir(vfs_root, "sys");
+	
     vfs_node_t* tasks = vfs_mkdir(vfs_root, "tasks");
-	ptasks = vfs_mkdir(tasks, "p");
-	ttasks = vfs_mkdir(tasks, "t");
+	tasks->type = VFS_TYPE_MOUNT_POINT;
+    tasks->mount.driver = &procfs_driver;
+    tasks->mount.fs_inst = procfs_driver.mount(0);
+	
     vfs_node_t* mnt  = vfs_mkdir(vfs_root, "mnt");
     vfs_node_t* mnt_id = vfs_mkdir(mnt, "id");
 
@@ -527,7 +485,8 @@ void handle_vfs_request(message_t* req) {
     switch (req->param1) {
         case VFS_CMD_OPEN:
         case VFS_CMD_OPENAT: {
-            int dir_fd = (req->param1 == VFS_CMD_OPENAT) ? req->param2 : -1;
+			uint32_t flags = req->param2;
+            int dir_fd = (req->param1 == VFS_CMD_OPENAT) ? req->param3 : -1;
             char* path = (char*)req->data;
 
             if (!path || path[0] == '\0') {
@@ -557,17 +516,21 @@ void handle_vfs_request(message_t* req) {
                             new_f->mounted_file.handle = new_f->mounted_file.driver->openat(
                                 new_f->mounted_file.fs,
                                 parent_f->mounted_file.handle,
-                                path
+                                path,
+                                flags
                             );
                         }
 
                         if (new_f->mounted_file.handle) {
 							new_f->mount_node = parent_f->mount_node;
-                            
+                            new_f->flags = flags;
                             if (new_f->mounted_file.driver->stat) {
                                 fs_stat_t file_stat;
                                 if (new_f->mounted_file.driver->stat(new_f->mounted_file.fs, new_f->mounted_file.handle, &file_stat) == 0) {
                                     new_f->inode_id = file_stat.inode_id;
+									if (flags & VFS_FAPPEND) {
+										new_f->offset = file_stat.size_bytes;
+									}
                                 }
                             }
                             resp.param1 = VFS_ERR_OK;
@@ -608,13 +571,17 @@ void handle_vfs_request(message_t* req) {
                 char* p = (res.fs_path && *res.fs_path) ? res.fs_path : "/";
                 
                 if (f->mounted_file.driver && f->mounted_file.driver->open) {
-                    f->mounted_file.handle = f->mounted_file.driver->open(f->mounted_file.fs, p);
+                    f->mounted_file.handle = f->mounted_file.driver->open(f->mounted_file.fs, p, flags);
+					f->flags = flags;
 					if (f->mounted_file.handle && f->mounted_file.driver->stat) {
                         fs_stat_t file_stat;
                         if (f->mounted_file.driver->stat(f->mounted_file.fs, f->mounted_file.handle, &file_stat) == 0) {
                             f->inode_id = file_stat.inode_id;
+							if (flags & VFS_FAPPEND) {
+								f->offset = file_stat.size_bytes;
+							}
                         }
-                    }
+					}
                 }
                 
                 if (!f->mounted_file.handle) {
@@ -656,6 +623,7 @@ void handle_vfs_request(message_t* req) {
             vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
             if (!f) { resp.param1 = VFS_ERR_PERM; break; }
             if (f->type == VFS_TYPE_DIR) { resp.param1 = VFS_ERR_ISDIR; break; }
+			if (!(f->flags & VFS_FREAD)) { resp.param1 = VFS_ERR_PERM; break; }
 
             void* buf = shm_map(shm_id);
             if (!buf) { resp.param1 = VFS_ERR_UNKNOWN; break; }
@@ -695,6 +663,7 @@ void handle_vfs_request(message_t* req) {
             vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
             if (!f) { resp.param1 = VFS_ERR_PERM; break; }
             if (f->type == VFS_TYPE_DIR) { resp.param1 = VFS_ERR_ISDIR; break; }
+			if (!(f->flags & VFS_FWRITE)) { resp.param1 = VFS_ERR_PERM; break; }
 
             void* buf = shm_map(shm_id);
             if (!buf) { resp.param1 = VFS_ERR_UNKNOWN; break; }

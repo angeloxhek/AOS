@@ -72,6 +72,13 @@
 #define STAT_STACK_SMASHING       -256
 #define STAT_NO_ENTRY             -257
 
+#define VFS_FREAD   (1 << 0)
+#define VFS_FWRITE  (1 << 1)
+#define VFS_FRW     (VFS_FREAD | VFS_FWRITE)
+#define VFS_FCREATE (1 << 2)
+#define VFS_FAPPEND (1 << 3)
+#define VFS_FTRUNC  (1 << 4)
+
 typedef enum {
     VFS_CMD_OPEN  = 1,
 	VFS_CMD_OPENAT,
@@ -85,13 +92,13 @@ typedef enum {
 } vfs_cmd_t;
 
 typedef enum {
-	VFS_LOCK_UN,
+	VFS_LOCK_UN = 1,
 	VFS_LOCK_SH,
 	VFS_LOCK_EX
 } vfs_lock_type_t;
 
 typedef enum {
-	SEEK_SET,
+	SEEK_SET = 1,
 	SEEK_CUR,
 	SEEK_END
 } vfs_seek_t;
@@ -233,6 +240,10 @@ typedef struct {
     #define offsetof(TYPE, MEMBER)  __builtin_offsetof(TYPE, MEMBER)
 #endif
 
+#ifndef UNUSED
+    #define UNUSED(x) (void)(x)
+#endif
+
 #undef NULL
 
 #ifdef __cplusplus
@@ -274,6 +285,9 @@ uint64_t get_disk_count(void);
 uint64_t get_partition_count(void);
 uint64_t get_disk_info(uint64_t index, disk_info_t* pinfo);
 uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo);
+
+int get_proc_info(uint32_t pid, proc_info_user_t* out_info);
+int get_thread_info(uint32_t pid, thread_info_user_t* out_info);
 
 uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr);
 int shm_allow(uint64_t shm_id, uint64_t target_tid);
@@ -355,8 +369,8 @@ char* ulltoa(unsigned long long value, char* str, int base);
 
 int64_t block_read(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
 int64_t block_write(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
-int vfs_open(const char* path);
-int vfs_openat(int dir_fd, const char* name);
+int vfs_open(const char* path, uint32_t flags);
+int vfs_openat(int dir_fd, const char* name, uint32_t flags);
 int vfs_close(int fd);
 int vfs_read(int fd, void* buf, int count);
 int vfs_write(int fd, const void* buf, int count);

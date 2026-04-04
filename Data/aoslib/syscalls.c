@@ -164,6 +164,13 @@ uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo) {
 	return syscall(SYS_GET_PARTITION_INFO, index, (uint64_t)pinfo, 0, 0, 0);
 }
 
+int get_proc_info(uint32_t pid, proc_info_user_t* out_info) {
+    return syscall(SYS_GET_PROC_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
+}
+int get_thread_info(uint32_t pid, thread_info_user_t* out_info) {
+    return syscall(SYS_GET_THREAD_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
+}
+
 typedef struct malloc_header {
     uint64_t size;
     uint64_t is_free;

@@ -1,4 +1,6 @@
 #include <stdint.h>
+#define AOSLIB_SYSCALLS
+#define AOSLIB_STRING
 #include "../include/aoslib.h"
 #include "../include/fs_interface.h"
 
@@ -124,7 +126,7 @@ void fat32_read_cached_sector(fat32_instance_t* inst, uint64_t lba, uint8_t* out
     uint32_t idx = lba & FAT32_CACHE_MASK;
 
     if (inst->cache->entries[idx].lba == lba) {
-        memcpy(out_buffer, inst->cache->entries[idx].data, 512);
+        memcpy(out_buffer, inst->cache->entries[idx].data, inst->bytes_per_sector);
         return;
     }
 	
@@ -135,7 +137,7 @@ void fat32_read_cached_sector(fat32_instance_t* inst, uint64_t lba, uint8_t* out
 	//mutex_lock(&inst->cache_lock);
 	
     inst->cache->entries[idx].lba = lba;
-    memcpy(inst->cache->entries[idx].data, out_buffer, 512);
+    memcpy(inst->cache->entries[idx].data, out_buffer, inst->bytes_per_sector);
 	
 	//mutex_unlock(&inst->cache_lock);
 	
@@ -150,7 +152,7 @@ void fat32_write_cached_sector(fat32_instance_t* inst, uint64_t lba, const uint8
     uint32_t idx = lba & FAT32_CACHE_MASK;
 
     inst->cache->entries[idx].lba = lba;
-    memcpy(inst->cache->entries[idx].data, in_buffer, 512);
+    memcpy(inst->cache->entries[idx].data, in_buffer, inst->bytes_per_sector);
 }
 
 void fat32_read_sectors(fat32_instance_t* inst, uint64_t lba, uint64_t count, void* buffer) {
@@ -357,6 +359,117 @@ void fat32_format_sfn(char* dest, const char* sfn_name) {
     dest[p] = '\0';
 }
 
+void fat32_generate_sfn(const char* filename, char* sfn_out) {
+    memset(sfn_out, ' ', 11);
+    int i = 0, j = 0;
+    while (filename[i] != '\0' && filename[i] != '.' && j < 8) {
+        char c = filename[i++];
+        if (c >= 'a' && c <= 'z') c -= 32;
+        sfn_out[j++] = c;
+    }
+    
+    while (filename[i] != '\0' && filename[i] != '.') i++;
+    
+    if (filename[i] == '.') {
+        i++;
+        j = 8;
+        while (filename[i] != '\0' && j < 11) {
+            char c = filename[i++];
+            if (c >= 'a' && c <= 'z') c -= 32;
+            sfn_out[j++] = c;
+        }
+    }
+}
+
+int fat32_create_file_entry(fat32_instance_t* inst, uint32_t parent_cluster, const char* filename, fat32_file_t* handle_out) {
+    char sfn[11];
+    fat32_generate_sfn(filename, sfn);
+    
+    uint32_t cluster = parent_cluster;
+    uint32_t last_cluster = cluster;
+    uint8_t buffer[FAT32_MAX_SECTOR_SIZE];
+    
+    while (cluster < 0x0FFFFFF8 && cluster >= 2) {
+        uint64_t lba = cluster_to_lba(inst, cluster);
+        
+        for (uint32_t s = 0; s < inst->sectors_per_cluster; s++) {
+            fat32_read_cached_sector(inst, lba + s, buffer);
+            fat32_dir_entry_t* entries = (fat32_dir_entry_t*)buffer;
+            
+            for (uint32_t i = 0; i < inst->bytes_per_sector / 32; i++) {
+                if ((entries[i].name[0] & 0xFF) == 0x00 || (entries[i].name[0] & 0xFF) == 0xE5) {
+                    
+                    memset(&entries[i], 0, sizeof(fat32_dir_entry_t));
+                    memcpy(entries[i].name, sfn, 11);
+                    entries[i].attr = FAT_ATTR_ARCHIVE;
+                    
+                    fat32_write_cached_sector(inst, lba + s, buffer);
+                    
+                    handle_out->first_cluster = 0;
+                    handle_out->current_cluster = 0;
+                    handle_out->size_bytes = 0;
+                    handle_out->current_offset = 0;
+                    handle_out->attributes = FAT_ATTR_ARCHIVE;
+                    handle_out->dir_entry_lba = lba + s;
+                    handle_out->dir_entry_offset = i * 32;
+                    
+                    return 1;
+                }
+            }
+        }
+        last_cluster = cluster;
+        cluster = get_next_cluster(inst, cluster);
+    }
+    
+    uint32_t new_cluster = allocate_cluster(inst);
+    if (!new_cluster) return 0;
+    
+    set_next_cluster(inst, last_cluster, new_cluster);
+    
+    uint64_t lba = cluster_to_lba(inst, new_cluster);
+    fat32_read_cached_sector(inst, lba, buffer); 
+    
+    fat32_dir_entry_t* entries = (fat32_dir_entry_t*)buffer;
+    memcpy(entries[0].name, sfn, 11);
+    entries[0].attr = FAT_ATTR_ARCHIVE;
+    
+    fat32_write_cached_sector(inst, lba, buffer);
+    
+    handle_out->first_cluster = 0;
+    handle_out->current_cluster = 0;
+    handle_out->size_bytes = 0;
+    handle_out->current_offset = 0;
+    handle_out->attributes = FAT_ATTR_ARCHIVE;
+    handle_out->dir_entry_lba = lba;
+    handle_out->dir_entry_offset = 0;
+    
+    return 1;
+}
+
+void fat32_truncate_file(fat32_instance_t* inst, fat32_file_t* file) {
+    if (file->first_cluster >= 2 && file->first_cluster < 0x0FFFFFF8) {
+        uint32_t cluster = file->first_cluster;
+        while (cluster < 0x0FFFFFF8 && cluster >= 2) {
+            uint32_t next = get_next_cluster(inst, cluster);
+            set_next_cluster(inst, cluster, 0x00000000);
+            cluster = next;
+        }
+    }
+    
+    file->first_cluster = 0;
+    file->current_cluster = 0;
+    file->size_bytes = 0;
+    file->current_offset = 0;
+    
+    uint8_t sec_buf[FAT32_MAX_SECTOR_SIZE];
+    fat32_read_cached_sector(inst, file->dir_entry_lba, sec_buf);
+    fat32_dir_entry_t* d_ent = (fat32_dir_entry_t*)&sec_buf[file->dir_entry_offset];
+    d_ent->file_size = 0;
+    d_ent->cluster_high = 0;
+    d_ent->cluster_low = 0;
+    fat32_write_cached_sector(inst, file->dir_entry_lba, sec_buf);
+}
+
 fs_instance_t fat32_mount(block_dev_t* dev) {
     uint8_t* buf = malloc(FAT32_MAX_SECTOR_SIZE);
     if (block_read(dev, 0, 1, buf) != 0) {
@@ -523,7 +636,7 @@ int find_entry_in_cluster_chain(fat32_instance_t* inst, uint32_t start_cluster, 
     return 0;
 }
 
-fs_file_handle_t fat32_open_from_cluster(fat32_instance_t* inst, uint32_t start_cluster, const char* path) {
+fs_file_handle_t fat32_open_from_cluster(fat32_instance_t* inst, uint32_t start_cluster, const char* path, uint32_t flags) {
     if (!path || path[0] == 0) return 0;
 
     fat32_file_t* handle = malloc(sizeof(fat32_file_t));
@@ -550,30 +663,45 @@ fs_file_handle_t fat32_open_from_cluster(fat32_instance_t* inst, uint32_t start_
     char* token = strtok_r(path_copy, "/", &saveptr);
 
     while (token != 0) {
+        char* next_token = strtok_r(0, "/", &saveptr);
+        
         if (!find_entry_in_cluster_chain(inst, current_cluster, token, handle)) {
-            free(handle);
-            return 0;
+            if (next_token == 0 && (flags & VFS_FCREATE)) {
+                if (!fat32_create_file_entry(inst, current_cluster, token, handle)) {
+                    free(handle);
+                    return 0;
+                }
+                break;
+            } else {
+                free(handle);
+                return 0;
+            }
         }
         
-        token = strtok_r(0, "/", &saveptr);
-        
-        if (token != 0 && !(handle->attributes & FAT_ATTR_DIRECTORY)) {
-            free(handle);
-            return 0;
+        if (next_token == 0) {
+            if ((flags & VFS_FTRUNC) && (flags & VFS_FWRITE) && !(handle->attributes & FAT_ATTR_DIRECTORY)) {
+                fat32_truncate_file(inst, handle);
+            }
+        } else {
+            if (!(handle->attributes & FAT_ATTR_DIRECTORY)) {
+                free(handle);
+                return 0;
+            }
+            current_cluster = handle->first_cluster;
         }
         
-        current_cluster = handle->first_cluster;
+        token = next_token;
     }
 
     return (fs_file_handle_t)handle;
 }
 
-fs_file_handle_t fat32_open(fs_instance_t fs, const char* path) {
+fs_file_handle_t fat32_open(fs_instance_t fs, const char* path, uint32_t flags) {
     fat32_instance_t* inst = (fat32_instance_t*)fs;
-    return fat32_open_from_cluster(inst, inst->root_cluster, path);
+    return fat32_open_from_cluster(inst, inst->root_cluster, path, flags);
 }
 
-fs_file_handle_t fat32_openat(fs_instance_t fs, fs_file_handle_t dir_handle, const char* path) {
+fs_file_handle_t fat32_openat(fs_instance_t fs, fs_file_handle_t dir_handle, const char* path, uint32_t flags) {
     fat32_instance_t* inst = (fat32_instance_t*)fs;
     fat32_file_t* parent = (fat32_file_t*)dir_handle;
     
@@ -581,7 +709,7 @@ fs_file_handle_t fat32_openat(fs_instance_t fs, fs_file_handle_t dir_handle, con
         return 0; 
     }
 
-    return fat32_open_from_cluster(inst, parent->first_cluster, path);
+    return fat32_open_from_cluster(inst, parent->first_cluster, path, flags);
 }
 
 int fat32_read(fs_instance_t fs, fs_file_handle_t f, void* buf, uint64_t size, uint64_t offset) {
