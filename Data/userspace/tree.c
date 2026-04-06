@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
     printf("System Tree Scan Root (/):\n");
     printf(".\n");
     
-    int root_fd = vfs_open("/", 0);
+    int root_fd = vfs_open("/tasks/", 0);
     
     if (root_fd >= 0) {
         scan_directory(root_fd, 0);

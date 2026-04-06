@@ -388,6 +388,63 @@ void syscall_handler(syscall_regs_t* regs) {
 			regs->rax = SYS_RES_OK;
             break;
 		}
+		
+		case SYS_GET_PID_LIST: {
+            uint32_t* user_buffer = (uint32_t*)regs->rdi;
+            uint64_t max_elements = regs->rsi;
+
+            if (!is_valid_user_pointer(user_buffer) || max_elements == 0) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+
+            uint64_t count = 0;
+            thread_t* t = ready_queue;
+            if (t) {
+                do {
+                    uint32_t pid = t->owner->id;
+                    
+                    int is_duplicate = 0;
+                    for (uint64_t i = 0; i < count; i++) {
+                        if (user_buffer[i] == pid) {
+                            is_duplicate = 1;
+                            break;
+                        }
+                    }
+                    
+                    if (!is_duplicate && count < max_elements) {
+                        user_buffer[count++] = pid;
+                    }
+                    t = t->next;
+                } while (t != ready_queue && count < max_elements);
+            }
+            regs->rax = count;
+            break;
+        }
+
+        case SYS_GET_TID_LIST: {
+            uint32_t target_pid = (uint32_t)regs->rdi;
+            uint32_t* user_buffer = (uint32_t*)regs->rsi;
+            uint64_t max_elements = regs->rdx;
+
+            if (!is_valid_user_pointer(user_buffer) || max_elements == 0) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+
+            uint64_t count = 0;
+            thread_t* t = ready_queue;
+            if (t) {
+                do {
+                    if (target_pid == -1 || t->owner->id == target_pid) {
+                        user_buffer[count++] = t->tid;
+                    }
+                    t = t->next;
+                } while (t != ready_queue && count < max_elements);
+            }
+            regs->rax = count;
+            break;
+        }
 
         default: {
             kprint("Unknown Syscall invoked!\n");

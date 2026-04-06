@@ -763,11 +763,7 @@ void handle_vfs_request(message_t* req) {
                             strlcpy(dirent_array[i].name, fs_array[i].name, 64);
                             dirent_array[i].size = fs_array[i].size;
                             
-                            if (fs_array[i].type == VFS_FILE_TYPE_DIR) {
-                                dirent_array[i].type = VFS_FILE_TYPE_DIR;
-                            } else {
-                                dirent_array[i].type = VFS_FILE_TYPE_REGULAR;
-                            }
+                            dirent_array[i].type = fs_array[i].type;
                         }
                     }
 

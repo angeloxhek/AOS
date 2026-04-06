@@ -167,133 +167,17 @@ uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo) {
 int get_proc_info(uint32_t pid, proc_info_user_t* out_info) {
     return syscall(SYS_GET_PROC_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
 }
+
 int get_thread_info(uint32_t pid, thread_info_user_t* out_info) {
     return syscall(SYS_GET_THREAD_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
 }
 
-typedef struct malloc_header {
-    uint64_t size;
-    uint64_t is_free;
-    struct malloc_header* next;
-    uint64_t padding; // Выравнивание 16 байт
-} __attribute__((aligned(16))) malloc_header_t;
-
-static malloc_header_t* free_list_start = 0;
-static int malloc_initialized = 0;
-#define ALIGN_PAGE(x) (((x) + 4095) & ~4095)
-
-void* malloc(uint64_t size) {
-    if (size == 0) return (void*)0;
-
-    size = (size + 15) & ~15;
-    
-    if (!malloc_initialized) {
-        uint64_t initial_size = size + sizeof(malloc_header_t);
-        initial_size = ALIGN_PAGE(initial_size);
-        
-        void* ptr = syscall_sbrk(initial_size);
-        if (ptr == (void*)0 || ptr == (void*)-1) return (void*)0;
-        
-        free_list_start = (malloc_header_t*)ptr;
-        free_list_start->size = initial_size - sizeof(malloc_header_t);
-        free_list_start->is_free = 1;
-        free_list_start->next = (void*)0;
-        malloc_initialized = 1;
-    }
-
-restart_search:
-    
-    malloc_header_t* current = free_list_start;
-    malloc_header_t* last = (void*)0;
-    
-    while (current) {
-        if (current->is_free && current->size >= size) {
-            if (current->size > size + sizeof(malloc_header_t) + 16) {
-                malloc_header_t* next_block = (malloc_header_t*)((uint8_t*)current + sizeof(malloc_header_t) + size);
-                next_block->size = current->size - size - sizeof(malloc_header_t);
-                next_block->is_free = 1;
-                next_block->next = current->next;
-
-                current->size = size;
-                current->next = next_block;
-            }
-            current->is_free = 0;
-            return (void*)((uint8_t*)current + sizeof(malloc_header_t));
-        }
-        last = current;
-        current = current->next;
-    }
-    
-    uint64_t total_needed = size + sizeof(malloc_header_t);
-    total_needed = ALIGN_PAGE(total_needed);
-    
-    malloc_header_t* new_block = (malloc_header_t*)syscall_sbrk(total_needed);
-    if ((uint64_t)new_block <= 0) return (void*)0;
-    
-    new_block->size = total_needed - sizeof(malloc_header_t);
-    new_block->is_free = 1;
-    new_block->next = (void*)0;
-    
-    if (last) {
-        last->next = new_block;
-    } else {
-        free_list_start = new_block;
-    }
-
-    goto restart_search;
+int get_pid_list(uint32_t* buff, uint64_t count) {
+    return syscall(SYS_GET_PID_LIST, (uint64_t)buff, count, 0, 0, 0);
 }
 
-void free(void* ptr) {
-    if (!ptr) return;
-    
-    malloc_header_t* header = (malloc_header_t*)((uint8_t*)ptr - sizeof(malloc_header_t));
-    header->is_free = 1;
-    
-    malloc_header_t* current = free_list_start;
-    while (current && current->next) {
-        if (current->is_free && current->next->is_free) {
-            if ((uint8_t*)current + sizeof(malloc_header_t) + current->size == (uint8_t*)current->next) {
-                current->size += current->next->size + sizeof(malloc_header_t);
-                current->next = current->next->next;
-                continue; 
-            }
-        }
-        current = current->next;
-    }
-}
-
-void* realloc(void* ptr, uint64_t new_size) {
-    if (!ptr) return malloc(new_size);
-    if (new_size == 0) {
-        free(ptr);
-        return 0;
-    }
-    
-    malloc_header_t* header = (malloc_header_t*)((uint8_t*)ptr - sizeof(malloc_header_t));
-    if (header->size >= new_size) return ptr;
-    
-    void* new_ptr = malloc(new_size);
-    if (new_ptr) {
-        memcpy(new_ptr, ptr, header->size);
-        free(ptr);
-    }
-    return new_ptr;
-}
-
-void* calloc(uint64_t num, uint64_t size) {
-    if (num == 0 || size == 0) {
-        return (void*)0;
-    }
-    uint64_t max_val = (uint64_t)-1;
-    if (size > max_val / num) {
-        return (void*)0;
-    }
-    uint64_t total_size = num * size;
-    void* ptr = malloc(total_size);
-    if (ptr != (void*)0) {
-        memset(ptr, 0, total_size);
-    }
-    return ptr;
+int get_tid_list(uint32_t pid, uint32_t* buff, uint64_t count) {
+    return syscall(SYS_GET_TID_LIST, (uint64_t)pid, (uint64_t)buff, count, 0, 0);
 }
 
 uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr) {

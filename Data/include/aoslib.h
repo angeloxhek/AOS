@@ -25,6 +25,10 @@
 #include <stdint.h>
 #include "limits.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define SYS_EXIT                     1
 #define SYS_IPC_SEND                 2
 #define SYS_IPC_RECV                 3
@@ -41,12 +45,16 @@
 #define SYS_GET_PARTITION_INFO      14
 #define SYS_YIELD                   15
 #define SYS_PRINT                   16
-#define SYS_GET_PROC_INFO           17
-#define SYS_GET_THREAD_INFO         18
+#define SYS_RESERVED1               17
+#define SYS_RESERVED2               18
 #define SYS_SHM_ALLOC               19
 #define SYS_SHM_ALLOW               20
 #define SYS_SHM_MAP                 21
 #define SYS_SHM_FREE                22
+#define SYS_GET_PID_LIST            23
+#define SYS_GET_PROC_INFO           24
+#define SYS_GET_TID_LIST            25
+#define SYS_GET_THREAD_INFO         26
 
 #define SYS_RES_OK                   0
 #define SYS_RES_INVALID             -1
@@ -240,6 +248,15 @@ typedef struct {
     #define offsetof(TYPE, MEMBER)  __builtin_offsetof(TYPE, MEMBER)
 #endif
 
+#ifndef _SIZE_T_DEFINED
+#define _SIZE_T_DEFINED
+    #ifdef __SIZE_TYPE__
+        typedef __SIZE_TYPE__ size_t;
+    #else
+        typedef unsigned long size_t;
+    #endif
+#endif
+
 #ifndef UNUSED
     #define UNUSED(x) (void)(x)
 #endif
@@ -288,6 +305,8 @@ uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo);
 
 int get_proc_info(uint32_t pid, proc_info_user_t* out_info);
 int get_thread_info(uint32_t pid, thread_info_user_t* out_info);
+int get_pid_list(uint32_t* buff, uint64_t count);
+int get_tid_list(uint32_t pid, uint32_t* buff, uint64_t count);
 
 uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr);
 int shm_allow(uint64_t shm_id, uint64_t target_tid);
@@ -298,52 +317,54 @@ void thread_yield(void);
 #endif
 
 #ifdef AOSLIB_STRING
-void* malloc(uint64_t size);
+void* malloc(size_t size);
 void free(void* ptr);
-void* realloc(void* ptr, uint64_t new_size);
-void* calloc(uint64_t num, uint64_t size);
+void* realloc(void* ptr, size_t new_size);
+void* calloc(size_t num, size_t size);
 
-void* memset(void* ptr, uint8_t value, uint64_t n);
-void* memcpy(void* dest, const void* src, uint64_t n);
+void* memset(void* ptr, int value, size_t n);
+void* memcpy(void* dest, const void* src, size_t n);
+void* memmove(void* dest, const void* src, size_t n);
+int memcmp(const void* s1, const void* s2, size_t n);
 
-int32_t strcmp(const char* s1, const char* s2);
+int strcmp(const char* s1, const char* s2);
 char *strcpy(char *dest, const char *src);
-char *strncpy(char *dest, const char *src, uint64_t n);
-uint64_t strlcpy(char *dest, const char *src, uint64_t n);
+char *strncpy(char *dest, const char *src, size_t n);
+size_t strlcpy(char *dest, const char *src, size_t n);
 char* strdup(const char* s);
 char* strtok_r(char* str, const char* delim, char** saveptr);
 char* strtok(char* str, const char* delim);
 char* strsep(char** stringp, const char* delim);
-char* strchr(const char* s, int32_t c);
-char* strrchr(const char* s, int32_t c);
-char* strnchr(const char* s, uint64_t count, int32_t c);
+char* strchr(const char* s, int c);
+char* strrchr(const char* s, int c);
+char* strnchr(const char* s, size_t count, int c);
 char* strstr(const char* haystack, const char* needle);
-uint64_t strlen(const char* s);
-uint64_t strnlen(const char* s, uint64_t maxlen);
+size_t strlen(const char* s);
+size_t strnlen(const char* s, size_t maxlen);
 char* strcat(char* dest, const char* src);
-char* strncat(char* dest, const char* src, uint64_t n);
-uint64_t strlcat(char* dest, const char* src, uint64_t size);
+char* strncat(char* dest, const char* src, size_t n);
+size_t strlcat(char* dest, const char* src, size_t size);
 
-int32_t isdigit(int32_t c);
-int32_t islower(int32_t c);
-int32_t isupper(int32_t c);
-int32_t isalpha(int32_t c);
-int32_t isalnum(int32_t c);
-int32_t isxdigit(int32_t c);
-int32_t isspace(int32_t c);
-int32_t isprint(int32_t c);
-int32_t iscntrl(int32_t c);
-int32_t ispunct(int32_t c);
+int isdigit(int c);
+int islower(int c);
+int isupper(int c);
+int isalpha(int c);
+int isalnum(int c);
+int isxdigit(int c);
+int isspace(int c);
+int isprint(int c);
+int iscntrl(int c);
+int ispunct(int c);
 
-int32_t tolower(int32_t c);
-int32_t toupper(int32_t c);
+int tolower(int c);
+int toupper(int c);
 
-int32_t is_digit(const char* str);
+int is_digit(const char* str);
 char* to_upper(char* s);
 
-int32_t printf(const char* format, ...);
-int32_t snprintf(char* str, uint64_t size, const char* format, ...);
-int32_t sprintf(char* str, const char* format, ...);
+int printf(const char* format, ...);
+int snprintf(char* str, size_t size, const char* format, ...);
+int sprintf(char* str, const char* format, ...);
 
 int atoi(const char *str);
 long atol(const char *str);
@@ -385,6 +406,10 @@ void mutex_init(mutex_t* m);
 void mutex_lock(mutex_t* m);
 void mutex_unlock(mutex_t* m);
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

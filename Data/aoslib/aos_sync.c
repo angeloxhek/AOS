@@ -1,6 +1,4 @@
 #include <stdint.h>
-#define AOSLIB_SYSCALLS
-#define AOSLIB_IO
 #include "../include/aoslib.h"
 
 void mutex_init(mutex_t* m) {
