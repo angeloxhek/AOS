@@ -67,7 +67,7 @@ gcc $LIB_CFLAGS -c Data/aoslib/libc_stdio.c   -o Temp/libc_stdio.o
 gcc $LIB_CFLAGS -c Data/aoslib/libc_string.c  -o Temp/libc_string.o
 
 gcc $LIB_CFLAGS -c Data/aoslib/aos_start.c    -o Temp/aos_start.o
-gcc $LIB_CFLAGS -c Data/aoslib/linux_start.c   -o Temp/linux_start.o
+gcc $LIB_CFLAGS -c Data/aoslib/libc_start.c   -o Temp/libc_start.o
 
 ar rcs Temp/libaos.a \
     Temp/aos_syscalls.o Temp/aos_vfs.o Temp/aos_sync.o Temp/aos_utils.o \
