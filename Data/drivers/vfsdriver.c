@@ -870,13 +870,13 @@ void handle_vfs_request(message_t* req) {
 
             int64_t new_offset = f->offset;
 
-            if (whence == SEEK_SET) {
+            if (whence == VFS_SEEK_SET) {
                 new_offset = offset;
             } 
-            else if (whence == SEEK_CUR) {
+            else if (whence == VFS_SEEK_CUR) {
                 new_offset += offset;
             } 
-            else if (whence == SEEK_END) {
+            else if (whence == VFS_SEEK_END) {
                 uint64_t file_size = 0;
                 if (f->type == VFS_TYPE_MOUNT_POINT && f->mounted_file.driver->stat) {
                     fs_stat_t st;

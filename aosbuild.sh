@@ -54,29 +54,34 @@ objcopy -O binary -S -R .bss -R .note -R .comment -R .note.gnu.property Temp/aos
 
 echo -e "${GREEN}[4/${STAGES}] Compiling AOSLIB...${NC}"
 
-LIB_CFLAGS="-m64 -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables"
+AOSLIB_CFLAGS="-I Data/include"
+LIBC_CFLAGS="-I aosliblin/include"
+LIB_CFLAGS="-m64 -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables -nostdinc"
 
-gcc $LIB_CFLAGS -c Data/aoslib/aos_syscalls.c -o Temp/aos_syscalls.o
-gcc $LIB_CFLAGS -c Data/aoslib/aos_vfs.c      -o Temp/aos_vfs.o
-gcc $LIB_CFLAGS -c Data/aoslib/aos_sync.c     -o Temp/aos_sync.o
-gcc $LIB_CFLAGS -c Data/aoslib/aos_utils.c    -o Temp/aos_utils.o
+gcc $LIB_CFLAGS $AOSLIB_CFLAGS -c Data/aoslib/aos_syscalls.c -o Temp/aos_syscalls.o
+gcc $LIB_CFLAGS $AOSLIB_CFLAGS -c Data/aoslib/aos_vfs.c      -o Temp/aos_vfs.o
+gcc $LIB_CFLAGS $AOSLIB_CFLAGS -c Data/aoslib/aos_sync.c     -o Temp/aos_sync.o
+gcc $LIB_CFLAGS $AOSLIB_CFLAGS -c Data/aoslib/aos_utils.c    -o Temp/aos_utils.o
+gcc $LIB_CFLAGS $AOSLIB_CFLAGS -c Data/aoslib/aos_stdio.c    -o Temp/aos_stdio.o
 
-gcc $LIB_CFLAGS -c Data/aoslib/libc_stdlib.c  -o Temp/libc_stdlib.o
-gcc $LIB_CFLAGS -c Data/aoslib/libc_ctype.c   -o Temp/libc_ctype.o
-gcc $LIB_CFLAGS -c Data/aoslib/libc_stdio.c   -o Temp/libc_stdio.o
-gcc $LIB_CFLAGS -c Data/aoslib/libc_string.c  -o Temp/libc_string.o
+gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_stdlib.c  -o Temp/libc_stdlib.o
+gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_ctype.c   -o Temp/libc_ctype.o
+gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_stdio.c   -o Temp/libc_stdio.o
+gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_string.c  -o Temp/libc_string.o
+gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_unistd.c  -o Temp/libc_unistd.o
 
-gcc $LIB_CFLAGS -c Data/aoslib/aos_start.c    -o Temp/aos_start.o
-gcc $LIB_CFLAGS -c Data/aoslib/libc_start.c   -o Temp/libc_start.o
+gcc $LIB_CFLAGS $AOSLIB_CFLAGS -c Data/aoslib/aos_start.c    -o Temp/aos_start.o
+gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_start.c   -o Temp/libc_start.o
 
 ar rcs Temp/libaos.a \
-    Temp/aos_syscalls.o Temp/aos_vfs.o Temp/aos_sync.o Temp/aos_utils.o \
+    Temp/aos_syscalls.o Temp/aos_vfs.o Temp/aos_sync.o Temp/aos_utils.o Temp/aos_stdio.o \
     Temp/libc_stdlib.o Temp/libc_ctype.o Temp/libc_stdio.o Temp/libc_string.o
+
 cp Temp/libaos.a Build/libs/libaos.a
 	
 ar rcs Temp/libaoslin.a \
-    Temp/aos_syscalls.o Temp/aos_vfs.o Temp/aos_sync.o Temp/aos_utils.o \
-    Temp/libc_stdlib.o Temp/libc_ctype.o Temp/libc_stdio.o Temp/libc_string.o
+    Temp/aos_syscalls.o Temp/aos_vfs.o Temp/aos_sync.o Temp/aos_utils.o Temp/aos_stdio.o \
+    Temp/libc_stdlib.o Temp/libc_ctype.o Temp/libc_stdio.o Temp/libc_string.o Temp/libc_unistd.o
 	
 cp Temp/libaoslin.a Build/libs/libaoslin.a
 

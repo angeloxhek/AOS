@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <aos/vfs.h>
 #include <aos/syscalls.h>
 #include <string.h>

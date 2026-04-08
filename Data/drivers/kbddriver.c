@@ -1,14 +1,54 @@
 #include <stdint.h>
-#define AOSLIB_SYSCALLS_ONLY
 #include "../include/aoslib.h"
 
-#define KBD_BUF_SIZE 128
-uint8_t key_buffer[KBD_BUF_SIZE];
-int buf_head = 0, buf_tail = 0;
+typedef struct kbd_node {
+    uint8_t scancode;
+    struct kbd_node* next;
+} kbd_node_t;
 
-#define MAX_WAITERS 32
-uint64_t waiting_apps[MAX_WAITERS];
-int waiters_count = 0;
+typedef struct waiter_node {
+    uint64_t tid;
+    struct waiter_node* next;
+} waiter_node_t;
+
+kbd_node_t *kbd_head = NULL, *kbd_tail = NULL;
+waiter_node_t *waiters_head = NULL, *waiters_tail = NULL;
+
+void push_scancode(uint8_t scancode) {
+    kbd_node_t* node = (kbd_node_t*)malloc(sizeof(kbd_node_t));
+    node->scancode = scancode;
+    node->next = NULL;
+    if (kbd_tail) { kbd_tail->next = node; kbd_tail = node; }
+    else { kbd_head = kbd_tail = node; }
+}
+
+uint8_t pop_scancode() {
+    if (!kbd_head) return 0;
+    uint8_t scancode = kbd_head->scancode;
+    kbd_node_t* temp = kbd_head;
+    kbd_head = kbd_head->next;
+    if (!kbd_head) kbd_tail = NULL;
+    free(temp);
+    return scancode;
+}
+
+void add_waiter(uint64_t tid) {
+    waiter_node_t* node = (waiter_node_t*)malloc(sizeof(waiter_node_t));
+    node->tid = tid;
+    node->next = NULL;
+    if (waiters_tail) { waiters_tail->next = node; waiters_tail = node; }
+    else { waiters_head = waiters_tail = node; }
+}
+
+uint64_t pop_waiter() {
+    if (!waiters_head) return 0;
+    uint64_t tid = waiters_head->tid;
+    waiter_node_t* temp = waiters_head;
+    waiters_head = waiters_head->next;
+    if (!waiters_head) waiters_tail = NULL;
+    free(temp);
+    return tid;
+}
 
 int driver_main(void* reserved1, void* reserved2) {
     register_driver(DT_KEYBOARD, 0);
@@ -20,48 +60,22 @@ int driver_main(void* reserved1, void* reserved2) {
         if (msg.type == MSG_TYPE_KEYBOARD) {
             if (msg.subtype == MSG_SUBTYPE_SEND) {
                 uint8_t scancode = (uint8_t)msg.param1;
-                if (scancode != 0) {
-                    if (waiters_count > 0) {
-                        uint64_t app_tid = waiting_apps[0];
-                        for(int i=0; i < waiters_count-1; i++) 
-                            waiting_apps[i] = waiting_apps[i+1];
-                        waiters_count--;
-                        message_t response;
-                        response.type = MSG_TYPE_KEYBOARD;
-                        response.subtype = MSG_SUBTYPE_RESPONSE;
-                        response.param1 = scancode;
-                        ipc_send(app_tid, &response);
-                    } 
-                    else {
-                        int next_head = (buf_head + 1) % KBD_BUF_SIZE;
-                        if (next_head != buf_tail) {
-                            key_buffer[buf_head] = scancode;
-                            buf_head = next_head;
-                        }
-                    }
+                
+                if (waiters_head) {
+                    uint64_t app_tid = pop_waiter();
+                    message_t response = { .type = MSG_TYPE_KEYBOARD, .subtype = MSG_SUBTYPE_RESPONSE, .param1 = scancode };
+                    ipc_send(app_tid, &response);
+                } else {
+                    push_scancode(scancode);
                 }
             }
             else if (msg.subtype == MSG_SUBTYPE_QUERY) {
-                if (buf_head != buf_tail) {
-                    uint8_t scancode = key_buffer[buf_tail];
-                    buf_tail = (buf_tail + 1) % KBD_BUF_SIZE;
-                    
-                    message_t response;
-                    response.type = MSG_TYPE_KEYBOARD;
-                    response.subtype = MSG_SUBTYPE_RESPONSE;
-                    response.param1 = scancode;
+                if (kbd_head) {
+                    uint8_t scancode = pop_scancode();
+                    message_t response = { .type = MSG_TYPE_KEYBOARD, .subtype = MSG_SUBTYPE_RESPONSE, .param1 = scancode };
                     ipc_send(msg.sender_tid, &response);
-                } 
-                else {
-                    if (waiters_count < MAX_WAITERS) {
-                        waiting_apps[waiters_count++] = msg.sender_tid;
-                    } else {
-                        message_t response;
-                        response.type = MSG_TYPE_KEYBOARD;
-                        response.subtype = MSG_SUBTYPE_RESPONSE;
-                        response.param1 = 0;
-                        ipc_send(msg.sender_tid, &response);
-                    }
+                } else {
+                    add_waiter(msg.sender_tid);
                 }
             }
         }

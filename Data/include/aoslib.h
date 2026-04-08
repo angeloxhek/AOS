@@ -106,9 +106,9 @@ typedef enum {
 } vfs_lock_type_t;
 
 typedef enum {
-	SEEK_SET = 1,
-	SEEK_CUR,
-	SEEK_END
+	VFS_SEEK_SET = 1,
+	VFS_SEEK_CUR,
+	VFS_SEEK_END
 } vfs_seek_t;
 
 typedef enum {
