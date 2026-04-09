@@ -445,6 +445,17 @@ void syscall_handler(syscall_regs_t* regs) {
             regs->rax = count;
             break;
         }
+		
+		case SYS_GET_TIME_INFO: {
+			time_info_t* info = (time_info_t*)regs->rdi;
+			if (!is_valid_user_pointer(info)) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+			get_time_info(info);
+			regs->rax = SYS_RES_OK;
+            break;
+		}
 
         default: {
             kprint("Unknown Syscall invoked!\n");

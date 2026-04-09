@@ -36,6 +36,8 @@ extern spinlock_t kprint_lock;
 extern spinlock_t heap_lock;
 
 extern volatile uint64_t ticks;
+extern uint64_t boot_time;
+#define TIMER_FREQ 1000
 
 extern thread_t* current_thread;
 extern thread_t* ready_queue;

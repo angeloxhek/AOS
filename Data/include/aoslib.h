@@ -55,6 +55,7 @@ extern "C" {
 #define SYS_GET_PROC_INFO           24
 #define SYS_GET_TID_LIST            25
 #define SYS_GET_THREAD_INFO         26
+#define SYS_GET_TIME_INFO           27
 
 #define SYS_RES_OK                   0
 #define SYS_RES_INVALID             -1
@@ -229,13 +230,20 @@ typedef struct malloc_header {
 } __attribute__((aligned(16))) malloc_header_t;
 
 typedef struct {
-    void*    tcb_self;      // 0x00: Указатель на себя (требование ABI)
-    uint64_t tid;           // 0x08: Идентификатор потока (TID)
-    uint64_t pid;           // 0x10: Идентификатор процесса (PID)
-    int32_t  thread_errno;  // 0x18: Потокобезопасная переменная ошибки             // Reserved
-    uint32_t pending_msgs;  // 0x1C: Количество непрочитанных IPC-сообщений
-    void*    local_heap;    // 0x20: Указатель для быстрого malloc                  // Reserved
-    uint64_t stack_canary;  // 0x28: Канарейка для безопасности (-fstack-protector)
+    uint64_t uptime;
+    uint64_t boot_time;
+    uint64_t frequency;
+} time_info_t;
+
+typedef struct {
+    void*       tcb_self;
+    uint64_t    tid;
+    uint64_t    pid;
+    int32_t     thread_errno; // Reserved
+    uint32_t    pending_msgs;
+    void*       local_heap;   // Reserved
+    uint64_t    stack_canary;
+	time_info_t startup_time;
 } aos_tcb_t;
 
 #define AOS_GET_TCB() ((aos_tcb_t __seg_fs *)0)
@@ -314,6 +322,8 @@ void* shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
 
 void thread_yield(void);
+
+int get_time_info(time_info_t* info);
 #endif
 
 #ifdef AOSLIB_STRING

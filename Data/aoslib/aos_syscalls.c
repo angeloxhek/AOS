@@ -1,6 +1,4 @@
 #include <stdint.h>
-#define AOSLIB_SYSCALLS
-#define AOSLIB_STRING
 #include "../include/aoslib.h"
 
 int64_t syscall(uint64_t nr, uint64_t arg1, uint64_t arg2, uint64_t arg3, 
@@ -57,58 +55,80 @@ void* syscall_sbrk(int64_t increment) {
     return (void*)syscall(SYS_SBRK, increment, 0, 0, 0, 0);
 }
 
-#define MAX_PENDING 64
+typedef struct msg_node {
+    message_t msg;
+    struct msg_node* next;
+} msg_node_t;
 
-static message_t pending_messages[MAX_PENDING];
-static int pending_count = 0;
-static int head_idx = 0;
-static int tail_idx = 0;
+static msg_node_t *pending_head = NULL;
+static msg_node_t *pending_tail = NULL;
+
+static void queue_message(message_t msg) {
+    msg_node_t* node = (msg_node_t*)malloc(sizeof(msg_node_t));
+    if (!node) {
+        sysprint("[!] Critical: IPC buffer malloc failed, message dropped\n");
+        return;
+    }
+    node->msg = msg;
+    node->next = NULL;
+    
+    if (pending_tail) {
+        pending_tail->next = node;
+        pending_tail = node;
+    } else {
+        pending_head = pending_tail = node;
+    }
+}
 
 uint64_t get_ipc_count(void) {
-    uint64_t kernel_msgs = AOS_GET_TCB()->pending_msgs;
-    return (uint64_t)pending_count + kernel_msgs;
+    uint64_t count = 0;
+    msg_node_t *curr = pending_head;
+    while (curr) {
+        count++;
+        curr = curr->next;
+    }
+    return count + AOS_GET_TCB()->pending_msgs;
 }
 
 void ipc_recv(message_t* out_msg) {
-    if (pending_count > 0) {
-        *out_msg = pending_messages[head_idx];
-        head_idx = (head_idx + 1) % MAX_PENDING;
-        pending_count--;
+    if (pending_head) {
+        *out_msg = pending_head->msg;
+        msg_node_t* temp = pending_head;
+        pending_head = pending_head->next;
+        if (!pending_head) pending_tail = NULL;
+        free(temp);
         return;
     }
-
     __ipc_recv(out_msg);
 }
 
 void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
-    int curr_idx = head_idx;
-    for (int i = 0; i < pending_count; i++) {
-        
-        if ((tid == 0 || pending_messages[curr_idx].sender_tid == tid) &&
-            (type == MSG_TYPE_NONE || pending_messages[curr_idx].type == type) &&
-            (subtype == MSG_SUBTYPE_NONE || pending_messages[curr_idx].subtype == subtype)) {
+    msg_node_t *curr = pending_head;
+    msg_node_t *prev = NULL;
+
+    while (curr) {
+        if ((tid == 0 || curr->msg.sender_tid == tid) &&
+            (type == MSG_TYPE_NONE || curr->msg.type == type) &&
+            (subtype == MSG_SUBTYPE_NONE || curr->msg.subtype == subtype)) {
             
-            *out_msg = pending_messages[curr_idx];
+            *out_msg = curr->msg;
             
-            int shift_idx = curr_idx;
-            while (1) {
-                int next_idx = (shift_idx + 1) % MAX_PENDING;
-                if (next_idx == tail_idx) break; // Дошли до конца данных
-                pending_messages[shift_idx] = pending_messages[next_idx];
-                shift_idx = next_idx;
-            }
+            if (prev) prev->next = curr->next;
+            else pending_head = curr->next;
             
-            tail_idx = (tail_idx - 1 + MAX_PENDING) % MAX_PENDING;
-            pending_count--;
+            if (curr == pending_tail) pending_tail = prev;
+            
+            free(curr);
             return;
         }
-        curr_idx = (curr_idx + 1) % MAX_PENDING;
+        prev = curr;
+        curr = curr->next;
     }
 
-    message_t temp_msg;
     while (1) {
-        int64_t res = __ipc_recv(&temp_msg);
-		
+        message_t temp_msg;
+        __ipc_recv(&temp_msg);
+        
         if ((tid == 0 || temp_msg.sender_tid == tid) && 
             (type == MSG_TYPE_NONE || temp_msg.type == type) && 
             (subtype == MSG_SUBTYPE_NONE || temp_msg.subtype == subtype)) {
@@ -116,13 +136,7 @@ void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t
             *out_msg = temp_msg;
             return;
         } else {
-            if (pending_count < MAX_PENDING) {
-                pending_messages[tail_idx] = temp_msg;
-                tail_idx = (tail_idx + 1) % MAX_PENDING;
-                pending_count++;
-            } else {
-                sysprint("[!] Warning: IPC pending buffer overflow, dropping msg\n");
-            }
+            queue_message(temp_msg);
         }
     }
 }
@@ -198,4 +212,8 @@ int shm_free(uint64_t shm_id) {
 
 void thread_yield(void) {
 	syscall(SYS_YIELD, 0, 0, 0, 0, 0);
+}
+
+int get_time_info(time_info_t* info) {
+	return (int)syscall(SYS_GET_TIME_INFO, (uint64_t)info, 0, 0, 0, 0);
 }

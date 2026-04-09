@@ -235,7 +235,7 @@ typedef struct thread_t {
 	struct thread_t* next;
 	struct thread_t* next_zombie;
 	struct thread_t* next_waiter;
-	void*            owned_mutexes; // Reserved
+	void*            reserved1; // Reserved
 	msg_node_t*      msg_queue_head;
     msg_node_t*      msg_queue_tail;
 	process_t*       owner;
@@ -244,13 +244,6 @@ typedef struct thread_t {
 	int exit_code;
 	uint8_t fpu_state[512] __attribute__((aligned(16)));
 } thread_t;
-
-/*typedef struct mutex_t {
-    int locked;
-    thread_t* owner;
-    thread_t* wait_queue;
-	mutex_t* next_owned;
-} mutex_t;*/
 
 typedef volatile int spinlock_t;
 
@@ -478,17 +471,6 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
 void start_elf_process(elf_load_result_t* res);
 
 
-/*
-// -------------------------
-//          Mutex
-// -------------------------
-
-void mutex_init(mutex_t* m);
-void mutex_lock(mutex_t* m);
-void mutex_unlock(mutex_t* m);
-*/
-
-
 // -------------------------
 //         Spinlock
 // -------------------------
@@ -505,6 +487,7 @@ void spinlock_release(spinlock_t* lock);
 
 void sleep(uint64_t ms);
 int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result);
+void get_time_info(time_info_t* out);
 
 
 // -------------------------

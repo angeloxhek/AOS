@@ -7,7 +7,7 @@ set -e
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
-STAGES='6'
+STAGES='7'
 
 trap 'echo -e "${RED}Build failed!${NC}"; exit 1' ERR
 
@@ -69,6 +69,7 @@ gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_ctype.c   -o Temp/libc_ctype.
 gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_stdio.c   -o Temp/libc_stdio.o
 gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_string.c  -o Temp/libc_string.o
 gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_unistd.c  -o Temp/libc_unistd.o
+gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_time.c    -o Temp/libc_time.o
 
 gcc $LIB_CFLAGS $AOSLIB_CFLAGS -c Data/aoslib/aos_start.c    -o Temp/aos_start.o
 gcc $LIB_CFLAGS $LIBC_CFLAGS   -c Data/aoslib/libc_start.c   -o Temp/libc_start.o
@@ -81,7 +82,8 @@ cp Temp/libaos.a Build/libs/libaos.a
 	
 ar rcs Temp/libaoslin.a \
     Temp/aos_syscalls.o Temp/aos_vfs.o Temp/aos_sync.o Temp/aos_utils.o Temp/aos_stdio.o \
-    Temp/libc_stdlib.o Temp/libc_ctype.o Temp/libc_stdio.o Temp/libc_string.o Temp/libc_unistd.o
+    Temp/libc_stdlib.o Temp/libc_ctype.o Temp/libc_stdio.o Temp/libc_string.o Temp/libc_unistd.o \
+	Temp/libc_time.o
 	
 cp Temp/libaoslin.a Build/libs/libaoslin.a
 
@@ -107,5 +109,24 @@ gcc -m64 -c Data/userspace/tree.c -o Temp/tree.o -fno-omit-frame-pointer -ffrees
 ld -m elf_x86_64 -Map Temp/tree.map -N --no-warn-rwx-segments -T Data/drivers/vfsdriver.ld \
 		Temp/aos_start.o Temp/tree.o Temp/libaos.a \
         -o Build/Volume/tree.elf
+		
+echo -e "${GREEN}[7/${STAGES}] Compiling userlinux...${NC}"
+PROJECT_ROOT="$(pwd)"
+AOS_INCLUDE="${PROJECT_ROOT}/aosliblin/include"
+AOS_LIB="${PROJECT_ROOT}/Temp/libaoslin.a"
+AOS_START="${PROJECT_ROOT}/Temp/libc_start.o"
+
+cd userlinux/tree
+make clean || true
+
+EXTRA_CFLAGS="-I${AOS_INCLUDE} -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_POSIX_C_SOURCE=200809L"
+
+make \
+    CC="gcc" \
+    CFLAGS="-O2 -Wall -m64 -nostdinc -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables ${EXTRA_CFLAGS}" \
+    LDFLAGS="-nostdlib -static -m64 -T ${PROJECT_ROOT}/Data/drivers/vfsdriver.ld ${AOS_START} ${AOS_LIB}"
+
+cp tree "${PROJECT_ROOT}/Build/Volume/tree_linux"
+cd "${PROJECT_ROOT}"
 
 echo -e "${GREEN}Build Successful!${NC}"

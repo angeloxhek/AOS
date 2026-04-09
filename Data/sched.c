@@ -256,3 +256,10 @@ int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* ou
     if (out_result) *out_result = res;
     return 1;
 }
+
+void get_time_info(time_info_t* out) {
+	if (!out) return;
+	out->uptime = ticks;
+	out->boot_time = boot_time;
+	out->frequency = TIMER_FREQ;
+}

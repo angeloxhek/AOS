@@ -1,3 +1,6 @@
 [submodule "aosliblin"]
 	path = aosliblin
 	url = https://github.com/angeloxhek/AOSLIB-linux.git
+[submodule "userlinux/tree"]
+	path = userlinux/tree
+	url = https://github.com/nodakai/tree-command.git

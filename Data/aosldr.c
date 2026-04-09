@@ -121,6 +121,7 @@ spinlock_t kprint_lock = 0;
 spinlock_t heap_lock = 0;
 spinlock_t pmm_lock = 0;
 volatile uint64_t ticks = 0;
+uint64_t boot_time = 0;
 
 driver_info_t* drivers_list_head;
 uint64_t keyboard_driver_tid = 0;
@@ -997,7 +998,7 @@ void kernel_main(boot_info_t* boot_info){
 	}
 	idt_install();
     pic_remap();
-    timer_init(100);
+    timer_init(TIMER_FREQ);
 	init_scheduler();
 	{
 		uint32_t lo, hi;
