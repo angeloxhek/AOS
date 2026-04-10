@@ -188,6 +188,75 @@ uint64_t rdmsr(uint32_t msr) {
     return ((uint64_t)high << 32) | low;
 }
 
+uint8_t read_cmos(uint8_t reg) {
+    __asm__ volatile ("cli");
+    while (inb(0x70) & 0x80);
+    outb(0x70, reg);
+    uint8_t value = inb(0x71);
+    __asm__ volatile ("sti");
+    return value;
+}
+
+uint8_t is_bcd_mode() {
+    outb(0x70, 0x0B);
+    return !(inb(0x71) & 0x04);
+}
+
+uint8_t bcd_to_bin(uint8_t bcd) {
+    return (bcd & 0x0F) + ((bcd >> 4) * 10);
+}
+
+uint64_t rtc_to_unix(uint8_t sec, uint8_t min, uint8_t hour, 
+                     uint8_t day, uint8_t month, uint8_t year) {
+    
+    int y = 2000 + year;
+    if (y < 1970) y += 100;
+    
+    int leap;
+    int years = y - 1970;
+    int days;
+    
+    leap = (years + 2) / 4;
+    if (y % 400 == 0 || (y % 4 == 0 && y % 100 != 0)) {
+        leap--;
+    }
+    
+    static const int month_days[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    int md = 0;
+    for (int i = 0; i < month - 1; i++) {
+        md += month_days[i];
+    }
+    
+    days = years * 365 + leap + md + day - 1;
+    if (month > 2 && (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0))) {
+        days++;
+    }
+    
+    return (uint64_t)days * 86400 + hour * 3600 + min * 60 + sec;
+}
+
+void init_rtc(void) {
+    uint8_t sec, min, hour, day, month, year;
+    
+    sec   = read_cmos(0x00);
+    min   = read_cmos(0x02);
+    hour  = read_cmos(0x04);
+    day   = read_cmos(0x07);
+    month = read_cmos(0x08);
+    year  = read_cmos(0x09);
+    
+    if (is_bcd_mode()) {
+        sec   = bcd_to_bin(sec);
+        min   = bcd_to_bin(min);
+        hour  = bcd_to_bin(hour);
+        day   = bcd_to_bin(day);
+        month = bcd_to_bin(month);
+        year  = bcd_to_bin(year);
+    }
+    
+    boot_time = rtc_to_unix(sec, min, hour, day, month, year);
+}
+
 
 // --------------------------
 //        Data Utils
@@ -1005,6 +1074,7 @@ void kernel_main(boot_info_t* boot_info){
 		asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
 		kernel_tcb.canary = ((uint64_t)hi << 32 | lo) ^ 0xDEADBEEFCAFEBABEULL;
 	}
+	init_rtc();
     outb(0x21, 0xFC);
     outb(0xA1, 0xFF);
 	_kprint("IDT & PIC are set! We're safe\n");

@@ -249,3 +249,32 @@ int64_t vfs_seek(int fd, int64_t offset, vfs_seek_t whence) {
     
     return -1;
 }
+
+int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
+    if (fd < 0 || !out_stat) return -1;
+
+    ensure_vfs_init();
+
+    void* shm_vaddr = 0;
+    uint64_t shm_id = shm_alloc(sizeof(vfs_stat_info_t), &shm_vaddr);
+    if (!shm_id) return -1;
+
+    shm_allow(shm_id, vfs_server_tid);
+
+    message_t req;
+    message_t resp;
+    memset(&req, 0, sizeof(message_t));
+
+    req.param1 = VFS_CMD_STAT;
+    req.param2 = fd;
+    *(uint64_t*)(req.data) = shm_id;
+
+    int result = -1;
+    if (vfs_rpc_call(&req, &resp) == 0) {
+        memcpy(out_stat, shm_vaddr, sizeof(vfs_stat_info_t));
+        result = 0;
+    }
+
+    shm_free(shm_id);
+    return result;
+}

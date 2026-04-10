@@ -896,6 +896,33 @@ void handle_vfs_request(message_t* req) {
             }
             break;
         }
+
+		case VFS_CMD_STAT: {
+			int fd = req->param2;
+			uint64_t shm_id = *(uint64_t*)(req->data);
+			
+			vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
+			if (!f) { resp.param1 = VFS_ERR_PERM; break; }
+
+			vfs_stat_info_t* user_stat = (vfs_stat_info_t*)shm_map(shm_id);
+			
+			fs_stat_t native_stat;
+			if (f->type == VFS_TYPE_MOUNT_POINT && f->mounted_file.driver->stat) {
+				if (f->mounted_file.driver->stat(f->mounted_file.fs, f->mounted_file.handle, &native_stat) == 0) {
+					user_stat->inode_id = native_stat.inode_id;
+					user_stat->size_bytes = native_stat.size_bytes;
+					user_stat->attributes = native_stat.attributes;
+					resp.param1 = VFS_ERR_OK;
+				} else {
+					resp.param1 = VFS_ERR_UNKNOWN;
+				}
+			} else {
+				resp.param1 = VFS_ERR_UNKNOWN;
+			}
+
+			shm_free(shm_id);
+			break;
+		}
         
         default: {
             resp.param1 = VFS_ERR_NOCOMM;

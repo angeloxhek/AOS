@@ -113,6 +113,27 @@ typedef enum {
 } vfs_seek_t;
 
 typedef enum {
+    VFS_FILE_TYPE_UNKNOWN = 0,
+    VFS_FILE_TYPE_REGULAR,
+    VFS_FILE_TYPE_DIR,
+    VFS_FILE_TYPE_SYMLINK,
+    VFS_FILE_TYPE_DEVICE
+} vfs_file_type_t;
+
+typedef struct {
+    char name[256];
+    uint64_t size;
+    uint32_t type;
+    uint32_t reserved;
+} vfs_dirent_t;
+
+typedef struct {
+    uint64_t inode_id;
+    uint64_t size_bytes;
+    uint32_t attributes;
+} vfs_stat_info_t;
+
+typedef enum {
     MSG_TYPE_NONE = 0,
     MSG_TYPE_KEYBOARD,
     MSG_TYPE_VFS,
@@ -206,21 +227,6 @@ typedef struct {
     uint64_t partition_offset_lba;
     uint64_t size_sectors;
 } block_dev_t;
-
-typedef enum {
-    VFS_FILE_TYPE_UNKNOWN = 0,
-    VFS_FILE_TYPE_REGULAR,
-    VFS_FILE_TYPE_DIR,
-    VFS_FILE_TYPE_SYMLINK,
-    VFS_FILE_TYPE_DEVICE
-} vfs_file_type_t;
-
-typedef struct {
-    char name[256];
-    uint64_t size;
-    uint32_t type;
-    uint32_t reserved;
-} vfs_dirent_t;
 
 typedef struct malloc_header {
     uint64_t size;
@@ -394,6 +400,13 @@ char* ltoa(long value, char* str, int base);
 char* ultoa(unsigned long value, char* str, int base);
 char* lltoa(long long value, char* str, int base);
 char* ulltoa(unsigned long long value, char* str, int base);
+
+int strcasecmp(const char *s1, const char *s2);
+int strncasecmp(const char *s1, const char *s2, size_t n);
+
+void bcopy(const void *src, void *dest, size_t n);
+void bzero(void *s, size_t n);
+int  bcmp(const void *s1, const void *s2, size_t n);
 #endif
 
 #ifdef AOSLIB_VFS
@@ -407,6 +420,7 @@ int vfs_read(int fd, void* buf, int count);
 int vfs_write(int fd, const void* buf, int count);
 int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries);
 int vfs_flock(int fd, vfs_lock_type_t lock_type);
+int vfs_stat(int fd, vfs_stat_info_t* out_stat);
 
 #endif
 

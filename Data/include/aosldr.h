@@ -292,7 +292,12 @@ void insw(uint16_t port, void* addr, uint32_t count);
 void outsw(uint16_t port, const void* addr, uint32_t count);
 void wrmsr(uint32_t msr, uint64_t value);
 uint64_t rdmsr(uint32_t msr);
-
+uint8_t read_cmos(uint8_t reg);
+uint8_t is_bcd_mode();
+uint8_t bcd_to_bin(uint8_t bcd);
+uint64_t rtc_to_unix(uint8_t sec, uint8_t min, uint8_t hour, 
+                     uint8_t day, uint8_t month, uint8_t year);
+void init_rtc(void);
 
 // -------------------------
 //     Print Functions
