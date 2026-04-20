@@ -24,7 +24,6 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
     ensure_vfs_init();
 
     req->type = MSG_TYPE_VFS;
-    req->subtype = MSG_SUBTYPE_QUERY;
 
     ipc_send(vfs_server_tid, req);
 
@@ -50,6 +49,7 @@ int vfs_open(const char* path, uint32_t flags) {
     message_t req;
     message_t resp;
 
+	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_OPEN;
 	req.param2 = flags;
     memcpy(req.data, path, len + 1);
@@ -69,13 +69,11 @@ int vfs_openat(int dir_fd, const char* name, uint32_t flags) {
     
     message_t req;
     message_t resp;
-    
-    memset(&req, 0, sizeof(message_t));
 
+	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_OPENAT;
 	req.param2 = flags;
     req.param3 = dir_fd;
-
     memcpy(req.data, name, len + 1);
 
     if (vfs_rpc_call(&req, &resp) == 0) {
@@ -91,6 +89,7 @@ int vfs_close(int fd) {
     message_t req;
     message_t resp;
 
+	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_CLOSE;
     req.param2 = fd;
 
@@ -116,6 +115,7 @@ int vfs_read(int fd, void* buf, int count) {
     message_t resp;
     memset(&req, 0, sizeof(message_t));
 	
+	req.subtype = MSG_SUBTYPE_PING;
     req.param1 = VFS_CMD_READ;
     req.param2 = fd;
     req.param3 = count;
@@ -154,6 +154,7 @@ int vfs_write(int fd, const void* buf, int count) {
     message_t resp;
     memset(&req, 0, sizeof(message_t));
 
+	req.subtype = MSG_SUBTYPE_PING;
     req.param1 = VFS_CMD_WRITE;
     req.param2 = fd;
     req.param3 = count;
@@ -186,6 +187,7 @@ int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries) {
     message_t resp;
     memset(&req, 0, sizeof(message_t));
 
+	req.subtype = MSG_SUBTYPE_PING;
     req.param1 = VFS_CMD_LIST;
     req.param2 = fd;
     req.param3 = max_entries;
@@ -217,12 +219,13 @@ int vfs_flock(int fd, vfs_lock_type_t lock_type) {
     message_t resp;
     memset(&req, 0, sizeof(message_t));
 
+	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_FLOCK;
     req.param2 = fd;
     req.param3 = lock_type;
 
     if (vfs_rpc_call(&req, &resp) == 0) {
-        return 0; // Успех
+        return 0;
     }
     
     return -1;
@@ -237,6 +240,7 @@ int64_t vfs_seek(int fd, int64_t offset, vfs_seek_t whence) {
     message_t resp;
     memset(&req, 0, sizeof(message_t));
 
+	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_SEEK;
     req.param2 = fd;
     req.param3 = whence;
@@ -265,6 +269,7 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
     message_t resp;
     memset(&req, 0, sizeof(message_t));
 
+	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_STAT;
     req.param2 = fd;
     *(uint64_t*)(req.data) = shm_id;

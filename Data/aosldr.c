@@ -189,11 +189,8 @@ uint64_t rdmsr(uint32_t msr) {
 }
 
 uint8_t read_cmos(uint8_t reg) {
-    __asm__ volatile ("cli");
-    while (inb(0x70) & 0x80);
     outb(0x70, reg);
     uint8_t value = inb(0x71);
-    __asm__ volatile ("sti");
     return value;
 }
 
@@ -236,7 +233,13 @@ uint64_t rtc_to_unix(uint8_t sec, uint8_t min, uint8_t hour,
 }
 
 void init_rtc(void) {
+	__asm__ volatile ("cli");
     uint8_t sec, min, hour, day, month, year;
+	
+	while (1) {
+        outb(0x70, 0x0A);
+        if (!(inb(0x71) & 0x80)) break;
+    }
     
     sec   = read_cmos(0x00);
     min   = read_cmos(0x02);
@@ -255,6 +258,7 @@ void init_rtc(void) {
     }
     
     boot_time = rtc_to_unix(sec, min, hour, day, month, year);
+	__asm__ volatile ("sti");
 }
 
 
@@ -1106,19 +1110,23 @@ void kernel_main(boot_info_t* boot_info){
 		}
 		kprint("\n");
 	}
-	kprint("Keyboard driver..\n");
-	if (!fat32_find_in_dir(system_volume, &drivers_dir, "KBDDRIVER.ELF", &file)){
+	elf_load_result_t* driver = (elf_load_result_t*)kernel_malloc(sizeof(elf_load_result_t));
+	kprint("Auth driver..\n");
+	if (!fat32_find_in_dir(system_volume, &drivers_dir, "AUTHDRIVER.ELF", &file)){
 		kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
 	}
-	elf_load_result_t* driver = (elf_load_result_t*)kernel_malloc(sizeof(elf_load_result_t));
-	if (!driver) kernel_error(0x5, 0x1, 0, 0, 0);
 	kernel_memset(driver, 0, sizeof(elf_load_result_t));
 	load_elf_raw_fat32(system_volume, &file, driver);
 	if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver);
+	kprint("Register...\n");
 	int tid = 0;
-	driver_type_t dtype = DT_KEYBOARD;
+	driver_type_t dtype = DT_AUTH;
 	if(!sleep_while_zero(get_driver_tid_sleep_wrapper, &dtype, 5000, &tid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
+	kprint("Driver TID: ");
+	uint64_to_dec(tid, buff);
+	kprint(buff);
+	kprint("\n");
 	kprint("VFS driver..\n");
 	if (!fat32_find_in_dir(system_volume, &drivers_dir, "VFSDRIVER.ELF", &file)){
 		kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
@@ -1135,14 +1143,6 @@ void kernel_main(boot_info_t* boot_info){
 	uint64_to_dec(tid, buff);
 	kprint(buff);
 	kprint("\n");
-	kprint("Load tree.elf\n");
-	if (!fat32_find_in_dir(system_volume, 0, "tree.elf", &file)){
-		kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
-	}
-	kernel_memset(driver, 0, sizeof(elf_load_result_t));
-	load_elf_raw_fat32(system_volume, &file, driver);
-	if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
-    start_elf_process(driver);
 	while(1) {
     }
 }

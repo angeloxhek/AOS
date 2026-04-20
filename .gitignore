@@ -59,4 +59,5 @@ Build/
 Temp/
 *.bin
 *.vhd
+*.ip
 qemu.log

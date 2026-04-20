@@ -91,10 +91,10 @@ ar rcs Temp/libaoslin.a \
 cp Temp/libaoslin.a Build/libs/libaoslin.a
 
 echo -e "${GREEN}[5/${STAGES}] Compiling Drivers...${NC}"
-gcc -m64 -c Data/drivers/kbddriver.c -o Temp/kbddriver.o -fno-omit-frame-pointer \
+gcc -m64 -c Data/drivers/authdriver.c -o Temp/authdriver.o -fno-omit-frame-pointer \
         -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
-ld -m elf_x86_64 -N --no-warn-rwx-segments -Map Temp/kbddriver.map -T Data/drivers/vfsdriver.ld \
-		Temp/aos_start.o Temp/kbddriver.o Temp/libaos.a -o Build/Volume/DRIVERS/KBDDRIVER.ELF
+ld -m elf_x86_64 -N --no-warn-rwx-segments -Map Temp/authdriver.map -T Data/drivers/vfsdriver.ld \
+		Temp/aos_start.o Temp/authdriver.o Temp/libaos.a -o Build/Volume/DRIVERS/AUTHDRIVER.ELF
 
 gcc -m64 -c Data/drivers/vfsdriver.c -o Temp/vfsdriver.o -fno-omit-frame-pointer \
         -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
@@ -105,6 +105,11 @@ gcc -m64 -c Data/drivers/procfs_vfsmodule.c -o Temp/procfs_vfsmodule.o -fno-omit
 ld -m elf_x86_64 -N --no-warn-rwx-segments -Map Temp/vfsdriver.map -T Data/drivers/vfsdriver.ld \
         Temp/aos_start.o Temp/vfsdriver.o Temp/fat32_vfsmodule.o Temp/procfs_vfsmodule.o Temp/libaos.a \
         -o Build/Volume/DRIVERS/VFSDRIVER.ELF
+		
+gcc -m64 -c Data/drivers/kbddriver.c -o Temp/kbddriver.o -fno-omit-frame-pointer \
+        -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
+ld -m elf_x86_64 -N --no-warn-rwx-segments -Map Temp/kbddriver.map -T Data/drivers/vfsdriver.ld \
+		Temp/aos_start.o Temp/kbddriver.o Temp/libaos.a -o Build/Volume/DRIVERS/KBDDRIVER.ELF
 
 echo -e "${GREEN}[6/${STAGES}] Compiling User-Space...${NC}"
 gcc -m64 -c Data/userspace/tree.c -o Temp/tree.o -fno-omit-frame-pointer -ffreestanding \

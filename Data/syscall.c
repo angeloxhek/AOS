@@ -90,6 +90,15 @@ void syscall_handler(syscall_regs_t* regs) {
             regs->rax = ipc_receive(user_msg_buffer);
             break;
         }
+		case SYS_IPC_TRYRECV: {
+            message_t* user_msg_buffer = (message_t*)regs->rdi;
+            if (!is_valid_user_pointer(user_msg_buffer)) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+            regs->rax = ipc_try_receive(user_msg_buffer);
+            break;
+        }
         case SYS_REGISTER_DRIVER:
             regs->rax = register_driver((driver_type_t)regs->rdi, (const char*)regs->rsi);
             break;
@@ -337,6 +346,7 @@ void syscall_handler(syscall_regs_t* regs) {
             info.state = target_thread->state;
             info.waiting_for_msg = target_thread->waiting_for_msg;
             info.wake_up_time = target_thread->wake_up_time;
+            info.user.raw = target_thread->user.raw;
 
             kernel_memcpy(user_ptr, &info, sizeof(thread_info_user_t));
             regs->rax = SYS_RES_OK;

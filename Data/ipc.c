@@ -39,29 +39,37 @@ int64_t ipc_send(uint64_t dest_tid, message_t* user_msg) {
     return SYS_RES_OK;
 }
 
-int64_t ipc_receive(message_t* user_msg_out) {
+static int __ipc_pop_msg(message_t* out_msg) {
+	if (!current_thread->msg_queue_head) return -1;
+	msg_node_t* node = current_thread->msg_queue_head;
+	current_thread->msg_queue_head = node->next;
+	if (!current_thread->msg_queue_head) current_thread->msg_queue_tail = 0;
+	if (current_thread->fs_base != 0) {
+		aos_tcb_t* tcb = (aos_tcb_t*)current_thread->fs_base;
+		if (tcb->pending_msgs > 0) tcb->pending_msgs--;
+	}
+	*out_msg = node->msg;
+	kernel_free(node);
+	return 0;
+}
+
+int64_t ipc_try_receive(message_t* out_msg) {
+    asm volatile("cli");
+    int res = __ipc_pop_msg(out_msg);
+    asm volatile("sti");
+    return res ? SYS_RES_QUEUE_EMPTY : SYS_RES_OK;
+}
+
+int64_t ipc_receive(message_t* out_msg) {
     while (1) {
         asm volatile("cli");
-        if (current_thread->msg_queue_head) {
-            msg_node_t* node = current_thread->msg_queue_head;
-            current_thread->msg_queue_head = node->next;
-            if (!current_thread->msg_queue_head) {
-                current_thread->msg_queue_tail = 0;
-            }
-            if (current_thread->fs_base != 0) {
-                aos_tcb_t* tcb = (aos_tcb_t*)current_thread->fs_base;
-                if (tcb->pending_msgs > 0) {
-                    tcb->pending_msgs--;
-                }
-            }
-            *user_msg_out = node->msg;
-            kernel_free(node);
+        if (!__ipc_pop_msg(out_msg)) {
             asm volatile("sti");
             return SYS_RES_OK;
         }
         current_thread->waiting_for_msg = 1;
         current_thread->state = THREAD_BLOCKED;
-        schedule();
-        asm volatile("sti");
+		schedule();
+		asm volatile("sti");
     }
 }

@@ -356,7 +356,7 @@ typedef struct {
 void vfs_resolve_from(vfs_node_t* start_node, const char* path, vfs_path_result_t* out) {
     out->node = 0;
     out->fs_path = 0;
-    out->error = VFS_ERR_NOFILE;
+    out->error = VFS_ERR_NOTFOUND;
 
     if (!path || !out) return;
 
@@ -422,7 +422,7 @@ void vfs_resolve_from(vfs_node_t* start_node, const char* path, vfs_path_result_
         }
 
         if (!next_node) {
-            out->error = VFS_ERR_NOFILE;
+            out->error = VFS_ERR_NOTFOUND;
             free(path_copy);
             return;
         }
@@ -475,37 +475,36 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
     vfs_resolve_from(vfs_root, path, out);
 }
 
-void handle_vfs_request(message_t* req) {
-    message_t resp;
-    memset(&resp, 0, sizeof(message_t));
-    resp.type = MSG_TYPE_VFS;
-    resp.subtype = MSG_SUBTYPE_RESPONSE;
-    resp.sender_tid = req->sender_tid;
+void handle_vfs_request(message_t* in) {
+    message_t out;
+    memset(&out, 0, sizeof(message_t));
+    out.type = MSG_TYPE_VFS;
+    out.subtype = MSG_SUBTYPE_RESPONSE;
 
-    switch (req->param1) {
+    switch (in->param1) {
         case VFS_CMD_OPEN:
         case VFS_CMD_OPENAT: {
-			uint32_t flags = req->param2;
-            int dir_fd = (req->param1 == VFS_CMD_OPENAT) ? req->param3 : -1;
-            char* path = (char*)req->data;
+			uint32_t flags = in->param2;
+            int dir_fd = (in->param1 == VFS_CMD_OPENAT) ? in->param3 : -1;
+            char* path = (char*)in->data;
 
             if (!path || path[0] == '\0') {
-                resp.param1 = VFS_ERR_UNKNOWN;
+                out.param1 = VFS_ERR_UNKNOWN;
                 break;
             }
 
             vfs_path_result_t res;
             vfs_node_t* start_node = vfs_root;
 
-            if (req->param1 == VFS_CMD_OPENAT && path[0] != '/') {
-                vfs_file_t* parent_f = vfs_get_file(dir_fd, req->sender_tid);
+            if (in->param1 == VFS_CMD_OPENAT && path[0] != '/') {
+                vfs_file_t* parent_f = vfs_get_file(dir_fd, in->sender_tid);
                 if (parent_f) {
                     if (parent_f->type == VFS_TYPE_DIR) {
                         start_node = parent_f->dir.node;
                     } else if (parent_f->type == VFS_TYPE_MOUNT_POINT) {
-                        int new_fd = vfs_alloc_fd(req->sender_tid);
+                        int new_fd = vfs_alloc_fd(in->sender_tid);
                         if (new_fd < 0) {
-                            resp.param1 = VFS_ERR_UNKNOWN; break;
+                            out.param1 = VFS_ERR_UNKNOWN; break;
                         }
                         vfs_file_t* new_f = &open_files[new_fd - 1];
                         new_f->type = VFS_TYPE_MOUNT_POINT;
@@ -533,11 +532,11 @@ void handle_vfs_request(message_t* req) {
 									}
                                 }
                             }
-                            resp.param1 = VFS_ERR_OK;
-                            resp.param2 = new_fd;
+                            out.param1 = VFS_ERR_OK;
+                            out.param2 = new_fd;
                         } else {
                             new_f->used = 0;
-                            resp.param1 = VFS_ERR_NOFILE;
+                            out.param1 = VFS_ERR_NOTFOUND;
                         }
                         break;
                     }
@@ -547,13 +546,13 @@ void handle_vfs_request(message_t* req) {
             vfs_resolve_from(start_node, path, &res);
 
             if (res.error != 0) {
-                resp.param1 = res.error;
+                out.param1 = res.error;
                 break;
             }
 
-            int new_fd = vfs_alloc_fd(req->sender_tid);
+            int new_fd = vfs_alloc_fd(in->sender_tid);
             if (new_fd < 0) {
-                resp.param1 = VFS_ERR_UNKNOWN;
+                out.param1 = VFS_ERR_UNKNOWN;
                 if (res.fs_path) free(res.fs_path);
                 break;
             }
@@ -586,10 +585,10 @@ void handle_vfs_request(message_t* req) {
                 
                 if (!f->mounted_file.handle) {
                     f->used = 0;
-                    resp.param1 = VFS_ERR_NOFILE;
+                    out.param1 = VFS_ERR_NOTFOUND;
                 } else {
-                    resp.param1 = VFS_ERR_OK;
-                    resp.param2 = new_fd;
+                    out.param1 = VFS_ERR_OK;
+                    out.param2 = new_fd;
                 }
             } 
             else if (res.node->type == VFS_TYPE_DEVICE_FILE) {
@@ -597,18 +596,18 @@ void handle_vfs_request(message_t* req) {
                 f->device_file.read = res.node->dev_ops.read;
                 f->device_file.write = res.node->dev_ops.write;
                 f->device_file.param = res.node->dev_ops.param;
-                resp.param1 = VFS_ERR_OK;
-                resp.param2 = new_fd;
+                out.param1 = VFS_ERR_OK;
+                out.param2 = new_fd;
             }
             else if (res.node->type == VFS_TYPE_DIR) {
                 f->type = VFS_TYPE_DIR;
                 f->dir.node = res.node;
-                resp.param1 = VFS_ERR_OK;
-                resp.param2 = new_fd;
+                out.param1 = VFS_ERR_OK;
+                out.param2 = new_fd;
             }
             else {
                 f->used = 0;
-                resp.param1 = VFS_ERR_PERM;
+                out.param1 = VFS_ERR_PERM;
             }
 
             if (res.fs_path) free(res.fs_path);
@@ -616,24 +615,25 @@ void handle_vfs_request(message_t* req) {
         }
 
         case VFS_CMD_READ: {
-            int fd = req->param2;
-            uint64_t size = req->param3;
-            uint64_t shm_id = *(uint64_t*)(req->data);
+			out.subtype = MSG_SUBTYPE_PONG;
+            int fd = in->param2;
+            uint64_t size = in->param3;
+            uint64_t shm_id = *(uint64_t*)(in->data);
             
-            vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
-            if (!f) { resp.param1 = VFS_ERR_PERM; break; }
-            if (f->type == VFS_TYPE_DIR) { resp.param1 = VFS_ERR_ISDIR; break; }
-			if (!(f->flags & VFS_FREAD)) { resp.param1 = VFS_ERR_PERM; break; }
+            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            if (!f) { out.param1 = VFS_ERR_PERM; break; }
+            if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
+			if (!(f->flags & VFS_FREAD)) { out.param1 = VFS_ERR_PERM; break; }
 
             void* buf = shm_map(shm_id);
-            if (!buf) { resp.param1 = VFS_ERR_UNKNOWN; break; }
+            if (!buf) { out.param1 = VFS_ERR_UNKNOWN; break; }
             
             memset(buf, 0, size);
             int bytes = -1;
 
             if (f->type == VFS_TYPE_MOUNT_POINT) {
-				if (vfs_check_lock(f->mount_node, f->inode_id, req->sender_tid, 0) == VFS_ERR_BUSY) {
-					resp.param1 = VFS_ERR_BUSY;
+				if (vfs_check_lock(f->mount_node, f->inode_id, in->sender_tid, 0) == VFS_ERR_BUSY) {
+					out.param1 = VFS_ERR_BUSY;
 					break;
 				}
                 if (f->mounted_file.driver && f->mounted_file.driver->read) {
@@ -647,32 +647,33 @@ void handle_vfs_request(message_t* req) {
 
             if (bytes >= 0) {
                 f->offset += bytes;
-                resp.param1 = VFS_ERR_OK;
-                resp.param2 = bytes;
+                out.param1 = VFS_ERR_OK;
+                out.param2 = bytes;
             } else {
-                resp.param1 = VFS_ERR_UNKNOWN;
+                out.param1 = VFS_ERR_UNKNOWN;
             }
             break;
         }
         
         case VFS_CMD_WRITE: {
-            int fd = req->param2;
-            uint64_t size = req->param3;
-            uint64_t shm_id = *(uint64_t*)(req->data);
+			out.subtype = MSG_SUBTYPE_PONG;
+            int fd = in->param2;
+            uint64_t size = in->param3;
+            uint64_t shm_id = *(uint64_t*)(in->data);
             
-            vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
-            if (!f) { resp.param1 = VFS_ERR_PERM; break; }
-            if (f->type == VFS_TYPE_DIR) { resp.param1 = VFS_ERR_ISDIR; break; }
-			if (!(f->flags & VFS_FWRITE)) { resp.param1 = VFS_ERR_PERM; break; }
+            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            if (!f) { out.param1 = VFS_ERR_PERM; break; }
+            if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
+			if (!(f->flags & VFS_FWRITE)) { out.param1 = VFS_ERR_PERM; break; }
 
             void* buf = shm_map(shm_id);
-            if (!buf) { resp.param1 = VFS_ERR_UNKNOWN; break; }
+            if (!buf) { out.param1 = VFS_ERR_UNKNOWN; break; }
 
             int bytes = -1;
 
             if (f->type == VFS_TYPE_MOUNT_POINT) {
-				if (vfs_check_lock(f->mount_node, f->inode_id, req->sender_tid, 1) == VFS_ERR_BUSY) {
-					resp.param1 = VFS_ERR_BUSY;
+				if (vfs_check_lock(f->mount_node, f->inode_id, in->sender_tid, 1) == VFS_ERR_BUSY) {
+					out.param1 = VFS_ERR_BUSY;
 					break;
 				}
                 if (f->mounted_file.driver && f->mounted_file.driver->write) {
@@ -686,26 +687,27 @@ void handle_vfs_request(message_t* req) {
 
             if (bytes >= 0) {
                 f->offset += bytes;
-                resp.param1 = VFS_ERR_OK;
-                resp.param2 = bytes;
+                out.param1 = VFS_ERR_OK;
+                out.param2 = bytes;
             } else {
-                resp.param1 = VFS_ERR_UNKNOWN;
+                out.param1 = VFS_ERR_UNKNOWN;
             }
             break;
         }
         
         case VFS_CMD_LIST: {
-            int fd = req->param2;
-            int max_entries = req->param3;
-            uint64_t shm_id = *(uint64_t*)(req->data);
+			out.subtype = MSG_SUBTYPE_PONG;
+            int fd = in->param2;
+            int max_entries = in->param3;
+            uint64_t shm_id = *(uint64_t*)(in->data);
             
             if (max_entries <= 0 || max_entries > 128) max_entries = 32;
             
-            vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
-            if (!f) { resp.param1 = VFS_ERR_PERM; break; }
+            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            if (!f) { out.param1 = VFS_ERR_PERM; break; }
 
             vfs_dirent_t* dirent_array = (vfs_dirent_t*)shm_map(shm_id);
-            if (!dirent_array) { resp.param1 = VFS_ERR_UNKNOWN; break; }
+            if (!dirent_array) { out.param1 = VFS_ERR_UNKNOWN; break; }
             
             memset(dirent_array, 0, sizeof(vfs_dirent_t) * max_entries);
             int entries_read = 0;
@@ -745,7 +747,7 @@ void handle_vfs_request(message_t* req) {
                     
                     fs_dirent_t* fs_array = malloc(sizeof(fs_dirent_t) * max_entries);
                     if (!fs_array) {
-                        resp.param1 = VFS_ERR_UNKNOWN;
+                        out.param1 = VFS_ERR_UNKNOWN;
                         break;
                     }
                     memset(fs_array, 0, sizeof(fs_dirent_t) * max_entries);
@@ -775,22 +777,22 @@ void handle_vfs_request(message_t* req) {
             shm_free(shm_id);
 
             if (entries_read >= 0) {
-                resp.param1 = VFS_ERR_OK;
-                resp.param2 = entries_read;
+                out.param1 = VFS_ERR_OK;
+                out.param2 = entries_read;
             } else {
-                resp.param1 = VFS_ERR_UNKNOWN;
+                out.param1 = VFS_ERR_UNKNOWN;
             }
             break;
         }
         
         case VFS_CMD_CLOSE: {
-            int fd = req->param2;
-            vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
+            int fd = in->param2;
+            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
             if (f) {
                 if (f->type == VFS_TYPE_MOUNT_POINT && f->mounted_file.driver && f->mounted_file.driver->close) {
 					for (int i = 0; i < MAX_LOCKED_FILES; i++) {
 						if (active_locks[i].used && 
-							active_locks[i].owner_tid == req->sender_tid &&
+							active_locks[i].owner_tid == in->sender_tid &&
 							active_locks[i].mount_node == f->mount_node &&
 							active_locks[i].inode_id == f->inode_id) 
 						{
@@ -800,20 +802,20 @@ void handle_vfs_request(message_t* req) {
                     f->mounted_file.driver->close(f->mounted_file.fs, f->mounted_file.handle);
                 }
                 f->used = 0;
-                resp.param1 = VFS_ERR_OK;
+                out.param1 = VFS_ERR_OK;
             } else {
-                resp.param1 = VFS_ERR_PERM;
+                out.param1 = VFS_ERR_PERM;
             }
             break;
         }
 		
 		case VFS_CMD_FLOCK: {
-            int fd = req->param2;
-            vfs_lock_type_t lock_type = req->param3;
+            int fd = in->param2;
+            vfs_lock_type_t lock_type = in->param3;
             
-            vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
-            if (!f) { resp.param1 = VFS_ERR_PERM; break; }
-            if (f->type != VFS_TYPE_MOUNT_POINT) { resp.param1 = VFS_ERR_OK; break; }
+            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            if (!f) { out.param1 = VFS_ERR_PERM; break; }
+            if (f->type != VFS_TYPE_MOUNT_POINT) { out.param1 = VFS_ERR_OK; break; }
 
             vfs_lock_t* existing_lock = 0;
             int free_slot = -1;
@@ -830,29 +832,29 @@ void handle_vfs_request(message_t* req) {
             }
 
             if (lock_type == VFS_LOCK_UN) { 
-                if (existing_lock && existing_lock->owner_tid == req->sender_tid) {
+                if (existing_lock && existing_lock->owner_tid == in->sender_tid) {
                     existing_lock->used = 0; 
                 }
-                resp.param1 = VFS_ERR_OK;
+                out.param1 = VFS_ERR_OK;
             } 
             else { 
                 if (existing_lock) {
-                    if (existing_lock->owner_tid != req->sender_tid) {
-                        resp.param1 = VFS_ERR_BUSY;
+                    if (existing_lock->owner_tid != in->sender_tid) {
+                        out.param1 = VFS_ERR_BUSY;
                     } else {
                         existing_lock->type = lock_type;
-                        resp.param1 = VFS_ERR_OK;
+                        out.param1 = VFS_ERR_OK;
                     }
                 } else {
                     if (free_slot != -1) {
                         active_locks[free_slot].used = 1;
                         active_locks[free_slot].type = lock_type;
-                        active_locks[free_slot].owner_tid = req->sender_tid;
+                        active_locks[free_slot].owner_tid = in->sender_tid;
                         active_locks[free_slot].mount_node = f->mount_node;
                         active_locks[free_slot].inode_id = f->inode_id;
-                        resp.param1 = VFS_ERR_OK;
+                        out.param1 = VFS_ERR_OK;
                     } else {
-                        resp.param1 = VFS_ERR_UNKNOWN;
+                        out.param1 = VFS_ERR_UNKNOWN;
                     }
                 }
             }
@@ -860,13 +862,13 @@ void handle_vfs_request(message_t* req) {
         }
 		
 		case VFS_CMD_SEEK: {
-            int fd = req->param2;
-            vfs_seek_t whence = req->param3;
-            int64_t offset = *(int64_t*)(req->data);
+            int fd = in->param2;
+            vfs_seek_t whence = in->param3;
+            int64_t offset = *(int64_t*)(in->data);
 
-            vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
-            if (!f) { resp.param1 = VFS_ERR_PERM; break; }
-            if (f->type == VFS_TYPE_DIR) { resp.param1 = VFS_ERR_ISDIR; break; }
+            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            if (!f) { out.param1 = VFS_ERR_PERM; break; }
+            if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
 
             int64_t new_offset = f->offset;
 
@@ -888,21 +890,21 @@ void handle_vfs_request(message_t* req) {
             }
 
             if (new_offset < 0) {
-                resp.param1 = VFS_ERR_UNKNOWN;
+                out.param1 = VFS_ERR_UNKNOWN;
             } else {
                 f->offset = new_offset;
-                resp.param1 = VFS_ERR_OK;
-                *(int64_t*)(resp.data) = f->offset; 
+                out.param1 = VFS_ERR_OK;
+                *(int64_t*)(out.data) = f->offset; 
             }
             break;
         }
 
 		case VFS_CMD_STAT: {
-			int fd = req->param2;
-			uint64_t shm_id = *(uint64_t*)(req->data);
+			int fd = in->param2;
+			uint64_t shm_id = *(uint64_t*)(in->data);
 			
-			vfs_file_t* f = vfs_get_file(fd, req->sender_tid);
-			if (!f) { resp.param1 = VFS_ERR_PERM; break; }
+			vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+			if (!f) { out.param1 = VFS_ERR_PERM; break; }
 
 			vfs_stat_info_t* user_stat = (vfs_stat_info_t*)shm_map(shm_id);
 			
@@ -912,12 +914,12 @@ void handle_vfs_request(message_t* req) {
 					user_stat->inode_id = native_stat.inode_id;
 					user_stat->size_bytes = native_stat.size_bytes;
 					user_stat->attributes = native_stat.attributes;
-					resp.param1 = VFS_ERR_OK;
+					out.param1 = VFS_ERR_OK;
 				} else {
-					resp.param1 = VFS_ERR_UNKNOWN;
+					out.param1 = VFS_ERR_UNKNOWN;
 				}
 			} else {
-				resp.param1 = VFS_ERR_UNKNOWN;
+				out.param1 = VFS_ERR_UNKNOWN;
 			}
 
 			shm_free(shm_id);
@@ -925,12 +927,12 @@ void handle_vfs_request(message_t* req) {
 		}
         
         default: {
-            resp.param1 = VFS_ERR_NOCOMM;
+            out.param1 = VFS_ERR_NOCOMM;
             break;
         }
     }
     
-    ipc_send(req->sender_tid, &resp);
+    ipc_send(in->sender_tid, &out);
 }
 
 int driver_main(void* reserved1, void* reserved2) {

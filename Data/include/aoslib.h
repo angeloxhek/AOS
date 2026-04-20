@@ -23,63 +23,73 @@
 #define AOSLIB_DEFINE
 
 #include <stdint.h>
-#include "limits.h"
+#include <limits.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define SYS_EXIT                     1
-#define SYS_IPC_SEND                 2
-#define SYS_IPC_RECV                 3
-#define SYS_REGISTER_DRIVER          4
-#define SYS_GET_DRIVER_TID           5
-#define SYS_GET_DRIVER_TID_BY_NAME   6
-#define SYS_GET_SYSTEM_INFO          7
-#define SYS_SBRK                     8
-#define SYS_BLOCK_READ               9
-#define SYS_BLOCK_WRITE             10
-#define SYS_GET_DISK_COUNT          11
-#define SYS_GET_DISK_INFO           12
-#define SYS_GET_PARTITION_COUNT     13
-#define SYS_GET_PARTITION_INFO      14
-#define SYS_YIELD                   15
-#define SYS_PRINT                   16
-#define SYS_RESERVED1               17
-#define SYS_RESERVED2               18
-#define SYS_SHM_ALLOC               19
-#define SYS_SHM_ALLOW               20
-#define SYS_SHM_MAP                 21
-#define SYS_SHM_FREE                22
-#define SYS_GET_PID_LIST            23
-#define SYS_GET_PROC_INFO           24
-#define SYS_GET_TID_LIST            25
-#define SYS_GET_THREAD_INFO         26
-#define SYS_GET_TIME_INFO           27
+#define SYS_EXIT                      1
+#define SYS_IPC_SEND                  2
+#define SYS_IPC_TRYRECV               3
+#define SYS_IPC_RECV                  4
+#define SYS_REGISTER_DRIVER           5
+#define SYS_GET_DRIVER_TID            6
+#define SYS_GET_DRIVER_TID_BY_NAME    7
+#define SYS_GET_SYSTEM_INFO           8
+#define SYS_SBRK                      9
+#define SYS_BLOCK_READ               10
+#define SYS_BLOCK_WRITE              11
+#define SYS_GET_DISK_COUNT           12
+#define SYS_GET_DISK_INFO            13
+#define SYS_GET_PARTITION_COUNT      14
+#define SYS_GET_PARTITION_INFO       15
+#define SYS_YIELD                    16
+#define SYS_PRINT                    17
+#define SYS_SHM_ALLOC                18
+#define SYS_SHM_ALLOW                19
+#define SYS_SHM_MAP                  20
+#define SYS_SHM_FREE                 21
+#define SYS_GET_PID_LIST             22
+#define SYS_GET_PROC_INFO            23
+#define SYS_GET_TID_LIST             24
+#define SYS_GET_THREAD_INFO          25
+#define SYS_GET_TIME_INFO            26
 
-#define SYS_RES_OK                   0
-#define SYS_RES_INVALID             -1
-#define SYS_RES_NO_PERM             -2
-#define SYS_RES_ALREADY             -3
-#define SYS_RES_RESERVED1           -4
-#define SYS_RES_QUEUE_EMPTY         -5
-#define SYS_RES_DSK_ERR             -6
-#define SYS_RES_RANGE               -7
-#define SYS_RES_NOTFOUND            -8
-#define SYS_RES_KERNEL_ERR         -99
+#define SYS_RES_OK                    0
+#define SYS_RES_INVALID              -1
+#define SYS_RES_NO_PERM              -2
+#define SYS_RES_ALREADY              -3
+#define SYS_RES_RESERVED1            -4
+#define SYS_RES_QUEUE_EMPTY          -5
+#define SYS_RES_DSK_ERR              -6
+#define SYS_RES_RANGE                -7
+#define SYS_RES_NOTFOUND             -8
+#define SYS_RES_KERNEL_ERR          -99
 
-#define VFS_ERR_OK                   0
-#define VFS_ERR_NOFILE              -1
-#define VFS_ERR_SYMLINKLOOP         -2
-#define VFS_ERR_PERM                -3
-#define VFS_ERR_ISDIR               -4
-#define VFS_ERR_NOCOMM              -5
-#define VFS_ERR_BUSY                -6
-#define VFS_ERR_UNKNOWN            -99
+#define DRV_ERR_OK                    0
+#define DRV_ERR_NOCOMM             -258
+#define DRV_ERR_NOTFOUND           -257
+#define DRV_ERR_UNKNOWN            -256
 
-#define STAT_OK                      0
-#define STAT_STACK_SMASHING       -256
-#define STAT_NO_ENTRY             -257
+#define VFS_ERR_OK                 DRV_ERR_OK
+#define VFS_ERR_PERM                 -1
+#define VFS_ERR_ISDIR                -2
+#define VFS_ERR_BUSY                 -3
+#define VFS_ERR_SYMLINKLOOP          -4
+#define VFS_ERR_NOCOMM             DRV_ERR_NOCOMM
+#define VFS_ERR_NOTFOUND           DRV_ERR_NOTFOUND
+#define VFS_ERR_UNKNOWN            DRV_ERR_UNKNOWN
+
+#define AUTH_ERR_OK                DRV_ERR_OK
+#define AUTH_ERR_NOCOMM            DRV_ERR_NOCOMM
+#define AUTH_ERR_NOTFOUND          DRV_ERR_NOTFOUND
+#define AUTH_ERR_UNKNOWN           DRV_ERR_UNKNOWN
+
+#define STAT_OK                       0
+#define STAT_STACK_SMASHING        -256
+#define STAT_NO_ENTRY              -257
+#define STAT_OOM                   -258
 
 #define VFS_FREAD   (1 << 0)
 #define VFS_FWRITE  (1 << 1)
@@ -134,9 +144,51 @@ typedef struct {
 } vfs_stat_info_t;
 
 typedef enum {
+    AUTH_CMD_GET_USER = 1,
+} auth_cmd_t;
+
+typedef enum : uint8_t {
+	PGROUP_SUPER = 0,
+	PGROUP_ROOT,
+	PGROUP_ADMIN,
+	PGROUP_USER,
+	PGROUP_TEMP
+} auth_pgroup_t;
+
+#define ATYPE_NONE         (0 << 0)
+#define ATYPE_CHILD        (1 << 0)
+#define ATYPE_TOKEN        (1 << 1)
+#define ATYPE_PASSWORD     (1 << 2)
+#define ATYPE_CHANGE       (1 << 3)
+
+#define ATYPE_SUPER        (ATYPE_CHILD | ATYPE_CHANGE)
+#define ATYPE_ROOT         (ATYPE_CHILD | ATYPE_PASSWORD | ATYPE_CHANGE)
+#define ATYPE_ADMIN        (ATYPE_CHILD | ATYPE_TOKEN | ATYPE_PASSWORD | ATYPE_CHANGE)
+#define ATYPE_USER         (ATYPE_CHILD | ATYPE_TOKEN | ATYPE_PASSWORD | ATYPE_CHANGE)
+#define ATYPE_TEMP         (ATYPE_CHILD | ATYPE_TOKEN | ATYPE_PASSWORD)
+
+#define APERM_NONE         (0 << 0)
+
+typedef union {
+	struct {
+		uint32_t gid; // Dynamic group
+		uint32_t uid;
+	} user;
+	uint64_t raw;
+} auth_id_t;
+
+typedef struct {
+	auth_id_t id;
+	auth_pgroup_t pgroup; // Static group
+	uint8_t auth_type; // ATYPE_*
+	uint32_t perms;
+} auth_idex_t;
+
+typedef enum {
     MSG_TYPE_NONE = 0,
-    MSG_TYPE_KEYBOARD,
+	MSG_TYPE_AUTH,
     MSG_TYPE_VFS,
+	MSG_TYPE_KEYBOARD,
     MSG_TYPE_DATA
 } msg_type_t;
 
@@ -144,7 +196,9 @@ typedef enum {
     MSG_SUBTYPE_NONE = 0,
     MSG_SUBTYPE_QUERY,
 	MSG_SUBTYPE_SEND,
-	MSG_SUBTYPE_RESPONSE
+	MSG_SUBTYPE_RESPONSE,
+	MSG_SUBTYPE_PING,
+	MSG_SUBTYPE_PONG
 } msg_subtype_t;
 
 typedef struct message_t {
@@ -159,9 +213,10 @@ typedef struct message_t {
 
 typedef enum {
 	DT_NONE = 0,
-	DT_KEYBOARD,
+	DT_AUTH,
 	DT_VFS,
 	DT_VIDEO,
+	DT_KEYBOARD,
 	DT_USER = 100
 } driver_type_t;
 
@@ -216,6 +271,7 @@ typedef struct {
 
 typedef struct {
     uint64_t tid;
+	auth_id_t user;
     uint32_t parent_pid;
     uint8_t  state;
     int      waiting_for_msg; 
@@ -253,6 +309,12 @@ typedef struct {
 } aos_tcb_t;
 
 #define AOS_GET_TCB() ((aos_tcb_t __seg_fs *)0)
+
+#define AOS_HANDLE_SUBTYPE_CHECK(st) do { \
+_Static_assert(__builtin_types_compatible_p(typeof(*(in)), message_t), "AOS_HANDLE_SUBTYPE_CHECK: 'in' must be message_t*"); \
+_Static_assert(__builtin_types_compatible_p(typeof(*(out)), message_t), "AOS_HANDLE_SUBTYPE_CHECK: 'out' must be message_t*"); \
+if (in->subtype != (st)) { out->param1 = DRV_ERR_NOCOMM; break; } \
+} while(0)
 
 typedef struct {
     volatile int locked;

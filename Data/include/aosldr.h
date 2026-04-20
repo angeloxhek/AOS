@@ -227,7 +227,7 @@ typedef struct process_t {
 
 typedef struct thread_t {
 	uint64_t         tid;
-    uint64_t         rsp;
+	uint64_t         rsp;
     uint64_t         stack_base;
     uint64_t         cr3;
 	uint64_t         fs_base;
@@ -235,7 +235,7 @@ typedef struct thread_t {
 	struct thread_t* next;
 	struct thread_t* next_zombie;
 	struct thread_t* next_waiter;
-	void*            reserved1; // Reserved
+	auth_id_t        user;
 	msg_node_t*      msg_queue_head;
     msg_node_t*      msg_queue_tail;
 	process_t*       owner;
@@ -500,6 +500,7 @@ void get_time_info(time_info_t* out);
 // -------------------------
 
 int64_t ipc_send(uint64_t dest_tid, message_t* msg);
+int64_t ipc_try_receive(message_t* out_msg);
 int64_t ipc_receive(message_t* out_msg);
 
 // -------------------------
