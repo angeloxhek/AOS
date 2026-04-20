@@ -648,16 +648,14 @@ switch_to_task:
     mov [rdi + 8], rsp 
 
 	fxsave [rdi + 112]
-    ; --- ТОЧКА НЕВОЗВРАТА (ДЛЯ ТЕКУЩЕГО ПОТОКА) ---
 
     mov rsp, [rsi + 8]
 	
 	fxrstor [rsi + 112]
 
-    ; Переключаем адресное пространство (если потоки из разных процессов)
     mov rax, [rsi + 24] 
     mov rcx, cr3
-    cmp rax, rcx       ; Если CR3 такой же, не переключаем (дорого!)
+    cmp rax, rcx
     je .done_cr3
     mov cr3, rax
 .done_cr3:
@@ -687,29 +685,28 @@ switch_to_task:
 global trampoline_enter_user
 global trampoline_enter_kernel
 trampoline_enter_user:
-    ; Настраиваем сегменты данных для Ring 3
-    mov ax, 0x1B ; User Data Selector
+	pop rdi
+	pop rsi
+    mov ax, 0x1B
     mov ds, ax
     mov es, ax
 
-    ; Выход в User Mode
-    ; Стек: [SS, RSP, RFLAGS, CS, RIP]
+    ; [SS, RSP, RFLAGS, CS, RIP]
     iretq
 
-; --- Трамплин для ЯДРА ---
-; Стек настроен так, что 'ret' прыгает сюда.
-; На стеке лежит адрес функции (entry point).
+extern kill_thread
+extern current_thread
+extern schedule
 trampoline_enter_kernel:
-    ; При старте нового потока стек выровнен (мы это гарантируем в C)
-    pop rax ; Берем адрес функции из стека
-    
-    sti     ; Включаем прерывания (новые потоки должны работать с прерываниями)
-    call rax ; Вызываем функцию ядра
-    
-    ; Если функция вернулась - убиваем поток
-    ; call thread_exit
-    cli
-    hlt
+    pop rax
+    sti
+    call rax
+    mov rdi, [current_thread]
+	mov rsi, 0
+	call kill_thread
+.loop:
+	call schedule
+	jmp .loop
 
 ; --- Данные ---
 boot_drive: db 0

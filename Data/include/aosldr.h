@@ -457,7 +457,7 @@ int copy_string_from_user(const char* user_src, char* kernel_dest, int max_len);
 
 void init_scheduler();
 thread_t* create_thread_core(uint64_t cr3, process_t* owner);
-void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc);
+void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, uint64_t arg1, uint64_t arg2);
 void create_kernel_thread(void (*entry)(void));
 int kill_thread(thread_t* target, int exit_code);
 thread_t* get_thread_by_id(uint64_t tid);

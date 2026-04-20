@@ -212,6 +212,12 @@ typedef struct message_t {
 } __attribute__((packed, aligned(8))) message_t;
 
 typedef enum {
+	SEEK_SET = 1,
+	SEEK_CUR,
+	SEEK_END
+} seek_whence_t;
+
+typedef enum {
 	DT_NONE = 0,
 	DT_AUTH,
 	DT_VFS,
@@ -361,10 +367,13 @@ __attribute__((noreturn)) void _start(uint64_t arg1, uint64_t arg2);
 void sysprint(const char* str);
 
 int64_t __ipc_recv(message_t* out_msg);
+int64_t ipc_tryrecv(message_t* out_msg);
 int64_t ipc_send(uint64_t dest_tid, message_t* msg);
 uint64_t get_ipc_count(void);
 void ipc_recv(message_t* out_msg);
 void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
+void ipc_seek(int64_t offset, seek_whence_t whence);
+int ipc_get_at(uint64_t index, message_t* out);
 
 int64_t register_driver(driver_type_t type, const char* name);
 uint64_t get_driver_tid(driver_type_t type);

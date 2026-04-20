@@ -56,7 +56,7 @@ thread_t* create_thread_core(uint64_t cr3, process_t* owner) {
     return t;
 }
 
-void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc) {
+void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, uint64_t arg1, uint64_t arg2) {
     asm volatile("cli");
     thread_t* t = create_thread_core(cr3_phys, proc);
 
@@ -105,6 +105,8 @@ void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_
     *(--sp) = 0x202;           // RFLAGS (IF=1)
     *(--sp) = GDT_USER_CODE;   // CS
     *(--sp) = entry_point;     // RIP
+	*(--sp) = arg2;
+	*(--sp) = arg1;
     *(--sp) = (uint64_t)trampoline_enter_user;
     *(--sp) = 0x202; // RFLAGS
     *(--sp) = 0;     // R15

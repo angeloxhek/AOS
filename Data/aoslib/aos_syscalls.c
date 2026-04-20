@@ -31,6 +31,10 @@ int64_t __ipc_recv(message_t* out_msg) {
     return syscall(SYS_IPC_RECV, (uint64_t)out_msg, 0, 0, 0, 0);
 }
 
+int64_t ipc_tryrecv(message_t* out_msg) {
+    return syscall(SYS_IPC_TRYRECV, (uint64_t)out_msg, 0, 0, 0, 0);
+}
+
 int64_t ipc_send(uint64_t dest_tid, message_t* msg) {
     return syscall(SYS_IPC_SEND, dest_tid, (uint64_t)msg, 0, 0, 0);
 }
@@ -60,8 +64,9 @@ typedef struct msg_node {
     struct msg_node* next;
 } msg_node_t;
 
-static msg_node_t *pending_head = NULL;
-static msg_node_t *pending_tail = NULL;
+static __thread msg_node_t* pending_head = NULL;
+static __thread msg_node_t* pending_tail = NULL;
+static __thread uint64_t ipc_cursor = 0;
 
 static void queue_message(message_t msg) {
     msg_node_t* node = (msg_node_t*)malloc(sizeof(msg_node_t));
@@ -88,6 +93,14 @@ uint64_t get_ipc_count(void) {
         curr = curr->next;
     }
     return count + AOS_GET_TCB()->pending_msgs;
+}
+
+
+void ipc_sync(void) {
+    message_t msg;
+    while (ipc_tryrecv(&msg) == SYS_RES_OK) {
+        queue_message(msg);
+    }
 }
 
 void ipc_recv(message_t* out_msg) {
@@ -139,6 +152,27 @@ void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t
             queue_message(temp_msg);
         }
     }
+}
+
+void ipc_seek(int64_t offset, seek_whence_t whence) {
+    uint64_t total = get_ipc_count();
+    if (whence == SEEK_SET) ipc_cursor = offset;
+    else if (whence == SEEK_CUR) ipc_cursor += offset;
+    else if (whence == SEEK_END) ipc_cursor = total + offset;
+    if (ipc_cursor > total) ipc_cursor = total;
+}
+
+int ipc_get_at(uint64_t index, message_t* out) {
+    if (index >= get_ipc_count()) return -1;
+    msg_node_t *curr = pending_head;
+    for (uint64_t i = 0; i < index && curr; i++) {
+        curr = curr->next;
+    }
+    if (curr) {
+        *out = curr->msg;
+        return 0;
+    }
+    return -1;
 }
 
 uint64_t __kbd_driver_tid_cache = 0;

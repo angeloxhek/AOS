@@ -161,5 +161,5 @@ void start_elf_process(elf_load_result_t* res) {
     }
     uint64_t user_rsp = user_stack_virt + PAGE_SIZE;
     user_rsp = (user_rsp & ~0xFULL) - 8;
-    create_user_thread(res->entry_point, user_rsp, (uint64_t)res->proc->page_directory, res->proc);
+    create_user_thread(res->entry_point, user_rsp, (uint64_t)res->proc->page_directory, res->proc, 0, 0);
 }
