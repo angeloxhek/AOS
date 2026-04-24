@@ -27,16 +27,17 @@ KERNEL_CFLAGS="-m64 -g3 -O0 -Wall -fno-omit-frame-pointer -mcmodel=kernel -mno-r
         -ffreestanding -mgeneral-regs-only -fno-pic -fno-pie -fstack-protector"
 
 nasm -f elf64 -o Temp/asmaosldr.o Data/aosldr.asm
-gcc $KERNEL_CFLAGS -c Data/aosldr.c   -o Temp/caosldr.o
-gcc $KERNEL_CFLAGS -c Data/pmm.c      -o Temp/pmm.o
-gcc $KERNEL_CFLAGS -c Data/vmm.c      -o Temp/vmm.o
-gcc $KERNEL_CFLAGS -c Data/sched.c    -o Temp/sched.o
-gcc $KERNEL_CFLAGS -c Data/ipc.c      -o Temp/ipc.o
-gcc $KERNEL_CFLAGS -c Data/syscall.c  -o Temp/syscall.o
-gcc $KERNEL_CFLAGS -c Data/ide.c      -o Temp/ide.o
-gcc $KERNEL_CFLAGS -c Data/elf.c      -o Temp/elf.o
-gcc $KERNEL_CFLAGS -c Data/console.c  -o Temp/console.o
-gcc $KERNEL_CFLAGS -c Data/shm.c      -o Temp/shm.o
+gcc $KERNEL_CFLAGS -c Data/aosldr.c         -o Temp/caosldr.o
+gcc $KERNEL_CFLAGS -c Data/pmm.c            -o Temp/pmm.o
+gcc $KERNEL_CFLAGS -c Data/vmm.c            -o Temp/vmm.o
+gcc $KERNEL_CFLAGS -c Data/sched.c          -o Temp/sched.o
+gcc $KERNEL_CFLAGS -c Data/ipc.c            -o Temp/ipc.o
+gcc $KERNEL_CFLAGS -c Data/syscall.c        -o Temp/syscall.o
+gcc $KERNEL_CFLAGS -c Data/ide.c            -o Temp/ide.o
+gcc $KERNEL_CFLAGS -c Data/elf.c            -o Temp/elf.o
+gcc $KERNEL_CFLAGS -c Data/console.c        -o Temp/console.o
+gcc $KERNEL_CFLAGS -c Data/shm.c            -o Temp/shm.o
+gcc $KERNEL_CFLAGS -c Data/vfs.c            -o Temp/vfs.o
 
 ld -m elf_x86_64 --no-warn-rwx-segments -T Data/aosldr.ld -Map Temp/aosldr.map -o Temp/aosldr.elf \
         Temp/asmaosldr.o \
@@ -49,7 +50,8 @@ ld -m elf_x86_64 --no-warn-rwx-segments -T Data/aosldr.ld -Map Temp/aosldr.map -
         Temp/ide.o \
         Temp/elf.o \
         Temp/console.o \
-        Temp/shm.o
+        Temp/shm.o \
+		Temp/vfs.o
 objcopy -O binary -S -R .bss -R .note -R .comment -R .note.gnu.property Temp/aosldr.elf Build/Volume/AOSLDR.BIN
 
 echo -e "${GREEN}[4/${STAGES}] Compiling AOSLIB...${NC}"

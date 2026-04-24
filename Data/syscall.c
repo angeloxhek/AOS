@@ -34,12 +34,13 @@ int is_valid_user_pointer(const void* ptr) {
 
 int copy_string_from_user(const char* user_src, char* kernel_dest, int max_len) {
     if (!is_valid_user_pointer(user_src)) return 0;
-    for (int i = 0; i < max_len; i++) {
+    int i;
+    for (i = 0; i < max_len; i++) {
         kernel_dest[i] = user_src[i];
-        if (user_src[i] == 0) return 1;
+        if (user_src[i] == 0) return i + 1;
     }
     kernel_dest[max_len - 1] = 0;
-    return 1;
+    return max_len;
 }
 
 void syscall_handler(syscall_regs_t* regs) {
@@ -465,6 +466,99 @@ void syscall_handler(syscall_regs_t* regs) {
 			get_time_info(info);
 			regs->rax = SYS_RES_OK;
             break;
+		}
+		
+		case SYS_SPAWN: {
+			const char* user_path = (const char*)regs->rdi;
+			startup_info_t* info = (startup_info_t*)regs->rsi;
+            if (!is_valid_user_pointer(user_path) || !is_valid_user_pointer(info)) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+			
+			int fd = vfs_open(user_path, VFS_FREAD);
+			if (fd < 0) {
+				regs->rax = SYS_RES_DRV_ERR;
+                break;
+			}
+			
+			vfs_stat_info_t* stat = (vfs_stat_info_t*)kernel_malloc(sizeof(vfs_stat_info_t));
+			kernel_memset(stat, 0, sizeof(vfs_stat_info_t));
+			if (vfs_stat(fd, stat)) {
+				vfs_close(fd);
+				regs->rax = SYS_RES_DRV_ERR;
+                break;
+			}
+			
+			if (stat->size_bytes == 0 || stat->size_bytes == -1) {
+				vfs_close(fd);
+				regs->rax = SYS_RES_DRV_ERR;
+                break;
+			}
+			
+			uint8_t* data = (uint8_t*)kernel_malloc(stat->size_bytes*sizeof(uint8_t));
+			if (!data) {
+				vfs_close(fd);
+				regs->rax = SYS_RES_KERNEL_ERR;
+                break;
+			}
+			
+			uint64_t total_read = 0;
+			while (total_read < stat->size_bytes) {
+				int res = vfs_read(fd, (void*)(data + total_read), (int)(stat->size_bytes - total_read));
+				if (res <= 0) break;
+				total_read += res;
+			}
+			vfs_close(fd);
+			
+			if (total_read != stat->size_bytes) {
+				kernel_free(data);
+				regs->rax = SYS_RES_DRV_ERR;
+                break;
+			}
+			
+			elf_load_result_t elf;
+			load_elf_raw(stat->name, data, stat->size_bytes, &elf);
+			
+			kernel_free(stat);
+			kernel_free(data);
+			
+			if (elf.result != ELF_RESULT_OK) {
+				regs->rax = SYS_RES_KERNEL_ERR;
+                break;
+			}
+			
+			if (start_elf_process(&elf, info, 0) != 0) {
+				regs->rax = SYS_RES_KERNEL_ERR;
+                break;
+			}
+            
+			regs->rax = SYS_RES_OK;
+            break;
+		}
+		
+		case SYS_FORK: {
+			process_t* parent = current_thread->owner;
+			process_t* child = create_process(parent->name);
+			if (!child) {
+				regs->rax = SYS_RES_KERNEL_ERR;
+				break;
+			}
+
+			copy_address_space(parent->page_directory, child->page_directory);
+
+			thread_t* child_thread = create_thread_core((uint64_t)child->page_directory, child);
+			kernel_memcpy((void*)child_thread->stack_base, (void*)current_thread->stack_base, KERNEL_STACK_SIZE);
+			
+			uint64_t stack_diff = child_thread->stack_base - current_thread->stack_base;
+			child_thread->rsp = current_thread->rsp + stack_diff;
+			
+			syscall_regs_t* child_regs = (syscall_regs_t*)child_thread->rsp;
+			child_regs->rax = 0;
+			child_thread->state = THREAD_READY;
+			
+			regs->rax = child->id;
+			break;
 		}
 
         default: {

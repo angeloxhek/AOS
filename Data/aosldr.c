@@ -125,6 +125,7 @@ uint64_t boot_time = 0;
 
 driver_info_t* drivers_list_head;
 uint64_t keyboard_driver_tid = 0;
+uint64_t vfs_driver_tid = 0;
 
 thread_t* zombies_list = 0;
 
@@ -319,6 +320,14 @@ char *kernel_strcpy(char *dest, const char *src) {
     char *start = dest;
     while ((*dest++ = *src++));
     return start;
+}
+
+uint64_t kernel_strnlen(const char* s, uint64_t maxlen) {
+    uint64_t len = 0;
+    while (len < maxlen && s[len] != '\0') {
+        len++;
+    }
+    return len;
 }
 
 
@@ -1118,7 +1127,7 @@ void kernel_main(boot_info_t* boot_info){
 	kernel_memset(driver, 0, sizeof(elf_load_result_t));
 	load_elf_raw_fat32(system_volume, &file, driver);
 	if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
-    start_elf_process(driver);
+    start_elf_process(driver, 0, 0);
 	kprint("Register...\n");
 	int tid = 0;
 	driver_type_t dtype = DT_AUTH;
@@ -1134,7 +1143,7 @@ void kernel_main(boot_info_t* boot_info){
 	kernel_memset(driver, 0, sizeof(elf_load_result_t));
 	load_elf_raw_fat32(system_volume, &file, driver);
 	if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
-    start_elf_process(driver);
+    start_elf_process(driver, 0, 0);
 	kprint("Register...\n");
 	tid = 0;
 	dtype = DT_VFS;

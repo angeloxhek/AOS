@@ -84,3 +84,58 @@ void pmm_deinit_region(uint64_t base, uint64_t size) {
         used_blocks++;
     }
 }
+
+static void copy_data_page(uint64_t src_phys, uint64_t dst_phys) {
+    void* src = temp_map(src_phys);
+    void* dst = temp_map(dst_phys);
+    kernel_memcpy(dst, src, PAGE_SIZE);
+    temp_unmap(src);
+    temp_unmap(dst);
+}
+
+void copy_table_recursive(uint64_t* src_table, uint64_t* dst_table, int level, uint64_t* dst_pml4) {
+    for (int i = 0; i < 512; i++) {
+        if (!(src_table[i] & PAGE_PRESENT)) continue;
+
+        uint64_t phys_next = pmm_alloc_block();
+        if (!phys_next) kernel_error(0x5, 0, 0, 0, 0);
+
+        uint64_t flags = src_table[i] & 0xFFF;
+        dst_table[i] = phys_next | flags;
+
+        if (level > 0) {
+            uint64_t* src_next = (uint64_t*)temp_map(src_table[i] & PAGE_FRAME);
+            uint64_t* dst_next = (uint64_t*)temp_map(phys_next);
+            
+            copy_table_recursive(src_next, dst_next, level - 1, dst_pml4);
+            
+            temp_unmap(src_next);
+            temp_unmap(dst_next);
+        } else {
+            uint64_t src_data_phys = src_table[i] & PAGE_FRAME;
+            uint64_t dst_data_phys = pmm_alloc_block();
+            
+            dst_table[i] = dst_data_phys | flags;
+            
+            copy_data_page(src_data_phys, dst_data_phys);
+        }
+    }
+}
+
+void copy_address_space(uint64_t* src_pml4_virt, uint64_t* dst_pml4_virt) {
+    for (int i = 0; i < 256; i++) {
+        if (!(src_pml4_virt[i] & PAGE_PRESENT)) continue;
+
+        uint64_t pdpt_phys = pmm_alloc_block();
+        uint64_t flags = src_pml4_virt[i] & 0xFFF;
+        dst_pml4_virt[i] = pdpt_phys | flags;
+
+        uint64_t* src_pdpt = (uint64_t*)temp_map(src_pml4_virt[i] & PAGE_FRAME);
+        uint64_t* dst_pdpt = (uint64_t*)temp_map(pdpt_phys);
+
+        copy_table_recursive(src_pdpt, dst_pdpt, 2, dst_pml4_virt);
+
+        temp_unmap(src_pdpt);
+        temp_unmap(dst_pdpt);
+    }
+}

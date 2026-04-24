@@ -200,8 +200,6 @@ typedef enum {
     THREAD_ZOMBIE
 } thread_state_t;
 
-//typedef struct mutex_t mutex_t;
-
 typedef struct msg_node_t {
     message_t msg;
     struct msg_node_t* next;
@@ -336,6 +334,7 @@ void kernel_memcpy(void* dest, const void* src, uint64_t n);
 void kernel_to_upper(char* s);
 int kernel_strcmp(const char* s1, const char* s2);
 char *kernel_strcpy(char *dest, const char *src);
+uint64_t kernel_strnlen(const char* s, uint64_t maxlen);
 
 
 // --------------------------
@@ -351,6 +350,8 @@ uint64_t pmm_alloc_block();
 void pmm_free_block(uint64_t p_addr);
 void pmm_init_region(uint64_t base, uint64_t size);
 void pmm_deinit_region(uint64_t base, uint64_t size);
+void copy_table_recursive(uint64_t* src_table, uint64_t* dst_table, int level, uint64_t* dst_pml4);
+void copy_address_space(uint64_t* src_pml4_virt, uint64_t* dst_pml4_virt);
 
 
 // -------------------------
@@ -384,6 +385,7 @@ void write_tss(int32_t num, uint64_t base, uint32_t limit);
 void gdt_install();
 void init_syscall();
 int is_valid_user_pointer(const void* ptr);
+int copy_string_from_user(const char* user_src, char* kernel_dest, int max_len);
 void syscall_handler(syscall_regs_t* regs);
 void fpu_init();
 
@@ -472,8 +474,9 @@ int get_driver_tid_sleep_wrapper(void* arg);
 //           ELF
 // -------------------------
 
+void load_elf_raw(char* name, uint8_t* raw_data, uint64_t file_size, elf_load_result_t* result);
 void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* result);
-void start_elf_process(elf_load_result_t* res);
+int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg2);
 
 
 // -------------------------
@@ -499,9 +502,12 @@ void get_time_info(time_info_t* out);
 //           IPC
 // -------------------------
 
+int64_t ipc_forward(uint64_t dest_tid, message_t* user_msg);
+int64_t ipc_requeue(message_t* user_msg);
 int64_t ipc_send(uint64_t dest_tid, message_t* msg);
 int64_t ipc_try_receive(message_t* out_msg);
 int64_t ipc_receive(message_t* out_msg);
+int64_t ipc_receive_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
 
 // -------------------------
 //       Shared Memory
@@ -515,6 +521,20 @@ uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr);
 int shm_allow(uint64_t shm_id, uint64_t target_tid);
 uint64_t shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
+
+
+// -------------------------
+//        VFS Driver
+// -------------------------
+
+int vfs_open(const char* path, uint32_t flags);
+int vfs_openat(int dir_fd, const char* name, uint32_t flags);
+int vfs_close(int fd);
+int vfs_read(int fd, void* buf, int count);
+int vfs_write(int fd, const void* buf, int count);
+int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries);
+int vfs_flock(int fd, vfs_lock_type_t lock_type);
+int vfs_stat(int fd, vfs_stat_info_t* out_stat);
 
 
 // -------------------------

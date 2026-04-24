@@ -914,6 +914,7 @@ void handle_vfs_request(message_t* in) {
 					user_stat->inode_id = native_stat.inode_id;
 					user_stat->size_bytes = native_stat.size_bytes;
 					user_stat->attributes = native_stat.attributes;
+					strlcpy(user_stat->name, f->mount_node->name, 256); 
 					out.param1 = VFS_ERR_OK;
 				} else {
 					out.param1 = VFS_ERR_UNKNOWN;

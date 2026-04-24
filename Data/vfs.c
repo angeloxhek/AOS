@@ -1,12 +1,4 @@
-#include "../include/aoslib.h"
-
-int64_t block_read(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer) {
-    return (int64_t)syscall(SYS_BLOCK_READ, dev->disk_id, dev->partition_offset_lba + lba, count, (uint64_t)buffer, 0);
-}
-
-int64_t block_write(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer) {
-    return (int64_t)syscall(SYS_BLOCK_WRITE, dev->disk_id, dev->partition_offset_lba + lba, count, (uint64_t)buffer, 0);
-}
+#include "include/kernel_internal.h"
 
 static uint64_t vfs_driver_tid = 0;
 
@@ -23,7 +15,7 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
 
     ipc_send(vfs_driver_tid, req);
 
-    ipc_recv_ex(
+    ipc_receive_ex(
         vfs_driver_tid,
         MSG_TYPE_VFS,
         MSG_SUBTYPE_RESPONSE,
@@ -39,8 +31,7 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
 
 int vfs_open(const char* path, uint32_t flags) {
     if (!path) return -1;
-	int len = strlen(path);
-    if (len >= 64) return -1;
+	int len = kernel_strnlen(path, 64);
 	
     message_t req;
     message_t resp;
@@ -48,7 +39,7 @@ int vfs_open(const char* path, uint32_t flags) {
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_OPEN;
 	req.param2 = flags;
-    memcpy(req.data, path, len + 1);
+    kernel_memcpy(req.data, path, len + 1);
 
     if (vfs_rpc_call(&req, &resp) == 0) {
         return (int)resp.param2;
@@ -59,9 +50,7 @@ int vfs_open(const char* path, uint32_t flags) {
 
 int vfs_openat(int dir_fd, const char* name, uint32_t flags) {
     if (dir_fd < 0 || !name) return -1;
-    
-    int len = strlen(name);
-    if (len >= 64) return -1; 
+    int len = kernel_strnlen(name, 64);
     
     message_t req;
     message_t resp;
@@ -70,7 +59,7 @@ int vfs_openat(int dir_fd, const char* name, uint32_t flags) {
     req.param1 = VFS_CMD_OPENAT;
 	req.param2 = flags;
     req.param3 = dir_fd;
-    memcpy(req.data, name, len + 1);
+    kernel_memcpy(req.data, name, len + 1);
 
     if (vfs_rpc_call(&req, &resp) == 0) {
         return (int)resp.param2;
@@ -101,7 +90,7 @@ int vfs_read(int fd, void* buf, int count) {
     
     ensure_vfs_init();
 
-    void* shm_vaddr = 0;
+    uint64_t shm_vaddr = 0;
     uint64_t shm_id = shm_alloc((uint64_t)count, &shm_vaddr);
     if (!shm_id) return -1;
 
@@ -109,7 +98,7 @@ int vfs_read(int fd, void* buf, int count) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    kernel_memset(&req, 0, sizeof(message_t));
 	
 	req.subtype = MSG_SUBTYPE_PING;
     req.param1 = VFS_CMD_READ;
@@ -124,7 +113,7 @@ int vfs_read(int fd, void* buf, int count) {
         bytes_read = (int)resp.param2;
         
         if (bytes_read > 0) {
-            memcpy(buf, shm_vaddr, bytes_read);
+            kernel_memcpy(buf, (void*)shm_vaddr, bytes_read);
         }
     }
 
@@ -138,17 +127,17 @@ int vfs_write(int fd, const void* buf, int count) {
 
     ensure_vfs_init();
 
-    void* shm_vaddr = 0;
+    uint64_t shm_vaddr = 0;
     uint64_t shm_id = shm_alloc((uint64_t)count, &shm_vaddr);
     if (!shm_id) return -1;
 
-    memcpy(shm_vaddr, buf, count);
+    kernel_memcpy((void*)shm_vaddr, buf, count);
 
     shm_allow(shm_id, vfs_driver_tid);
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    kernel_memset(&req, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_PING;
     req.param1 = VFS_CMD_WRITE;
@@ -172,7 +161,7 @@ int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries) {
     
     ensure_vfs_init();
 
-    void* shm_vaddr = 0;
+    uint64_t shm_vaddr = 0;
     uint64_t size = max_entries * sizeof(vfs_dirent_t);
     uint64_t shm_id = shm_alloc(size, &shm_vaddr);
     if (!shm_id) return -1;
@@ -181,7 +170,7 @@ int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    kernel_memset(&req, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_PING;
     req.param1 = VFS_CMD_LIST;
@@ -195,7 +184,7 @@ int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries) {
         entries_read = (int)resp.param2;
         
         if (entries_read > 0) {
-            memcpy(out_entries, shm_vaddr, entries_read * sizeof(vfs_dirent_t));
+            kernel_memcpy(out_entries, (void*)shm_vaddr, entries_read * sizeof(vfs_dirent_t));
         }
     } else {
         entries_read = -1;
@@ -213,7 +202,7 @@ int vfs_flock(int fd, vfs_lock_type_t lock_type) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    kernel_memset(&req, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_FLOCK;
@@ -234,7 +223,7 @@ int64_t vfs_seek(int fd, int64_t offset, vfs_seek_t whence) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    kernel_memset(&req, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_SEEK;
@@ -255,7 +244,7 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
 
     ensure_vfs_init();
 
-    void* shm_vaddr = 0;
+    uint64_t shm_vaddr = 0;
     uint64_t shm_id = shm_alloc(sizeof(vfs_stat_info_t), &shm_vaddr);
     if (!shm_id) return -1;
 
@@ -263,7 +252,7 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    kernel_memset(&req, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_STAT;
@@ -272,7 +261,7 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
 
     int result = -1;
     if (vfs_rpc_call(&req, &resp) == 0) {
-        memcpy(out_stat, shm_vaddr, sizeof(vfs_stat_info_t));
+        kernel_memcpy(out_stat, (void*)shm_vaddr, sizeof(vfs_stat_info_t));
         result = 0;
     }
 

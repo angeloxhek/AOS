@@ -251,3 +251,7 @@ void thread_yield(void) {
 int get_time_info(time_info_t* info) {
 	return (int)syscall(SYS_GET_TIME_INFO, (uint64_t)info, 0, 0, 0, 0);
 }
+
+int spawn(const char* path, startup_info_t* info) {
+	return (int)syscall(SYS_SPAWN, (uint64_t)path, (uint64_t)info, 0, 0, 0);
+}

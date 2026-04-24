@@ -55,12 +55,14 @@ extern "C" {
 #define SYS_GET_TID_LIST             24
 #define SYS_GET_THREAD_INFO          25
 #define SYS_GET_TIME_INFO            26
+#define SYS_SPAWN                    27
+#define SYS_FORK                     28
 
 #define SYS_RES_OK                    0
 #define SYS_RES_INVALID              -1
 #define SYS_RES_NO_PERM              -2
 #define SYS_RES_ALREADY              -3
-#define SYS_RES_RESERVED1            -4
+#define SYS_RES_DRV_ERR              -4
 #define SYS_RES_QUEUE_EMPTY          -5
 #define SYS_RES_DSK_ERR              -6
 #define SYS_RES_RANGE                -7
@@ -138,6 +140,7 @@ typedef struct {
 } vfs_dirent_t;
 
 typedef struct {
+	char name[256];
     uint64_t inode_id;
     uint64_t size_bytes;
     uint32_t attributes;
@@ -314,6 +317,27 @@ typedef struct {
 	time_info_t startup_time;
 } aos_tcb_t;
 
+typedef enum : uint8_t {
+	STARTUP_MAIN = 1,
+	STARTUP_DRIVERMAIN
+} startup_type_t;
+
+typedef struct {
+	startup_type_t type;
+	union {
+		struct {
+			int argc;
+			int envc;
+			char** argv;
+			char** envp;
+		} main;
+		struct {
+			void* reserved1;
+			void* reserved2;
+		} driver;
+	} data;
+} startup_info_t;
+
 #define AOS_GET_TCB() ((aos_tcb_t __seg_fs *)0)
 
 #define AOS_HANDLE_SUBTYPE_CHECK(st) do { \
@@ -360,7 +384,7 @@ void vfs_init();
 #ifdef AOSLIB_START
 int64_t syscall(uint64_t nr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
 __attribute__((noreturn)) void exit(int code);
-__attribute__((noreturn)) void _start(uint64_t arg1, uint64_t arg2);
+__attribute__((noreturn)) void _start(startup_info_t* arg1, uint64_t arg2);
 #endif
 
 #ifdef AOSLIB_SYSCALLS
@@ -401,6 +425,8 @@ int shm_free(uint64_t shm_id);
 void thread_yield(void);
 
 int get_time_info(time_info_t* info);
+
+int spawn(const char* path, startup_info_t* info);
 #endif
 
 #ifdef AOSLIB_STRING
