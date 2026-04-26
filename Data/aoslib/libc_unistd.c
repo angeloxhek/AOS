@@ -95,3 +95,7 @@ off_t lseek(int fd, off_t offset, int whence) {
     
     return (off_t)vfs_seek(fd, (int64_t)offset, (vfs_seek_t)whence);
 }
+
+pid_t fork(void) {
+	return (pid_t)sysfork();
+}

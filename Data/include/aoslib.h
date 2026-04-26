@@ -426,7 +426,8 @@ void thread_yield(void);
 
 int get_time_info(time_info_t* info);
 
-int spawn(const char* path, startup_info_t* info);
+int sysspawn(const char* path, startup_info_t* info);
+uint32_t sysfork(void);
 #endif
 
 #ifdef AOSLIB_STRING

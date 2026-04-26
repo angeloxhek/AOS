@@ -335,6 +335,7 @@ void kernel_to_upper(char* s);
 int kernel_strcmp(const char* s1, const char* s2);
 char *kernel_strcpy(char *dest, const char *src);
 uint64_t kernel_strnlen(const char* s, uint64_t maxlen);
+#define kernel_strlen(s) kernel_strnlen(s, UINT64_MAX)
 
 
 // --------------------------
@@ -474,9 +475,13 @@ int get_driver_tid_sleep_wrapper(void* arg);
 //           ELF
 // -------------------------
 
+void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, elf_load_result_t* result);
 void load_elf_raw(char* name, uint8_t* raw_data, uint64_t file_size, elf_load_result_t* result);
 void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* result);
 int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg2);
+int startup_info_args_copy(startup_info_t* k_info, startup_info_t* child_info, void* kvirt, uint64_t child_virt_addr);
+startup_info_t* prepare_child_startup_info(process_t* proc, startup_info_t* user_info_ptr);
+startup_info_t* prepare_child_startup_info_kernel(process_t* proc, startup_info_t* k_info);
 
 
 // -------------------------
