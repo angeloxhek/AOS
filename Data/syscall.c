@@ -471,56 +471,24 @@ void syscall_handler(syscall_regs_t* regs) {
 		case SYS_SPAWN: {
 			const char* user_path = (const char*)regs->rdi;
 			startup_info_t* info = (startup_info_t*)regs->rsi;
+			uint64_t arg2 = (uint64_t)regs->rdx;
             if (!is_valid_user_pointer(user_path) || !is_valid_user_pointer(info)) {
                 regs->rax = SYS_RES_INVALID;
                 break;
             }
 			
-			int fd = vfs_open(user_path, VFS_FREAD);
-			if (fd < 0) {
-				regs->rax = SYS_RES_DRV_ERR;
-                break;
-			}
-			
-			vfs_stat_info_t* stat = (vfs_stat_info_t*)kernel_malloc(sizeof(vfs_stat_info_t));
-			kernel_memset(stat, 0, sizeof(vfs_stat_info_t));
-			if (vfs_stat(fd, stat)) {
-				vfs_close(fd);
-				regs->rax = SYS_RES_DRV_ERR;
-                break;
-			}
-			
-			if (stat->size_bytes == 0 || stat->size_bytes == -1) {
-				vfs_close(fd);
-				regs->rax = SYS_RES_DRV_ERR;
-                break;
-			}
-			
-			uint8_t* data = (uint8_t*)kernel_malloc(stat->size_bytes*sizeof(uint8_t));
-			if (!data) {
-				vfs_close(fd);
+			uint8_t* data;
+			char name[256];
+			int res = vfs_read_from_path(user_path, data, name);
+			if (res) {
+				if (res != -2) kernel_free(data);
 				regs->rax = SYS_RES_KERNEL_ERR;
                 break;
 			}
 			
-			uint64_t total_read = 0;
-			while (total_read < stat->size_bytes) {
-				int res = vfs_read(fd, (void*)(data + total_read), (int)(stat->size_bytes - total_read));
-				if (res <= 0) break;
-				total_read += res;
-			}
-			vfs_close(fd);
-			
-			if (total_read != stat->size_bytes) {
-				kernel_free(data);
-				regs->rax = SYS_RES_DRV_ERR;
-                break;
-			}
-			
 			elf_load_result_t elf;
-			load_elf_raw(stat->name, data, stat->size_bytes, &elf);
+			load_elf_raw(name, data, stat->size_bytes, &elf);
 			
-			kernel_free(stat);
 			kernel_free(data);
 			
 			if (elf.result != ELF_RESULT_OK) {
@@ -528,7 +496,7 @@ void syscall_handler(syscall_regs_t* regs) {
                 break;
 			}
 			
-			if (start_elf_process(&elf, info, 0) != 0) {
+			if (start_elf_process(&elf, info, arg2) != 0) {
 				regs->rax = SYS_RES_KERNEL_ERR;
                 break;
 			}
@@ -559,6 +527,69 @@ void syscall_handler(syscall_regs_t* regs) {
 			
 			regs->rax = child->id;
 			break;
+		}
+		
+		case SYS_EXEC: {
+			const char* user_path = (const char*)regs->rdi;
+			startup_info_t* user_info = (startup_info_t*)regs->rsi;
+			uint64_t arg2 = (uint64_t)regs->rdx;
+			
+			if (!is_valid_user_pointer(user_path) || !is_valid_user_pointer(info)) {
+                regs->rax = SYS_RES_INVALID;
+                break;
+            }
+			
+			uint8_t* data;
+			char name[256];
+			int res = vfs_read_from_path(user_path, data, name);
+			if (res) {
+				if (res != -2) kernel_free(data);
+				regs->rax = SYS_RES_KERNEL_ERR;
+                break;
+			}
+			
+			process_t* proc = current_thread->owner;
+    
+			destroy_address_space(proc); 
+
+			load_elf_raw_proc(proc, raw_data, stat.size_bytes, &elf);
+			kernel_free(raw_data);
+			
+			if (elf.result != ELF_RESULT_OK) {
+				regs->rax = SYS_RES_KERNEL_ERR;
+				break;
+			}
+			
+			uint64_t info_addr = 0;
+			if (user_info) {
+				info_addr = (uint64_t)prepare_child_startup_info(proc, user_info);
+			}
+			
+			uint64_t user_stack_virt = 0x0000700000000000;
+			uint64_t stack_pages = 8;
+
+			for (uint64_t i = 0; i < stack_pages; i++) {
+				uint64_t phys_page = pmm_alloc_block();
+			if (phys_page == 0) return -1;
+				map_to_other_pml4(res->proc->page_directory,
+								  phys_page,
+								  user_stack_virt - (i * PAGE_SIZE),
+								  PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+				kernel_memset((void*)P2V(phys_page), 0, PAGE_SIZE);
+			}
+			uint64_t user_rsp = user_stack_virt + PAGE_SIZE;
+			user_rsp = (user_rsp & ~0xFULL) - 8;
+			
+			regs->rcx = elf.entry_point;
+			regs->rsp = user_rsp;
+			regs->rdi = info_addr;
+			regs->rsi = arg2;
+			
+			regs->rax = SYS_RES_OK;
+			
+			asm volatile("mov %0, %%cr3" : : "r"(proc->page_directory));
+			
+            break;
 		}
 
         default: {

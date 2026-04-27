@@ -139,3 +139,61 @@ void copy_address_space(uint64_t* src_pml4_virt, uint64_t* dst_pml4_virt) {
         temp_unmap(dst_pdpt);
     }
 }
+
+#define GET_PHYS_ADDR(entry) ((entry) & 0x000FFFFFFFFFF000)
+
+void destroy_pt(uint64_t pt_phys) {
+    uint64_t* pt_virt = (uint64_t*)temp_map(pt_phys);
+    for (int i = 0; i < 512; i++) {
+        if (pt_virt[i] & PAGE_PRESENT) {
+            uint64_t page_phys = GET_PHYS_ADDR(pt_virt[i]);
+            pmm_free_block(page_phys);
+        }
+    }
+    temp_unmap(pt_virt);
+    pmm_free_block(pt_phys);
+}
+
+void destroy_pd(uint64_t pd_phys) {
+    uint64_t* pd_virt = (uint64_t*)temp_map(pd_phys);
+    for (int i = 0; i < 512; i++) {
+        if (pd_virt[i] & PAGE_PRESENT) {
+            if (!(pd_virt[i] & (1 << 7))) { 
+                destroy_pt(GET_PHYS_ADDR(pd_virt[i]));
+            } else {
+                pmm_free_block(GET_PHYS_ADDR(pd_virt[i]));
+            }
+        }
+    }
+    temp_unmap(pd_virt);
+    pmm_free_block(pd_phys);
+}
+
+void destroy_pdpt(uint64_t pdpt_phys) {
+    uint64_t* pdpt_virt = (uint64_t*)temp_map(pdpt_phys);
+    for (int i = 0; i < 512; i++) {
+        if (pdpt_virt[i] & PAGE_PRESENT) {
+            destroy_pd(GET_PHYS_ADDR(pdpt_virt[i]));
+        }
+    }
+    temp_unmap(pdpt_virt);
+    pmm_free_block(pdpt_phys);
+}
+
+void destroy_address_space(process_t* proc) {
+    uint64_t* pml4_virt = (uint64_t*)temp_map((uint64_t)proc->page_directory);
+    
+    for (int i = 0; i < 256; i++) {
+        if (pml4_virt[i] & PAGE_PRESENT) {
+            destroy_pdpt(GET_PHYS_ADDR(pml4_virt[i]));
+            pml4_virt[i] = 0;
+        }
+    }
+    temp_unmap(pml4_virt);
+    
+    proc->heap_limit = 0;
+    
+    if (current_thread && current_thread->owner == proc) {
+        asm volatile("mov %0, %%cr3" : : "r"(proc->page_directory));
+    }
+}

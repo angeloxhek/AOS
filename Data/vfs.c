@@ -268,3 +268,44 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
     shm_free(shm_id);
     return result;
 }
+
+int vfs_read_from_path(const char* user_path, uint8_t* data, char* name) {
+	int fd = vfs_open(user_path, VFS_FREAD);
+	if (fd < 0) {
+		return -1;
+	}
+	
+	vfs_stat_info_t* stat = (vfs_stat_info_t*)kernel_malloc(sizeof(vfs_stat_info_t));
+	kernel_memset(stat, 0, sizeof(vfs_stat_info_t));
+	if (vfs_stat(fd, stat)) {
+		vfs_close(fd);
+		return -1;
+	}
+	
+	if (stat->size_bytes == 0 || stat->size_bytes == -1) {
+		vfs_close(fd);
+		return -1;
+	}
+	
+	if (name) kenrel_memcpy(name, stat->name, 256);
+	
+	data = (uint8_t*)kernel_malloc(stat->size_bytes*sizeof(uint8_t));
+	if (!data) {
+		return -2;
+	}
+	
+	uint64_t total_read = 0;
+	while (total_read < stat->size_bytes) {
+		int res = vfs_read(fd, (void*)(data + total_read), (int)(stat->size_bytes - total_read));
+		if (res <= 0) break;
+		total_read += res;
+	}
+	vfs_close(fd);
+	
+	if (total_read != stat->size_bytes) {
+		kernel_free(data);
+		return -1;
+	}
+	
+	return 0;
+}

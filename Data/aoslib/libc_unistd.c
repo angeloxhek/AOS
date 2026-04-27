@@ -99,3 +99,28 @@ off_t lseek(int fd, off_t offset, int whence) {
 pid_t fork(void) {
 	return (pid_t)sysfork();
 }
+
+int execve(const char *filename, char *const argv[], char *const envp[]) {
+    int argc = 0;
+    if (argv != NULL) {
+        while (argv[argc] != NULL) {
+            argc++;
+        }
+    }
+
+    int envc = 0;
+    if (envp != NULL) {
+        while (envp[envc] != NULL) {
+            envc++;
+        }
+    }
+
+    startup_info_t info;
+    info.type = STARTUP_MAIN;
+    info.data.main.argc = argc;
+    info.data.main.envc = envc;
+    info.data.main.argv = (char**)argv; 
+    info.data.main.envp = (char**)envp;
+	
+    return sysexec(filename, &info, 0);
+}

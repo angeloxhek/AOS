@@ -57,6 +57,7 @@ extern "C" {
 #define SYS_GET_TIME_INFO            26
 #define SYS_SPAWN                    27
 #define SYS_FORK                     28
+#define SYS_EXEC                     29
 
 #define SYS_RES_OK                    0
 #define SYS_RES_INVALID              -1
@@ -426,8 +427,9 @@ void thread_yield(void);
 
 int get_time_info(time_info_t* info);
 
-int sysspawn(const char* path, startup_info_t* info);
+int sysspawn(const char* path, startup_info_t* info, uint64_t arg2);
 uint32_t sysfork(void);
+int sysexec(const char* path, startup_info_t* info, uint64_t arg2);
 #endif
 
 #ifdef AOSLIB_STRING
@@ -518,6 +520,7 @@ int vfs_read(int fd, void* buf, int count);
 int vfs_write(int fd, const void* buf, int count);
 int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries);
 int vfs_flock(int fd, vfs_lock_type_t lock_type);
+int64_t vfs_seek(int fd, int64_t offset, vfs_seek_t whence);
 int vfs_stat(int fd, vfs_stat_info_t* out_stat);
 
 #endif

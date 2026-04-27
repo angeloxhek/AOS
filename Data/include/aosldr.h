@@ -14,8 +14,6 @@
 #define ATA_CMD_WRITE_PIO_EXT   0x34
 #define ATA_CMD_CACHE_FLUSH_EXT 0xEA
 
-// --- Структуры данных ---
-
 struct fat32_bpb {
     uint8_t  boot_jmp[3];
     uint8_t  oem_name[8];
@@ -64,9 +62,9 @@ struct fat32_lfn_entry {
 } __attribute__((packed));
 
 typedef struct {
-	uint64_t    id;           // ID устройства
-    uint16_t    io_base;      // Порт ввода-вывода
-    uint8_t     drive_select; // Выбор диска
+	uint64_t    id;
+    uint16_t    io_base;
+    uint8_t     drive_select;
 } ide_device_t;
 
 typedef struct {
@@ -93,11 +91,10 @@ typedef struct {
 typedef struct {
     uint64_t rax, rbx, rcx, rdx, rsi, rdi, rbp, r8, r9, r10, r11, r12, r13, r14, r15;
     uint64_t int_no, err_code;
-    uint64_t rip, cs, rflags, rsp, ss; // Процессор кладет это автоматически
+    uint64_t rip, cs, rflags, rsp, ss;
 } __attribute__((packed)) registers_t;
 
 typedef struct {
-    // Последний push в ASM -> Первое поле здесь (Low Address)
     uint64_t r15;
     uint64_t r14;
     uint64_t r13;
@@ -110,26 +107,25 @@ typedef struct {
     uint64_t rdx;
     uint64_t rbp;
     uint64_t rbx;
-    uint64_t rax;      // Номер сисколла
-    uint64_t rcx;      // RIP
-    uint64_t r11;      // RFLAGS
-    uint64_t rsp;      // User RSP
-    // Первый push в ASM -> Последнее поле (High Address)
+    uint64_t rax;
+    uint64_t rcx;
+    uint64_t r11;
+    uint64_t rsp;
 } syscall_regs_t;
 
 struct idt_entry {
-    uint16_t base_low;      // Смещение 0-15
-    uint16_t sel;           // Селектор сегмента кода
-    uint8_t  ist;           // Interrupt Stack Table offset (обычно 0)
-    uint8_t  flags;         // Тип и атрибуты (P, DPL, Type)
-    uint16_t base_mid;      // Смещение 16-31
-    uint32_t base_high;     // Смещение 32-63
-    uint32_t reserved;      // Зарезервировано (должно быть 0)
+    uint16_t base_low;
+    uint16_t sel;
+    uint8_t  ist;
+    uint8_t  flags;
+    uint16_t base_mid;
+    uint32_t base_high;
+    uint32_t reserved;
 } __attribute__((packed));
 
 struct idt_ptr {
     uint16_t limit;
-    uint64_t base;          // Адрес таблицы теперь 64-битный
+    uint64_t base;
 } __attribute__((packed));
 
 struct gdt_entry {
@@ -169,15 +165,15 @@ typedef struct {
 } __attribute__((packed)) e820_entry_t;
 
 typedef struct {
-    uint64_t user_rsp_scratch; // Смещение 0x00 (Сюда сохраняем User RSP)
-    uint64_t kernel_rsp;       // Смещение 0x08 (Отсюда берем Kernel RSP)
+    uint64_t user_rsp_scratch;
+    uint64_t kernel_rsp;
     uint64_t reserved[3];
     uint64_t canary;
 } __attribute__((packed)) kernel_tcb_t;
 
 struct tss_entry_t {
     uint32_t reserved1;
-    uint64_t rsp0;       // Стек ядра для прерываний
+    uint64_t rsp0;
     uint64_t rsp1;
     uint64_t rsp2;
     uint64_t reserved2;
@@ -351,8 +347,8 @@ uint64_t pmm_alloc_block();
 void pmm_free_block(uint64_t p_addr);
 void pmm_init_region(uint64_t base, uint64_t size);
 void pmm_deinit_region(uint64_t base, uint64_t size);
-void copy_table_recursive(uint64_t* src_table, uint64_t* dst_table, int level, uint64_t* dst_pml4);
 void copy_address_space(uint64_t* src_pml4_virt, uint64_t* dst_pml4_virt);
+void destroy_address_space(process_t* proc);
 
 
 // -------------------------
@@ -540,6 +536,7 @@ int vfs_write(int fd, const void* buf, int count);
 int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries);
 int vfs_flock(int fd, vfs_lock_type_t lock_type);
 int vfs_stat(int fd, vfs_stat_info_t* out_stat);
+int vfs_read_from_path(const char* user_path, uint8_t* data, char* name);
 
 
 // -------------------------

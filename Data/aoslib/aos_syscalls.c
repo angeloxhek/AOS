@@ -252,10 +252,14 @@ int get_time_info(time_info_t* info) {
 	return (int)syscall(SYS_GET_TIME_INFO, (uint64_t)info, 0, 0, 0, 0);
 }
 
-int sysspawn(const char* path, startup_info_t* info) {
-	return (int)syscall(SYS_SPAWN, (uint64_t)path, (uint64_t)info, 0, 0, 0);
+int sysspawn(const char* path, startup_info_t* info, uint64_t arg2) {
+	return (int)syscall(SYS_SPAWN, (uint64_t)path, (uint64_t)info, arg2, 0, 0);
 }
 
 uint32_t sysfork(void) {
 	return (uint32_t)syscall(SYS_FORK, 0, 0, 0, 0, 0);
+}
+
+int sysexec(const char* path, startup_info_t* info, uint64_t arg2) {
+	return (int)syscall(SYS_EXEC, (uint64_t)path, (uint64_t)info, arg2, 0, 0);
 }
