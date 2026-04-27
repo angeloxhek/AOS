@@ -26,7 +26,7 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
     ipc_recv_ex(
         vfs_driver_tid,
         MSG_TYPE_VFS,
-        MSG_SUBTYPE_RESPONSE,
+        MSG_SUBTYPE_NONE,
         resp_out
     );
 

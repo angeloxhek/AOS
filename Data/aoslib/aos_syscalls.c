@@ -216,8 +216,8 @@ int get_proc_info(uint32_t pid, proc_info_user_t* out_info) {
     return syscall(SYS_GET_PROC_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
 }
 
-int get_thread_info(uint32_t pid, thread_info_user_t* out_info) {
-    return syscall(SYS_GET_THREAD_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
+int get_thread_info(uint64_t tid, thread_info_user_t* out_info) {
+    return syscall(SYS_GET_THREAD_INFO, tid, (uint64_t)out_info, 0, 0, 0);
 }
 
 int get_pid_list(uint32_t* buff, uint64_t count) {

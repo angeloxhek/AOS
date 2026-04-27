@@ -477,9 +477,10 @@ void syscall_handler(syscall_regs_t* regs) {
                 break;
             }
 			
-			uint8_t* data;
+			uint8_t* data = 0;
 			char name[256];
-			int res = vfs_read_from_path(user_path, data, name);
+			uint64_t size;
+			int res = vfs_read_from_path(user_path, data, name, &size);
 			if (res) {
 				if (res != -2) kernel_free(data);
 				regs->rax = SYS_RES_KERNEL_ERR;
@@ -487,7 +488,7 @@ void syscall_handler(syscall_regs_t* regs) {
 			}
 			
 			elf_load_result_t elf;
-			load_elf_raw(name, data, stat->size_bytes, &elf);
+			load_elf_raw(name, data, size, &elf);
 			
 			kernel_free(data);
 			
@@ -534,14 +535,15 @@ void syscall_handler(syscall_regs_t* regs) {
 			startup_info_t* user_info = (startup_info_t*)regs->rsi;
 			uint64_t arg2 = (uint64_t)regs->rdx;
 			
-			if (!is_valid_user_pointer(user_path) || !is_valid_user_pointer(info)) {
+			if (!is_valid_user_pointer(user_path) || !is_valid_user_pointer(user_info)) {
                 regs->rax = SYS_RES_INVALID;
                 break;
             }
 			
-			uint8_t* data;
+			uint8_t* data = 0;
 			char name[256];
-			int res = vfs_read_from_path(user_path, data, name);
+			uint64_t size;
+			int res = vfs_read_from_path(user_path, data, name, &size);
 			if (res) {
 				if (res != -2) kernel_free(data);
 				regs->rax = SYS_RES_KERNEL_ERR;
@@ -551,9 +553,10 @@ void syscall_handler(syscall_regs_t* regs) {
 			process_t* proc = current_thread->owner;
     
 			destroy_address_space(proc); 
-
-			load_elf_raw_proc(proc, raw_data, stat.size_bytes, &elf);
-			kernel_free(raw_data);
+			
+			elf_load_result_t elf;
+			load_elf_raw_proc(proc, data, size, &elf);
+			kernel_free(data);
 			
 			if (elf.result != ELF_RESULT_OK) {
 				regs->rax = SYS_RES_KERNEL_ERR;
@@ -570,8 +573,11 @@ void syscall_handler(syscall_regs_t* regs) {
 
 			for (uint64_t i = 0; i < stack_pages; i++) {
 				uint64_t phys_page = pmm_alloc_block();
-			if (phys_page == 0) return -1;
-				map_to_other_pml4(res->proc->page_directory,
+				if (phys_page == 0) {
+					regs->rax = SYS_RES_KERNEL_ERR;
+					break;
+				}
+				map_to_other_pml4(proc->page_directory,
 								  phys_page,
 								  user_stack_virt - (i * PAGE_SIZE),
 								  PAGE_PRESENT | PAGE_WRITE | PAGE_USER);

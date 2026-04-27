@@ -85,6 +85,7 @@ extern "C" {
 #define VFS_ERR_UNKNOWN            DRV_ERR_UNKNOWN
 
 #define AUTH_ERR_OK                DRV_ERR_OK
+#define AUTH_ERR_USER                -1
 #define AUTH_ERR_NOCOMM            DRV_ERR_NOCOMM
 #define AUTH_ERR_NOTFOUND          DRV_ERR_NOTFOUND
 #define AUTH_ERR_UNKNOWN           DRV_ERR_UNKNOWN
@@ -149,6 +150,9 @@ typedef struct {
 
 typedef enum {
     AUTH_CMD_GET_USER = 1,
+	AUTH_CMD_ADD_USER,
+	AUTH_CMD_DEL_USER,
+	AUTH_CMD_UPDATE_USER
 } auth_cmd_t;
 
 typedef enum : uint8_t {
@@ -414,7 +418,7 @@ uint64_t get_disk_info(uint64_t index, disk_info_t* pinfo);
 uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo);
 
 int get_proc_info(uint32_t pid, proc_info_user_t* out_info);
-int get_thread_info(uint32_t pid, thread_info_user_t* out_info);
+int get_thread_info(uint64_t tid, thread_info_user_t* out_info);
 int get_pid_list(uint32_t* buff, uint64_t count);
 int get_tid_list(uint32_t pid, uint32_t* buff, uint64_t count);
 

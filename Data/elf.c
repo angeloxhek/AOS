@@ -35,7 +35,7 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
     for (int i = 0; i < hdr->e_phnum; i++) {
         if (phdr[i].p_type == PT_LOAD) {
             uint64_t vaddr  = phdr[i].p_vaddr;
-            if (!is_valid_user_pointer(vaddr)) {
+            if (!is_valid_user_pointer((void*)vaddr)) {
                 kernel_free(raw_data);
                 result->result = ELF_RESULT_INVALID;
                 return;

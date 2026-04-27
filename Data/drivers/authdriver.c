@@ -155,6 +155,8 @@ int get_user(auth_id_t user, auth_idex_t* out) {
 	return -1;
 }
 
+//int get_thread_user(uint64_t tid
+
 void handle_message(message_t* in) {
 	message_t* out = (message_t*)malloc(sizeof(message_t));
 	if(!out) return;
@@ -167,6 +169,13 @@ void handle_message(message_t* in) {
 			int res = get_user((auth_id_t)in->param2, (auth_idex_t*)&out->data);
 			out->param1 = res ? AUTH_ERR_NOTFOUND : AUTH_ERR_OK;
 		}
+		case AUTH_CMD_ADD_USER: {
+            auth_idex_t* new_user = (auth_idex_t*)&in->data;
+            int res = add_user(new_user, 0);
+            out->param1 = (res == 0) ? AUTH_ERR_OK : AUTH_ERR_USER;
+            memcpy(&out->data, new_user, sizeof(auth_idex_t));
+            break;
+        }
 		default: {
 			out->param1 = AUTH_ERR_NOCOMM;
 			break;

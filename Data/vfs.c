@@ -18,7 +18,7 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
     ipc_receive_ex(
         vfs_driver_tid,
         MSG_TYPE_VFS,
-        MSG_SUBTYPE_RESPONSE,
+        MSG_SUBTYPE_NONE,
         resp_out
     );
 
@@ -269,7 +269,7 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
     return result;
 }
 
-int vfs_read_from_path(const char* user_path, uint8_t* data, char* name) {
+int vfs_read_from_path(const char* user_path, uint8_t* data, char* name, uint64_t* size) {
 	int fd = vfs_open(user_path, VFS_FREAD);
 	if (fd < 0) {
 		return -1;
@@ -287,9 +287,10 @@ int vfs_read_from_path(const char* user_path, uint8_t* data, char* name) {
 		return -1;
 	}
 	
-	if (name) kenrel_memcpy(name, stat->name, 256);
+	if (name) kernel_memcpy(name, stat->name, 256);
+	if (size) *size = stat->size_bytes;
 	
-	data = (uint8_t*)kernel_malloc(stat->size_bytes*sizeof(uint8_t));
+	data = (uint8_t*)kernel_malloc(stat->size_bytes);
 	if (!data) {
 		return -2;
 	}

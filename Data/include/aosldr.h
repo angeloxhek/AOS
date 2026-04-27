@@ -536,7 +536,7 @@ int vfs_write(int fd, const void* buf, int count);
 int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries);
 int vfs_flock(int fd, vfs_lock_type_t lock_type);
 int vfs_stat(int fd, vfs_stat_info_t* out_stat);
-int vfs_read_from_path(const char* user_path, uint8_t* data, char* name);
+int vfs_read_from_path(const char* user_path, uint8_t* data, char* name, uint64_t* size);
 
 
 // -------------------------
