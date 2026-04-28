@@ -86,6 +86,7 @@ extern "C" {
 
 #define AUTH_ERR_OK                DRV_ERR_OK
 #define AUTH_ERR_USER                -1
+#define AUTH_ERR_DENIED              -2
 #define AUTH_ERR_NOCOMM            DRV_ERR_NOCOMM
 #define AUTH_ERR_NOTFOUND          DRV_ERR_NOTFOUND
 #define AUTH_ERR_UNKNOWN           DRV_ERR_UNKNOWN
@@ -151,8 +152,7 @@ typedef struct {
 typedef enum {
     AUTH_CMD_GET_USER = 1,
 	AUTH_CMD_ADD_USER,
-	AUTH_CMD_DEL_USER,
-	AUTH_CMD_UPDATE_USER
+	AUTH_CMD_DEL_USER
 } auth_cmd_t;
 
 typedef enum : uint8_t {
@@ -176,6 +176,7 @@ typedef enum : uint8_t {
 #define ATYPE_TEMP         (ATYPE_CHILD | ATYPE_TOKEN | ATYPE_PASSWORD)
 
 #define APERM_NONE         (0 << 0)
+#define APERM_MANAGE_USER  (1 << 0)
 
 typedef union {
 	struct {
@@ -189,7 +190,7 @@ typedef struct {
 	auth_id_t id;
 	auth_pgroup_t pgroup; // Static group
 	uint8_t auth_type; // ATYPE_*
-	uint32_t perms;
+	uint64_t perms; // APERM_*
 } auth_idex_t;
 
 typedef enum {
@@ -229,6 +230,7 @@ typedef enum {
 	DT_NONE = 0,
 	DT_AUTH,
 	DT_VFS,
+	DT_INIT,
 	DT_VIDEO,
 	DT_KEYBOARD,
 	DT_USER = 100

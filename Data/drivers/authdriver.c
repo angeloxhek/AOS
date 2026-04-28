@@ -144,6 +144,7 @@ int del_user(auth_id_t user) {
 }
 
 int get_user(auth_id_t user, auth_idex_t* out) {
+	if (!out) return -1;
 	auth_idex_node_t* curr = idlist;
 	while (curr) {
 		if (curr->data.id.raw == user.raw) {
@@ -155,11 +156,28 @@ int get_user(auth_id_t user, auth_idex_t* out) {
 	return -1;
 }
 
-//int get_thread_user(uint64_t tid
+int get_thread_user(uint64_t tid, auth_idex_t* out) {
+	if (!out) return -1;
+	thread_info_user_t* info = (thread_info_user_t*)malloc(sizeof(thread_info_user_t));
+	if (get_thread_info(tid, info) != SYS_RES_OK) {
+		free(info);
+		return -1;
+	}
+	return get_user(info->user, out);
+}
+
+int can_create_user(auth_idex_t* parent, auth_idex_t* child) {
+	if (parent->pgroup > child->pgroup) return 0;
+	if (parent->pgroup == child->pgroup && (parent->perms | child->perms) != parent->perms) return 0;
+	if (!(parent->perms & APERM_MANAGE_USER)) return 0;
+	if ((parent->auth_type | child->auth_type) != parent->auth_type) return 0;
+	if ((child->auth_type & ATYPE_CHANGE) && !(parent->auth_type & ATYPE_CHANGE)) return 0;
+	return 1;
+}
 
 void handle_message(message_t* in) {
 	message_t* out = (message_t*)malloc(sizeof(message_t));
-	if(!out) return;
+	if (!out) return;
 	memset(out, 0, sizeof(message_t));
 	out->type = MSG_TYPE_AUTH;
 	out->subtype = MSG_SUBTYPE_RESPONSE;
@@ -168,14 +186,35 @@ void handle_message(message_t* in) {
 			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
 			int res = get_user((auth_id_t)in->param2, (auth_idex_t*)&out->data);
 			out->param1 = res ? AUTH_ERR_NOTFOUND : AUTH_ERR_OK;
+			break;
 		}
 		case AUTH_CMD_ADD_USER: {
+			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
             auth_idex_t* new_user = (auth_idex_t*)&in->data;
+			auth_idex_t* curr_user = (auth_idex_t*)malloc(sizeof(auth_idex_t));
+			if (!curr_user) {
+				out->param1 = AUTH_ERR_UNKNOWN;
+				break;
+			}
+			if (get_thread_user(in->sender_tid, curr_user)) {
+				out->param1 = AUTH_ERR_NOTFOUND;
+				break;
+			}
+			if (!can_create_user(curr_user, new_user)) {
+				out->param1 = AUTH_ERR_DENIED;
+				break;
+			}
             int res = add_user(new_user, 0);
-            out->param1 = (res == 0) ? AUTH_ERR_OK : AUTH_ERR_USER;
-            memcpy(&out->data, new_user, sizeof(auth_idex_t));
+			if (!res) memcpy(&out->data, new_user, sizeof(auth_idex_t));
+            out->param1 = (!res) ? AUTH_ERR_OK : AUTH_ERR_USER;
             break;
         }
+		case AUTH_CMD_DEL_USER: {
+			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
+			int res = del_user((auth_id_t)in->param2);
+			out->param1 = res ? AUTH_ERR_NOTFOUND : AUTH_ERR_OK;
+			break;
+		}
 		default: {
 			out->param1 = AUTH_ERR_NOCOMM;
 			break;

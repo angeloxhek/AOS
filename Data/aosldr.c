@@ -1128,14 +1128,9 @@ void kernel_main(boot_info_t* boot_info){
 	load_elf_raw_fat32(system_volume, &file, driver);
 	if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
-	kprint("Register...\n");
 	int tid = 0;
 	driver_type_t dtype = DT_AUTH;
 	if(!sleep_while_zero(get_driver_tid_sleep_wrapper, &dtype, 5000, &tid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
-	kprint("Driver TID: ");
-	uint64_to_dec(tid, buff);
-	kprint(buff);
-	kprint("\n");
 	kprint("VFS driver..\n");
 	if (!fat32_find_in_dir(system_volume, &drivers_dir, "VFSDRIVER.ELF", &file)){
 		kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
@@ -1144,16 +1139,23 @@ void kernel_main(boot_info_t* boot_info){
 	load_elf_raw_fat32(system_volume, &file, driver);
 	if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
-	kprint("Register...\n");
 	tid = 0;
 	dtype = DT_VFS;
 	if(!sleep_while_zero(get_driver_tid_sleep_wrapper, &dtype, 5000, &tid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
-	kprint("Driver TID: ");
-	uint64_to_dec(tid, buff);
-	kprint(buff);
-	kprint("\n");
-	while(1) {
-    }
+	kprint("Init driver..\n");
+	if (!fat32_find_in_dir(system_volume, &drivers_dir, "INITDRIVER.ELF", &file)){
+		kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
+	}
+	kernel_memset(driver, 0, sizeof(elf_load_result_t));
+	load_elf_raw_fat32(system_volume, &file, driver);
+	if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
+    start_elf_process(driver, 0, 0);
+	tid = 0;
+	dtype = DT_INIT;
+	if(!sleep_while_zero(get_driver_tid_sleep_wrapper, &dtype, 5000, &tid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
+	kprint("Stage 2 completed!\n");
+	kill_thread(current_thread, 0);
+	schedule();
 }
 
 void idle_thread() {

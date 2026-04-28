@@ -338,11 +338,9 @@ void vfs_init_tree() {
                 fs_node->mount.driver->get_label(fs_inst, label);
             }
             
-            if (strcmp(label, "NO_NAME") != 0) {
-                 char id_link[32];
-                 snprintf(id_link, sizeof(id_link), "/mnt/id/v%d", i);
-                 vfs_symlink(mnt, label, id_link);
-            }
+            if (strcmp(label, "NO_NAME") != 0) vfs_symlink(mnt, label, target);
+			
+			if (pinfo.bootable) vfs_symlink(vfs_root, "boot", target);
         }
     }
 }
@@ -412,13 +410,6 @@ void vfs_resolve_from(vfs_node_t* start_node, const char* path, vfs_path_result_
                 break;
             }
             child = child->next;
-        }
-
-        if (!next_node) {
-            if (strcmp(current->name, "proc") == 0) {
-                // Тут можно проверить, число ли 'token', и создать узел динамически
-                // next_node = vfs_create_proc_node(token);
-            }
         }
 
         if (!next_node) {

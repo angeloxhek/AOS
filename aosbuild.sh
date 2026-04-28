@@ -7,13 +7,14 @@ set -e
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
-STAGES='7'
+STAGES='8'
 
 trap 'echo -e "${RED}Build failed!${NC}"; exit 1' ERR
 
 echo -e "${GREEN}[1/${STAGES}] Preparing directories...${NC}"
 cd "$(dirname "$0")"
 mkdir -p Build/Volume/Drivers
+mkdir -p Build/Volume/Configs
 mkdir -p Build/libs
 mkdir -p Temp
 rm -f Temp/*
@@ -112,15 +113,19 @@ gcc -m64 -c Data/drivers/kbddriver.c -o Temp/kbddriver.o -fno-omit-frame-pointer
         -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
 ld -m elf_x86_64 -N --no-warn-rwx-segments -Map Temp/kbddriver.map -T Data/drivers/vfsdriver.ld \
 		Temp/aos_start.o Temp/kbddriver.o Temp/libaos.a -o Build/Volume/DRIVERS/KBDDRIVER.ELF
+		
+echo -e "${GREEN}[5/${STAGES}] Copying Configs...${NC}"
 
-echo -e "${GREEN}[6/${STAGES}] Compiling User-Space...${NC}"
+cp -r Configs Build/Volume/
+
+echo -e "${GREEN}[7/${STAGES}] Compiling User-Space...${NC}"
 gcc -m64 -c Data/userspace/tree.c -o Temp/tree.o -fno-omit-frame-pointer -ffreestanding \
         -fno-pic -fno-pie -fno-asynchronous-unwind-tables
 ld -m elf_x86_64 -Map Temp/tree.map -N --no-warn-rwx-segments -T Data/drivers/vfsdriver.ld \
 		Temp/aos_start.o Temp/tree.o Temp/libaos.a \
         -o Build/Volume/tree.elf
 		
-echo -e "${GREEN}[7/${STAGES}] Compiling userlinux...${NC}"
+echo -e "${GREEN}[8/${STAGES}] Compiling userlinux...${NC}"
 PROJECT_ROOT="$(pwd)"
 AOS_INCLUDE="${PROJECT_ROOT}/aosliblin/include"
 AOS_LIB="${PROJECT_ROOT}/Temp/libaoslin.a"

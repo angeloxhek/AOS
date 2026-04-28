@@ -39,8 +39,40 @@ int auth_get_user(auth_id_t in, auth_idex_t* out) {
 	req.param2 = in;
 
     if (auth_rpc_call(&req, &resp) == 0) {
-		kernel_memcpy(outh, &resp.data, sizeof(auth_idex_t));
-        return (int)resp.param2;
+		memcpy(out, &resp.data, sizeof(auth_idex_t));
+        return (int)resp.param1;
+    }
+    
+    return -1;
+}
+
+int auth_add_user(auth_idex_t* inout) {
+    if (!out) return -1;	
+    message_t req;
+    message_t resp;
+
+	req.subtype = MSG_SUBTYPE_QUERY;
+    req.param1 = AUTH_CMD_ADD_USER;
+	memcpy(&req.data, inout, sizeof(auth_idex_t));
+
+    if (auth_rpc_call(&req, &resp) == 0) {
+		memcpy(inout, &resp.data, sizeof(auth_idex_t));
+        return (int)resp.param1;
+    }
+    
+    return -1;
+}
+
+int auth_del_user(auth_id_t in) {
+    message_t req;
+    message_t resp;
+
+	req.subtype = MSG_SUBTYPE_QUERY;
+    req.param1 = AUTH_CMD_DEL_USER;
+	req.param2 = in;
+
+    if (auth_rpc_call(&req, &resp) == 0) {
+        return (int)resp.param1;
     }
     
     return -1;
