@@ -61,3 +61,4 @@ Temp/
 *.vhd
 *.ip
 qemu.log
+*.bat

@@ -10,6 +10,8 @@
 #define AOSLIB_STRING
 #elif defined(AOSLIB_IO_ONLY)
 #define AOSLIB_IO
+#elif defined(AOSLIB_AUTH_ONLY)
+#define AOSLIB_AUTH
 #elif !defined(AOSKERNEL)
 #define AOSLIB
 #define AOSLIB_START
@@ -17,6 +19,7 @@
 #define AOSLIB_VFS
 #define AOSLIB_STRING
 #define AOSLIB_IO
+#define AOSLIB_AUTH
 #endif
 
 #ifndef AOSLIB_DEFINE
@@ -152,7 +155,8 @@ typedef struct {
 typedef enum {
     AUTH_CMD_GET_USER = 1,
 	AUTH_CMD_ADD_USER,
-	AUTH_CMD_DEL_USER
+	AUTH_CMD_DEL_USER,
+	AUTH_CMD_GET_USER_BY_NAME,
 } auth_cmd_t;
 
 typedef enum : uint8_t {
@@ -191,6 +195,8 @@ typedef struct {
 	auth_pgroup_t pgroup; // Static group
 	uint8_t auth_type; // ATYPE_*
 	uint64_t perms; // APERM_*
+	char name[64];
+	char pass[64];
 } auth_idex_t;
 
 typedef enum {
@@ -384,10 +390,6 @@ typedef struct {
 
 #endif
 
-#if defined(AOSLIB_START) || defined(AOSLIB_VFS)
-void vfs_init();
-#endif
-
 #ifdef AOSLIB_START
 int64_t syscall(uint64_t nr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
 __attribute__((noreturn)) void exit(int code);
@@ -513,12 +515,14 @@ int strncasecmp(const char *s1, const char *s2, size_t n);
 void bcopy(const void *src, void *dest, size_t n);
 void bzero(void *s, size_t n);
 int  bcmp(const void *s1, const void *s2, size_t n);
+
 #endif
 
 #ifdef AOSLIB_VFS
 
 int64_t block_read(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
 int64_t block_write(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
+void vfs_init();
 int vfs_open(const char* path, uint32_t flags);
 int vfs_openat(int dir_fd, const char* name, uint32_t flags);
 int vfs_close(int fd);
@@ -536,6 +540,16 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat);
 void mutex_init(mutex_t* m);
 void mutex_lock(mutex_t* m);
 void mutex_unlock(mutex_t* m);
+
+#endif
+
+#ifdef AOSLIB_AUTH
+
+void auth_init();
+int auth_get_user(auth_id_t in, auth_idex_t* out);
+int auth_get_user_by_name(const char* in, auth_idex_t* out);
+int auth_add_user(auth_idex_t* inout);
+int auth_del_user(auth_id_t in);
 
 #endif
 

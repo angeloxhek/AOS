@@ -10,7 +10,6 @@ __attribute__((noreturn)) void _start(startup_info_t* info, uint64_t arg2) {
         exit_code = driver_main(0, 0);
     }
     else if (main != (void*)0) {
-        vfs_init();
         exit_code = main(0, 0);
     }
     exit(exit_code);
