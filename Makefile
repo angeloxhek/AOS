@@ -41,7 +41,10 @@ all: prepare kernel libs drivers userspace userlinux
 prepare:
 	mkdir -p $(BUILD_DIR)/Volume/DRIVERS $(BUILD_DIR)/Volume/Configs $(BUILD_DIR)/libs $(TEMP_DIR)
 	
-kernel: $(BUILD_DIR)/Volume/AOSLDR.BIN
+kernel: $(BUILD_DIR)/pbr.bin $(BUILD_DIR)/Volume/AOSLDR.BIN
+
+$(BUILD_DIR)/pbr.bin: Data/pbr.asm
+	$(NASM) $< -o $@
 
 $(BUILD_DIR)/Volume/AOSLDR.BIN: $(KERNEL_OBJS) Data/aosldr.ld
 	$(LD) $(LDFLAGS) -T Data/aosldr.ld -Map $(TEMP_DIR)/aosldr.map -o $(TEMP_DIR)/aosldr.elf $(KERNEL_OBJS)
