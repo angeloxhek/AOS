@@ -2,7 +2,7 @@
 #include "../include/aoslib.h"
 
 int driver_main(void* reserved1, void* reserved2) {
-    register_driver(DT_KEYBOARD, 0);
+    register_driver(DT_INIT, 0);
 	
 	printf("AOS, Initdriver is here...\n");
 	

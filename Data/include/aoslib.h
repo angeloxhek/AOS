@@ -74,6 +74,7 @@ extern "C" {
 #define SYS_RES_KERNEL_ERR          -99
 
 #define DRV_ERR_OK                    0
+#define DRV_ERR_FOUND              -259
 #define DRV_ERR_NOCOMM             -258
 #define DRV_ERR_NOTFOUND           -257
 #define DRV_ERR_UNKNOWN            -256
@@ -90,6 +91,7 @@ extern "C" {
 #define AUTH_ERR_OK                DRV_ERR_OK
 #define AUTH_ERR_USER                -1
 #define AUTH_ERR_DENIED              -2
+#define AUTH_ERR_FOUND             DRV_ERR_FOUND
 #define AUTH_ERR_NOCOMM            DRV_ERR_NOCOMM
 #define AUTH_ERR_NOTFOUND          DRV_ERR_NOTFOUND
 #define AUTH_ERR_UNKNOWN           DRV_ERR_UNKNOWN
@@ -161,6 +163,7 @@ typedef enum {
 	AUTH_CMD_ADD_GROUP,
 	AUTH_CMD_DEL_GROUP,
 	AUTH_CMD_GET_GROUP_BY_NAME,
+	AUTH_CMD_GET_MEMBERS,
 } auth_cmd_t;
 
 typedef enum : uint8_t {
@@ -217,6 +220,7 @@ typedef struct {
 } auth_grpex_t; // user perms = user.perms | group.allow_perms & ~group.deny_perms
 
 typedef struct {
+	uint32_t freemask;
 	uint32_t count;
 	auth_id_t data[32];
 } auth_members_t;

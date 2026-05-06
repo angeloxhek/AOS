@@ -31,7 +31,7 @@ AOSLIB_OBJS = $(TEMP_DIR)/aos_syscalls.o $(TEMP_DIR)/aos_vfs.o $(TEMP_DIR)/aos_s
 
 AOSLIBLIN_OBJS = $(AOSLIB_OBJS) \
 				 $(TEMP_DIR)/libc_unistd.o $(TEMP_DIR)/libc_time.o $(TEMP_DIR)/libc_sys_time.o \
-				 $(TEMP_DIR)/libc_sys_stat.o $(TEMP_DIR)/libc_pwd.o
+				 $(TEMP_DIR)/libc_sys_stat.o $(TEMP_DIR)/libc_pwd.o $(TEMP_DIR)/libc_grp.o
 			  
 .PHONY: all clean kernel drivers userspace userlinux
 

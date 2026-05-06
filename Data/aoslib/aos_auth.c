@@ -212,3 +212,30 @@ int auth_del_group(auth_id_t in) {
     
     return -1;
 }
+
+int auth_get_members(auth_id_t in, uint32_t index, auth_members_t* out) {
+    if (!out) return -1;	
+    message_t req;
+    message_t resp;
+	
+	void* shm_vaddr = 0;
+    uint64_t shm_id = shm_alloc(sizeof(auth_members_t), &shm_vaddr);
+    if (!shm_id) return -1;
+
+    shm_allow(shm_id, auth_driver_tid);
+
+	req.subtype = MSG_SUBTYPE_QUERY;
+    req.param1 = AUTH_CMD_GET_MEMBERS;
+	req.param2 = in.raw;
+	req.param3 = index;
+	
+	*(uint64_t*)(req.data) = shm_id;
+
+    if (auth_rpc_call(&req, &resp) == 0) {
+		memcpy(out, shm_vaddr, sizeof(auth_members_t));
+		shm_free(shm_id);
+        return (int)resp.param1;
+    }
+    shm_free(shm_id);
+    return -1;
+}

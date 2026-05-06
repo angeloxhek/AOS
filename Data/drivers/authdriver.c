@@ -157,7 +157,7 @@ int init_auth() {
 		free(gfreelist);
 		return -1;
 	}
-	memset(idlist, 0, sizeof(auth_idex_node_t));
+	memset(grplist, 0, sizeof(auth_grpex_node_t));
 	uint32_t gid = 0;
 	if (get_gid(&gid)) {
 		free(ufreelist);
@@ -326,6 +326,117 @@ int get_thread_group(uint64_t tid, auth_grpex_t* out) {
 		return -1;
 	}
 	return get_group(info->user, out);
+}
+
+auth_grpex_node_t* find_group_node(auth_id_t group) {
+    auth_grpex_node_t* curr = grplist;
+    while (curr) {
+        if (curr->grp.id.user.gid == group.user.gid) return curr;
+        curr = curr->next;
+    }
+    return NULL;
+}
+
+int get_group_members(auth_id_t group, uint32_t chunk_index, auth_members_t* out) {
+    if (!out) return -1;
+
+    auth_grpex_node_t* grp = find_group_node(group);
+
+    auth_members_node_t* curr_chunk = grp->members;
+    for (uint32_t i = 0; i < chunk_index; i++) {
+        if (!curr_chunk) return -1;
+        curr_chunk = curr_chunk->next;
+    }
+
+    if (!curr_chunk) return -1;
+
+    memcpy(out, &curr_chunk->data, sizeof(auth_members_t));
+    return 0;
+}
+
+int add_member(auth_id_t group, auth_id_t user) {
+    auth_grpex_node_t* grp = find_group_node(group);
+    if (!grp) return -1;
+
+    auth_members_node_t* curr = grp->members;
+    while (curr) {
+        for (int i = 0; i < 32; i++) {
+            if (!(curr->data.freemask & (1U << i))) {
+                if (curr->data.data[i].user.uid == user.user.uid) {
+                    return -1;
+                }
+            }
+        }
+        curr = curr->next;
+    }
+
+    curr = grp->members;
+    auth_members_node_t* last = NULL;
+
+    while (curr) {
+        if (curr->data.freemask != 0) {
+            int idx = __builtin_ctz(curr->data.freemask);
+            
+            curr->data.data[idx].user.uid = user.user.uid;
+            curr->data.freemask &= ~(1U << idx);
+            curr->data.count++;
+            return 0;
+        }
+        last = curr;
+        curr = curr->next;
+    }
+
+    auth_members_node_t* new_node = (auth_members_node_t*)malloc(sizeof(auth_members_node_t));
+    if (!new_node) return -1;
+
+    memset(new_node, 0, sizeof(auth_members_node_t));
+    
+    new_node->data.freemask = 0xFFFFFFFF; 
+    
+    new_node->data.data[0].user.uid = user.user.uid;
+    new_node->data.freemask &= ~(1U << 0);
+    new_node->data.count = 1;
+    new_node->next = NULL;
+
+    if (last) {
+        last->next = new_node;
+    } else {
+        grp->members = new_node;
+    }
+
+    return 0;
+}
+
+int del_member(auth_id_t group, auth_id_t user) {
+    auth_grpex_node_t* grp = find_group_node(group);
+    if (!grp) return -1;
+
+    auth_members_node_t* curr = grp->members;
+    auth_members_node_t* prev = NULL;
+
+    while (curr) {
+        for (int i = 0; i < 32; i++) {
+            if (!(curr->data.freemask & (1U << i))) {
+                if (curr->data.data[i].user.uid == user.user.uid) {
+                    curr->data.freemask |= (1U << i);
+                    curr->data.count--;
+                    curr->data.data[i].raw = 0;
+                    if (curr->data.count == 0) {
+                        if (grp->members != curr) {
+                            if (prev) prev->next = curr->next;
+                            else grp->members = curr->next;
+                            free(curr);
+                        }
+                    }
+                    return 0;
+                }
+            }
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+
+    return -1;
 }
 
 int can_create_user(auth_idex_t* parent, auth_grpex_t* group, auth_idex_t* child) {
@@ -516,6 +627,23 @@ void handle_message(message_t* in) {
 				break;
 			}
 			int res = del_group(group);
+			out->param1 = res ? AUTH_ERR_NOTFOUND : AUTH_ERR_OK;
+			break;
+		}
+		case AUTH_CMD_GET_MEMBERS: {
+			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
+			
+			auth_id_t group;
+			group.raw = in->param2;
+			uint32_t chunk_idx = (uint32_t)in->param3;
+			
+			auth_members_t* buf = (auth_members_t*)shm_map(*(uint64_t*)(in->data));
+			if (!buf) { out->param1 = AUTH_ERR_UNKNOWN; break; }
+			
+			memset(buf, 0, sizeof(auth_members_t));
+			int res = get_group_members(group, chunk_idx, buf);
+			
+			shm_free(*(uint64_t*)(in->data));
 			out->param1 = res ? AUTH_ERR_NOTFOUND : AUTH_ERR_OK;
 			break;
 		}
