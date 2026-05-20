@@ -148,3 +148,12 @@ int kstrtobool(const char *s, bool *res) {
 
     return SYS_RES_INVALID;
 }
+
+driver_type_t dt_from_str(const char* str) {
+    if (strcmp(str, "DT_VIDEO") == 0) return DT_VIDEO;
+    if (strcmp(str, "DT_KEYBOARD") == 0) return DT_KEYBOARD;
+    if (strcmp(str, "DT_VFS") == 0) return DT_VFS;
+    if (strcmp(str, "DT_AUTH") == 0) return DT_AUTH;
+    if (strcmp(str, "DT_INIT") == 0) return DT_INIT;
+    return DT_USER;
+}

@@ -439,6 +439,7 @@ int ipc_get_at(uint64_t index, message_t* out);
 int64_t register_driver(driver_type_t type, const char* name);
 uint64_t get_driver_tid(driver_type_t type);
 uint64_t get_driver_tid_name(const char* name);
+driver_type_t dt_from_str(const char* str);
 
 uint8_t get_scancode();
 int get_sysinfo(system_info_t* info);
@@ -480,6 +481,7 @@ void* memmove(void* dest, const void* src, size_t n);
 int memcmp(const void* s1, const void* s2, size_t n);
 
 int strcmp(const char* s1, const char* s2);
+int strncmp(const char *s1, const char *s2, size_t n);
 char *strcpy(char *dest, const char *src);
 char *strncpy(char *dest, const char *src, size_t n);
 size_t strlcpy(char *dest, const char *src, size_t n);
