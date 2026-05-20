@@ -790,7 +790,7 @@ int fat32_find_in_dir(volume_t* v, fat32_dirent_t* dir_entry, const char* search
         kernel_to_upper(file_name_upper);
 
         if (kernel_strcmp(file_name_upper, name_upper) == 0) {
-            *result = file_list[i];
+            kernel_memcpy(result, &file_list[i], sizeof(fat32_dirent_t));
             found = 1;
             break;
         }
