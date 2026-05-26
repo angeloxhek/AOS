@@ -459,7 +459,7 @@ int can_delete_user(auth_idex_t* parent, auth_grpex_t* group, auth_idex_t* child
 
 int can_create_group(auth_idex_t* parent, auth_grpex_t* group, auth_grpex_t* child) {
 	uint64_t pperms = AUTH_GET_FULL_PERMS(parent, group);
-	if ((pperms | child->allow_perms & ~child->deny_perms) != pperms) return 0;
+	if ((pperms | (child->allow_perms & ~child->deny_perms)) != pperms) return 0;
 	if (!(pperms & APERM_MANAGE_GROUP)) return 0;
 	if ((parent->auth_type | child->auth_type) != parent->auth_type) return 0;
 	if ((child->auth_type & ATYPE_CHANGE) && !(parent->auth_type & ATYPE_CHANGE)) return 0;
@@ -468,7 +468,7 @@ int can_create_group(auth_idex_t* parent, auth_grpex_t* group, auth_grpex_t* chi
 
 int can_delete_group(auth_idex_t* parent, auth_grpex_t* group, auth_grpex_t* child) {
 	uint64_t pperms = AUTH_GET_FULL_PERMS(parent, group);
-	if ((pperms | child->allow_perms & ~child->deny_perms) != pperms) return 0;
+	if ((pperms | (child->allow_perms & ~child->deny_perms)) != pperms) return 0;
 	if (!(pperms & APERM_MANAGE_GROUP)) return 0;
 	return 1;
 }

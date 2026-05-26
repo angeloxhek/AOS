@@ -225,7 +225,7 @@ typedef struct {
 	auth_id_t data[32];
 } auth_members_t;
 
-#define AUTH_GET_FULL_PERMS(user, group) ((user)->perms | (group)->allow_perms & ~(group)->deny_perms)
+#define AUTH_GET_FULL_PERMS(user, group) ((user)->perms | ((group)->allow_perms & ~(group)->deny_perms))
 
 typedef enum {
     MSG_TYPE_NONE = 0,

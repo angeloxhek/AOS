@@ -138,11 +138,7 @@ static inline int char_to_val(char c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'z') return c - 'a' + 10;
     if (c >= 'A' && c <= 'Z') return c - 'A' + 10;
-    return 255; // Недопустимый символ
-}
-
-static bool is_clean_tail(const char *endptr) {
-    return (*endptr == '\0' || (*endptr == '\n' && *(endptr + 1) == '\0'));
+    return 255;
 }
 
 unsigned long long strtoull(const char *nptr, char **endptr, int base) {

@@ -76,14 +76,11 @@ uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr) {
     current_thread->owner->next_shm_vaddr += (page_count * 4096);
     obj->owner_vaddr = my_vaddr;
 
-    int flags = PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
     for (uint64_t i = 0; i < page_count; i++) {
-        map_to_other_pml4(current_thread->owner->page_directory, obj->phys_pages[i], my_vaddr + (i * 4096), flags);
+        hal_map_page_in_space((uint64_t)current_thread->owner->page_directory, my_vaddr + (i * 4096), obj->phys_pages[i], 0x7);
     }
 
-    uint64_t current_cr3;
-    asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
-    asm volatile("mov %0, %%cr3" :: "r"(current_cr3));
+    hal_flush_tlb();
 
     *out_vaddr = my_vaddr;
     shm_add(obj);
@@ -127,14 +124,11 @@ uint64_t shm_map(uint64_t shm_id) {
     uint64_t target_vaddr = current_thread->owner->next_shm_vaddr;
     current_thread->owner->next_shm_vaddr += (obj->page_count * 4096);
 
-    int flags = PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
     for (uint64_t i = 0; i < obj->page_count; i++) {
-        map_to_other_pml4(current_thread->owner->page_directory, obj->phys_pages[i], target_vaddr + (i * 4096), flags);
+        hal_map_page_in_space((uint64_t)current_thread->owner->page_directory, target_vaddr + (i * 4096), obj->phys_pages[i], 0x7);
     }
 
-    uint64_t current_cr3;
-    asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
-    asm volatile("mov %0, %%cr3" :: "r"(current_cr3));
+    hal_flush_tlb();
 
     shm_map_node_t* mn = (shm_map_node_t*)kernel_malloc(sizeof(shm_map_node_t));
     if (!mn) return 0;
@@ -158,7 +152,7 @@ int shm_free(uint64_t shm_id) {
 
         if (target_proc && target_proc->page_directory) {
             for (uint64_t i = 0; i < obj->page_count; i++) {
-                map_to_other_pml4(target_proc->page_directory, 0, mn->vaddr + (i * 4096), 0);
+                hal_map_page_in_space((uint64_t)target_proc->page_directory, mn->vaddr + (i * 4096), 0, 0);
             }
         }
 
@@ -168,12 +162,10 @@ int shm_free(uint64_t shm_id) {
     }
 
     for (uint64_t i = 0; i < obj->page_count; i++) {
-        map_to_other_pml4(current_thread->owner->page_directory, 0, obj->owner_vaddr + (i * 4096), 0);
+        hal_map_page_in_space((uint64_t)current_thread->owner->page_directory, obj->owner_vaddr + (i * 4096), 0, 0);
     }
 
-    uint64_t current_cr3;
-    asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
-    asm volatile("mov %0, %%cr3" :: "r"(current_cr3));
+    hal_flush_tlb();
 
     for (uint64_t i = 0; i < obj->page_count; i++) {
         pmm_free_block(obj->phys_pages[i]);

@@ -82,20 +82,6 @@ typedef struct {
 #define ELF_RESULT_INVALID 1
 #define ELF_RESULT_NO_MEM 2
 
-// Сегменты GDT для x86_64
-// В Long Mode сегментация почти отключена, но селекторы важны для CPL (Rings).
-// Типичная раскладка для поддержки syscall/sysret:
-// 0x00 - Null
-// 0x08 - Kernel Code
-// 0x10 - Kernel Data
-// 0x18 - User Data (или User Code 32-bit compat)
-// 0x20 - User Data
-// 0x28 - User Code 64-bit
-#define GDT_KERNEL_CODE 0x08
-#define GDT_KERNEL_DATA 0x10
-#define GDT_USER_DATA   0x1B
-#define GDT_USER_CODE   0x23
-
 typedef struct process_t process_t;
 typedef struct {
     uint64_t entry_point;

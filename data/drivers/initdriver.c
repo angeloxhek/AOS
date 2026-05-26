@@ -81,4 +81,6 @@ int driver_main(void* reserved1, void* reserved2) {
 	parse_drivers_conf(drvdata);
 	
 	free(drvdata);
+	
+	return 0;
 }

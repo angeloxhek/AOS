@@ -35,7 +35,7 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
     for (int i = 0; i < hdr->e_phnum; i++) {
         if (phdr[i].p_type == PT_LOAD) {
             uint64_t vaddr  = phdr[i].p_vaddr;
-            if (!is_valid_user_pointer((void*)vaddr)) {
+            if (!hal_is_valid_user_pointer((void*)vaddr)) { // Изменено на HAL
                 kernel_free(raw_data);
                 result->result = ELF_RESULT_INVALID;
                 return;
@@ -43,8 +43,8 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
             uint64_t memsz  = phdr[i].p_memsz;
             uint64_t filesz = phdr[i].p_filesz;
             uint64_t offset = phdr[i].p_offset;
-            uint64_t start_page = vaddr & PAGE_MASK;
-            uint64_t end_page   = (vaddr + memsz + 4095) & PAGE_MASK;
+            uint64_t start_page = vaddr & ~4095ULL;
+            uint64_t end_page   = (vaddr + memsz + 4095) & ~4095ULL;
             uint64_t page_count = (end_page - start_page) / 4096;
 
             if (vaddr + memsz > max_vaddr) {
@@ -54,13 +54,13 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
             for (uint64_t p = 0; p < page_count; p++) {
                 uint64_t curr_virt = start_page + (p * 4096);
                 uint64_t phys;
-                uint64_t existing_phys = vmm_get_phys_from_pml4(proc->page_directory, curr_virt);
+                uint64_t existing_phys = hal_get_phys((uint64_t)proc->page_directory, curr_virt);
                 if (existing_phys != 0) {
                     phys = existing_phys;
                 } else {
                     phys = pmm_alloc_block();
-                    map_to_other_pml4(proc->page_directory, phys, curr_virt,
-                                      PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+                    // 0x7 = USER | WRITE | PRESENT
+                    hal_map_page_in_space((uint64_t)proc->page_directory, curr_virt, phys, 0x7);
                 }
                 void* ptr = temp_map(phys);
                 kernel_memset(ptr, 0, 4096);
@@ -143,7 +143,7 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
 
 void load_elf_raw(char* name, uint8_t* raw_data, uint64_t file_size, elf_load_result_t* result) {
     process_t* proc = create_process(name);
-	load_elf_raw_proc(proc, raw_data, file_size, result);
+    load_elf_raw_proc(proc, raw_data, file_size, result);
 }
 
 void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* result) {
@@ -160,8 +160,8 @@ void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* re
 }
 
 int startup_info_args_copy(startup_info_t* k_info, startup_info_t* child_info, void* kvirt, uint64_t child_virt_addr) {
-	child_info->type = k_info->type;
-	if (k_info->type == STARTUP_MAIN) {
+    child_info->type = k_info->type;
+    if (k_info->type == STARTUP_MAIN) {
         child_info->data.main.argc = k_info->data.main.argc;
         child_info->data.main.envc = k_info->data.main.envc;
 
@@ -174,11 +174,11 @@ int startup_info_args_copy(startup_info_t* k_info, startup_info_t* child_info, v
 
             for (int i = 0; i < k_info->data.main.argc; i++) {
                 char* dst = (char*)((uint64_t)kvirt + offset);
-                int len = copy_string_from_user(k_info->data.main.argv[i], dst, PAGE_SIZE - offset);
+                int len = copy_string_from_user(k_info->data.main.argv[i], dst, 4096 - offset);
                 
                 if (len == 0) {
-					return -1;
-				}
+                    return -1;
+                }
                 
                 child_argv_base[i] = (char*)(child_virt_addr + offset);
                 offset += len;
@@ -193,11 +193,11 @@ int startup_info_args_copy(startup_info_t* k_info, startup_info_t* child_info, v
 
             for (int i = 0; i < k_info->data.main.envc; i++) {
                 char* dst = (char*)((uint64_t)kvirt + offset);
-                int len = copy_string_from_user(k_info->data.main.envp[i], dst, PAGE_SIZE - offset);
+                int len = copy_string_from_user(k_info->data.main.envp[i], dst, 4096 - offset);
                 
                 if (len == 0) {
-					return -1;
-				}
+                    return -1;
+                }
                 
                 child_envp_base[i] = (char*)(child_virt_addr + offset);
                 offset += len;
@@ -208,11 +208,11 @@ int startup_info_args_copy(startup_info_t* k_info, startup_info_t* child_info, v
         child_info->data.driver.reserved1 = k_info->data.driver.reserved1;
         child_info->data.driver.reserved2 = k_info->data.driver.reserved2;
     }
-	return 0;
+    return 0;
 }
 
 startup_info_t* prepare_child_startup_info(process_t* proc, startup_info_t* user_info_ptr) {
-    if (!is_valid_user_pointer(user_info_ptr)) return 0;
+    if (!hal_is_valid_user_pointer(user_info_ptr)) return 0; // Изменено на HAL
 
     startup_info_t* k_info = (startup_info_t*)kernel_malloc(sizeof(startup_info_t));
     if (!k_info) return 0;
@@ -222,18 +222,19 @@ startup_info_t* prepare_child_startup_info(process_t* proc, startup_info_t* user
     uint64_t phys = pmm_alloc_block();
     if (!phys) { kernel_free(k_info); return 0; }
 
-    map_to_other_pml4(proc->page_directory, phys, child_virt_addr, PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+    hal_map_page_in_space((uint64_t)proc->page_directory, child_virt_addr, phys, 0x7);
     
-    void* kvirt = (void*)P2V(phys);
-    kernel_memset(kvirt, 0, PAGE_SIZE);
+    void* kvirt = temp_map(phys);
+    kernel_memset(kvirt, 0, 4096);
 
     startup_info_t* child_info = (startup_info_t*)kvirt;
     
-	if (startup_info_args_copy(k_info, child_info, kvirt, child_virt_addr)) {
-		pmm_free_block(phys);
-		child_virt_addr = 0;
-	}
+    if (startup_info_args_copy(k_info, child_info, kvirt, child_virt_addr)) {
+        pmm_free_block(phys);
+        child_virt_addr = 0;
+    }
 
+    temp_unmap(kvirt);
     kernel_free(k_info);
     return (startup_info_t*)child_virt_addr;
 }
@@ -243,19 +244,19 @@ startup_info_t* prepare_child_startup_info_kernel(process_t* proc, startup_info_
     uint64_t phys = pmm_alloc_block();
     if (!phys) return 0;
 
-    map_to_other_pml4(proc->page_directory, phys, child_virt_addr, 
-                      PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
+    hal_map_page_in_space((uint64_t)proc->page_directory, child_virt_addr, phys, 0x7);
     
-    void* kvirt = (void*)P2V(phys);
-    kernel_memset(kvirt, 0, PAGE_SIZE);
+    void* kvirt = temp_map(phys);
+    kernel_memset(kvirt, 0, 4096);
 
     startup_info_t* child_info = (startup_info_t*)kvirt;
-	
-	if (startup_info_args_copy(k_info, child_info, kvirt, child_virt_addr)) {
-		pmm_free_block(phys);
-		child_virt_addr = 0;
-	}
     
+    if (startup_info_args_copy(k_info, child_info, kvirt, child_virt_addr)) {
+        pmm_free_block(phys);
+        child_virt_addr = 0;
+    }
+    
+    temp_unmap(kvirt);
     return (startup_info_t*)child_virt_addr;
 }
 
@@ -265,25 +266,25 @@ int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg
 
     for (uint64_t i = 0; i < stack_pages; i++) {
         uint64_t phys_page = pmm_alloc_block();
-	if (phys_page == 0) return -1;
-        map_to_other_pml4(res->proc->page_directory,
-                          phys_page,
-                          user_stack_virt - (i * PAGE_SIZE),
-                          PAGE_PRESENT | PAGE_WRITE | PAGE_USER);
-        kernel_memset((void*)P2V(phys_page), 0, PAGE_SIZE);
+        if (phys_page == 0) return -1;
+        hal_map_page_in_space((uint64_t)res->proc->page_directory, 
+                              user_stack_virt - (i * 4096), phys_page, 0x7);
+        void* ptr = temp_map(phys_page);
+        kernel_memset(ptr, 0, 4096);
+        temp_unmap(ptr);
     }
-    uint64_t user_rsp = user_stack_virt + PAGE_SIZE;
+    uint64_t user_rsp = user_stack_virt + 4096;
     user_rsp = (user_rsp & ~0xFULL) - 8;
-	
-	startup_info_t* info_addr = 0;
+    
+    startup_info_t* info_addr = 0;
     if (info != NULL) {
-        if (is_valid_user_pointer(info)) {
+        if (hal_is_valid_user_pointer(info)) {
             info_addr = prepare_child_startup_info(res->proc, info);
         } else {
             info_addr = prepare_child_startup_info_kernel(res->proc, info);
         }
     }
-	
+    
     create_user_thread(res->entry_point, user_rsp, (uint64_t)res->proc->page_directory, res->proc, (uint64_t)info_addr, arg2);
     return 0;
 }

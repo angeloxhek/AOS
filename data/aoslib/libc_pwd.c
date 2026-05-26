@@ -3,12 +3,6 @@
 #include <stdlib.h>
 #include "../include/aoslib.h"
 
-static struct passwd static_passwd;
-static char static_name[64];
-static char static_pass[64];
-static char static_dir[64];
-static char static_shell[64];
-
 static int getpwidex_r(auth_idex_t* user, struct passwd *pwd, char *buffer, size_t buflen, struct passwd **result) {
 	char dir[256] = "/";
     char shell[256] = "/bin/sh";

@@ -1,8 +1,8 @@
 global start
 global boot_ver
 extern kernel_main
+extern kernel_stack
 
-; Константы для отображения
 %define KERNEL_VMA 0xFFFFFFFF80000000
 %define KERNEL_BASE 0x10000
 %define BOOT_INFO_ADDR 0x7000
@@ -19,11 +19,10 @@ extern kernel_main
 %define BOOT_FLAG_ACPI   2
 %define BOOT_FLAG_SMBIOS 4
 
-; Макрос: вычитает смещение, чтобы получить физический адрес текущей метки
 %define V2P(x) ((x) - KERNEL_VMA)
 %define V2P16(x) ((x) - KERNEL_VMA - KERNEL_BASE)
 
-section .text
+section .text.boot
 bits 16
 start:
 	jmp short entry
@@ -34,8 +33,6 @@ boot_ver:
 	dq BOOT_INFO_ADDR
 	times 0x10-4-8 nop
 entry:
-    ; Мы загружены по 0x10000, но линкер думает, что мы в 0xFFFFFFFF80010000.
-    ; Все обращения к памяти здесь нужно корректировать макросом v!
 
     cli
 	cld
@@ -53,13 +50,10 @@ entry:
 	
 	mov [cs:V2P16(boot_drive)], dl
 	
-	; 1. Получаем карту памяти
     call V2P16(get_memory_map)
 
-    ; 2. Ищем ACPI RSDP (сканирование BIOS)
     call V2P16(find_acpi)
 
-    ; 3. Ищем SMBIOS (сканирование BIOS)
     call V2P16(find_smbios)
 	
 	mov edi, BOOT_INFO_ADDR
@@ -117,20 +111,16 @@ entry:
     mov al, [cs:V2P16(boot_drive)]
     mov byte [edi + 91], al
     
-    ; -- Включаем A20 --
     in al, 0x92
     or al, 2
     out 0x92, al
 
-    ; -- Загружаем GDT 32 --
     lgdt [cs:V2P16(gdt32_descriptor)]
 
-    ; -- Переход в Protected Mode --
     mov eax, cr0
     or eax, 1
     mov cr0, eax
 
-    ; Прыжок в 32 бита
     jmp dword 0x08:V2P(init_32bit)
 	
 find_acpi:
@@ -194,24 +184,24 @@ find_smbios:
 
 	
 get_memory_map:
-    xor ebx, ebx            ; продолжение (0 для начала)
-    mov edx, 0x534D4150    ; 'SMAP'
-    mov di, 0x2004          ; оставляем первые 4 байта под счетчик
-    xor bp, bp              ; тут будем считать количество записей
+    xor ebx, ebx
+    mov edx, 0x534D4150     ; 'SMAP'
+    mov di, 0x2004
+    xor bp, bp
 
 .loop:
     mov eax, 0xE820
-    mov edx, 0x534D4150    ; reload 'SMAP' (some BIOS clobber edx)
-    mov ecx, 24             ; размер одной записи
+    mov edx, 0x534D4150     ; reload 'SMAP' (some BIOS clobber edx)
+    mov ecx, 24
     int 0x15
-    jc .done                ; если Carry Flag, значит конец
-    add di, 24              ; сдвигаем указатель
-    inc bp                  ; увеличиваем счетчик
-    test ebx, ebx           ; если ebx=0, значит всё
+    jc .done
+    add di, 24
+    inc bp
+    test ebx, ebx
     jne .loop
 
 .done:
-    mov [0x2000], bp        ; сохраняем количество записей в начало
+    mov [0x2000], bp
     ret
 	
 init_vbe:
@@ -219,40 +209,35 @@ init_vbe:
     mov ax, 0
     mov es, ax
     
-    ; 1. Получаем VBE Controller Info
+    ; 1. VBE Controller Info
     mov di, VBE_INFO_BLOCK
     mov ax, 0x4F00
-    mov dword [di], 0x32454256 ; Сигнатура "VBE2" (желательно для LFB)
+    mov dword [di], 0x32454256 ; VBE2
     int 0x10
     cmp ax, 0x004F
     jne .vbe_fail
 
-    ; Получаем указатель на массив режимов (segment:offset)
     mov ax, [di + 14] ; Offset
-    mov fs, [di + 16] ; Segment (помещаем в FS)
-    mov si, ax        ; SI теперь указывает на список режимов
+    mov fs, [di + 16] ; Segment
+    mov si, ax
 
 .find_mode_loop:
-    ; Читаем номер режима из FS:SI
     mov dx, [fs:si]
     add si, 2
-    cmp dx, 0xFFFF    ; Конец списка?
-    je .vbe_fail      ; Не нашли подходящий режим
+    cmp dx, 0xFFFF
+    je .vbe_fail
 
-    ; 2. Получаем Mode Info для текущего режима (DX)
     mov ax, 0x4F01
-    mov cx, dx        ; Номер режима
+    mov cx, dx
     mov di, MODE_INFO_BLOCK
     int 0x10
     cmp ax, 0x004F
     jne .find_mode_loop
 
-    ; 3. Проверяем характеристики
-    ; Проверяем LFB support (бит 7 в ModeAttributes, смещение 0)
+    ; LFB support
     test byte [di], 0x80
     jz .find_mode_loop
 
-    ; Проверяем разрешение и цвет
     mov ax, [di + 18] ; X Resolution
     cmp ax, DESIRED_WIDTH
     jne .find_mode_loop
@@ -264,10 +249,7 @@ init_vbe:
     mov al, [di + 25] ; Bits Per Pixel
     cmp al, DESIRED_BPP
     jne .find_mode_loop
-
-    ; --- РЕЖИМ НАЙДЕН (в DX) ---
     
-    ; 4. Устанавливаем режим с LFB
     mov bx, dx
     or bx, 0x4000     ; Bit 14 = Use Linear Framebuffer
     mov ax, 0x4F02
@@ -277,8 +259,7 @@ init_vbe:
 	
 	or dword [BOOT_INFO_ADDR + 87], BOOT_FLAG_VIDEO
 
-    ; 5. Заполняем структуру boot_video_t по адресу BOOT_INFO_ADDR + 9
-    ; Структура boot_video_t (packed):
+    ; boot_video_t:
     ; +0  addr (8)
     ; +8  width (4)
     ; +12 height (4)
@@ -291,7 +272,7 @@ init_vbe:
     ; Framebuffer Phys Address (offset 40 in ModeInfo)
     mov eax, [di + 40]
     mov [bx + 0], eax  ; Low 32
-    mov dword [bx + 4], 0      ; High 32 (обычно VBE < 4GB)
+    mov dword [bx + 4], 0      ; High 32 (VBE < 4GB)
 
     ; Width / Height
     xor eax, eax
@@ -313,17 +294,15 @@ init_vbe:
     ; boot_video_t: r_size, r_pos, g_size, g_pos, b_size, b_pos
     ; ModeInfo:     r_size(31), r_pos(32), ...
     
-    lea si, [di + 31]  ; Источник масок
-    lea di, [bx + 24]  ; Приемник в структуре
-    mov cx, 6          ; Копируем 6 байт масок
+    lea si, [di + 31]
+    lea di, [bx + 24]
+    mov cx, 6
     rep movsb
 
     popa
     ret
 
 .vbe_fail:
-    ; Если не удалось, можно просто выйти, видео поля останутся 0
-    ; Ядро поймет, что графики нет
     popa
     ret
 
@@ -338,19 +317,16 @@ init_32bit:
 
     mov esp, 0x90000
 
-    ; --- Настройка Paging (Identity + Higher Half) ---
     %define PML4_ADDR 0x80000
     %define PDPT_ADDR 0x81000
     %define PD_ADDR   0x82000
     %define PD_VIDEO  0x83000
     
-    ; 1. Очищаем область таблиц (4 таблицы по 4КБ = 16 КБ)
     mov edi, PML4_ADDR
     xor eax, eax
     mov ecx, 4 * 1024 
     rep stosd
 
-    ; 2. Настраиваем PML4
     mov edi, PML4_ADDR
     
     ; PML4[0] -> PDPT (Identity mapping)
@@ -381,29 +357,19 @@ init_32bit:
     or eax, 0x3
     mov [edi + 511 * 8], eax
 
-    ; 4. Настраиваем PD_ADDR (Маппинг физической памяти ядра)
-    ; Нам нужно замапить физический адрес 0 (где лежит ядро 0x10000)
-    ; в виртуальный (identity) и верхний.
     mov edi, PD_ADDR
     mov eax, 0x83       ; Phys=0 | PS=1 (2MB Huge Page) | RW | Present
-    mov [edi], eax      ; PD[0] мапит 0..2MB физической памяти
-    
-    ; Если ядро больше 2МБ, добавь еще:
-    ; add eax, 0x200000
-    ; mov [edi + 8], eax 
-    ; -----------------------------------
+    mov [edi], eax
 
-    ; 5. Настраиваем PD_VIDEO (Маппинг LFB)
     mov edi, PD_VIDEO
     
-    mov esi, BOOT_INFO_ADDR + 9 ; video structure
-    mov eax, [esi]              ; framebuffer_addr (low 32)
+    mov esi, BOOT_INFO_ADDR + 9
+    mov eax, [esi]
     
     test eax, eax
     jz .skip_video_map
 
-    ; Заполняем 16 страниц по 2МБ (32МБ видеопамяти)
-    or eax, 0x93     ; Present | RW | Huge | Cache Disable (PCD)
+    or eax, 0x93
     mov ecx, 16      
 .video_loop:
     mov [edi], eax
@@ -411,14 +377,11 @@ init_32bit:
     add edi, 8
     loop .video_loop
 
-    ; Обновляем адрес в структуре на виртуальный
     mov esi, BOOT_INFO_ADDR + 9
     mov dword [esi], 0xC0000000     
     mov dword [esi+4], 0xFFFFFFFF   
 
 .skip_video_map:
-
-    ; --- Включаем 64-бит ---
     
     ; PAE
     mov eax, cr4
@@ -440,19 +403,14 @@ init_32bit:
     or eax, 1 << 31
     mov cr0, eax
 
-    ; Загружаем GDT64 (обращаемся физически)
+    ; GDT64
     lgdt [V2P(gdt64_ptr32)]
 
-    ; Прыжок в 64 бита
-    ; Обратите внимание: мы все еще прыгаем по физическому (низкому) адресу метки,
-    ; так как Identity Mapping активен (PML4[0] -> ... -> 0x0000).
     jmp 0x08:V2P(init_64bit)
 
 bits 64
+DEFAULT REL
 init_64bit:
-    ; Сейчас RIP низкий (например, 0x00000000000010xx)
-    ; Нам нужно "взлететь" в верхнюю память.
-    
     mov ax, 0x10
     mov ds, ax
     mov es, ax
@@ -460,16 +418,11 @@ init_64bit:
     mov fs, ax
     mov gs, ax
 
-    ; Загружаем метку с ВЫСОКИМ адресом в регистр
     mov rax, higher_half_entry
     jmp rax
 
 higher_half_entry:
-    ; ТЕПЕРЬ RIP = 0xFFFFFFFF8000xxxx
-    ; Мы официально в Higher Half Kernel.
-    
-    ; Теперь можно настроить стек по виртуальному адресу
-    mov rsp, 0xFFFFFFFF80090000 ; Стек где-то в отображенной области
+    mov rsp, kernel_stack + 16384
 	
 	mov rax, cr0
 	and rax, ~((1 << 2) | (1 << 3)) ; Сбросить EM и TS
@@ -486,7 +439,6 @@ higher_half_entry:
     lidt [rsp]
     add rsp, 10
 
-    ; Готовим аргументы и вызываем C
     mov rdi, KERNEL_VMA + BOOT_INFO_ADDR
 
     call kernel_main
@@ -503,7 +455,6 @@ isr_common_stub:
     jz .kernel_entry
     swapgs
 .kernel_entry:
-    ; Сохраняем регистры общего назначения
     push r15
     push r14
     push r13
@@ -520,11 +471,9 @@ isr_common_stub:
     push rbx
     push rax
 	
-    ; Передаем указатель на структуру регистров (RSP) как первый аргумент (RDI)
     mov rdi, rsp
     
     call isr_handler
-    ; Восстанавливаем
     pop rax
     pop rbx
     pop rcx
@@ -563,7 +512,6 @@ isr%1:
     jmp isr_common_stub
 %endmacro
 
-; Генерация ISR...
 %assign i 0
 %rep 48
     %if i == 8 || i == 10 || i == 11 || i == 12 || i == 13 || i == 14 || i == 17
@@ -598,14 +546,13 @@ syscall_entry:
     push r12            ; [offset 24]
     push r13            ; [offset 16]
     push r14            ; [offset 8]
-    push r15            ; [offset 0]   <-- RSP указывает сюда
+    push r15            ; [offset 0]
 	
-    ; Передаем указатель на структуру регистров (RSP) как первый аргумент (RDI)
 	mov rdi, rsp
 
-    sti             ; Включаем прерывания (если обработчик долгий)
+    sti
     call syscall_handler
-    cli             ; Выключаем прерывания перед восстановлением стека
+    cli
 	
 
     pop r15
@@ -620,7 +567,7 @@ syscall_entry:
     pop rdx
     pop rbp
     pop rbx
-    pop rax         ; Возвращаемое значение из handler (regs->rax)
+    pop rax
 
     pop rcx         ; RIP
     pop r11         ; RFLAGS
@@ -708,7 +655,6 @@ trampoline_enter_kernel:
 	call schedule
 	jmp .loop
 
-; --- Данные ---
 boot_drive: db 0
 acpi_found_addr: dd 0
 smbios_found_addr: dd 0
@@ -730,7 +676,6 @@ gdt64_start:
     dq 0x0000920000000000 ; 0x10: Data 64-bit
 gdt64_end:
 
-; Специальный указатель для загрузки GDT64 из 32-битного режима
 gdt64_ptr32:
     dw gdt64_end - gdt64_start - 1
     dd V2P(gdt64_start)

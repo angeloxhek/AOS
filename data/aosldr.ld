@@ -1,22 +1,19 @@
 ENTRY(start)
 
-/* Виртуальный базовый адрес (стандарт для 64-бит ядер: -2GB) */
 KERNEL_VMA = 0xFFFFFFFF80010000;
-/* Физический адрес загрузки */
 KERNEL_LMA = 0x10000;
 
 OFFSET = KERNEL_VMA - KERNEL_LMA;
 
 SECTIONS
 {
-    /* Сдвигаем счетчик адресов "." на высокий адрес */
     . = KERNEL_VMA;
 
-    /* Но говорим AT(...), чтобы физически данные шли с 0x10000 */
     .text : AT(ADDR(.text) - OFFSET) ALIGN(4096)
     {
-        /* Важно: код bootstrap должен быть в начале, линкер может перетасовать секции */
-        *(.text .text.*)
+        *(.text.boot)
+        *(.text)
+        *(.text.*)
     }
 
     .rodata : AT(ADDR(.rodata) - OFFSET)

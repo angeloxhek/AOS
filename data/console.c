@@ -122,18 +122,6 @@ void kprint_error(const char* str) {
     spinlock_irq_restore(irq_state);
 }
 
-void _kprint_error_vga(const char* str) {
-    volatile uint16_t* vga_buffer = (volatile uint16_t*)0xB8000;
-    for(int i = 0; i < 80 * 25; i++) {
-        vga_buffer[i] = 0x1F00;
-    }
-    int i = 0;
-    while(str[i]) {
-        vga_buffer[i] = (uint16_t)str[i] | 0x4F00;
-        i++;
-    }
-}
-
 
 // ------------------------
 //      uint to text
@@ -205,7 +193,8 @@ void uint64_to_dec(uint64_t value, char* out_buffer) { // buff size 21
 // -------------------------
 
 __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4) {
-    asm volatile("cli");
+    hal_disable_interrupts();
+    
     _kprint_error("KERNEL STOP: 0x");
     char buff[17];
     uint64_to_hex(code, buff);
@@ -228,10 +217,8 @@ __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64
     uint64_to_hex(arg4, buff);
     _kprint_error(buff);
     _kprint_error("\nThe system has been halted!");
-    while (1) {
-        asm volatile("hlt");
-    }
-    __builtin_unreachable();
+    
+    hal_halt();
 }
 
 __attribute__((noreturn)) void __stack_chk_fail(void) {
@@ -241,14 +228,10 @@ __attribute__((noreturn)) void __stack_chk_fail(void) {
 
 __attribute__((noreturn)) void breakpoint(){
     kprint("Breakpoint :-)");
-    while (1) {
-        asm volatile("cli; hlt");
-    }
-    __builtin_unreachable();
+    hal_halt();
 }
 
 void pausepoint(){
     kprint("Pausepoint. Press any key to continue :3\n");
-    while ((inb(0x64) & 1) == 0);
-    inb(0x60);
+    hal_debug_pause();
 }

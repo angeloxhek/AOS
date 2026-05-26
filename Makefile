@@ -1,11 +1,23 @@
-CC = gcc
+ARCH ?= x86_64
+
+.DEFAULT_GOAL := all
+
+CC = $(CROSS_COMPILE)gcc
 NASM = nasm
-LD = ld
-AR = ar
-OBJCOPY = objcopy
+LD = $(CROSS_COMPILE)ld
+AR = $(CROSS_COMPILE)ar
+OBJCOPY = $(CROSS_COMPILE)objcopy
 CP = cp
 MKDIR = mkdir
 RM = rm
+
+ABUILD_DIR = $(CURDIR)/build
+BUILD_DIR = $(ABUILD_DIR)/$(ARCH)
+TEMP_DIR = $(CURDIR)/temp
+DISK_DIR = $(BUILD_DIR)/volume
+DRIVERS_DIR = $(DISK_DIR)/DRIVERS
+
+include data/arch/$(ARCH)/arch.mk
 
 ifeq ($(V),1)
     Q :=
@@ -26,24 +38,26 @@ BROWN  := \033[0;33m
 GRAY   := \033[0;37m
 NC     := \033[0m
 
-KERNEL_CFLAGS = -m64 -g3 -O0 -Wall -fno-omit-frame-pointer -mcmodel=kernel -mno-red-zone \
-				-ffreestanding -mgeneral-regs-only -fno-pic -fno-pie -fstack-protector
+COMMON_CFLAGS = -Wall -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fstack-protector
+KERNEL_CFLAGS = $(COMMON_CFLAGS) -g3 -O0 $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS)
+
 AOSLIB_CFLAGS = -I $(CURDIR)/data/include
 LIBC_CFLAGS = -I $(CURDIR)/aosliblin/include
-LIB_CFLAGS = -m64 -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables -nostdinc
-DRV_CFLAGS = -m64 -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
-USR_CFLAGS = -m64 -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fno-asynchronous-unwind-tables
-LDFLAGS = -m elf_x86_64 --no-warn-rwx-segments
 
-BUILD_DIR = $(CURDIR)/build
-TEMP_DIR = $(CURDIR)/temp
-DISK_DIR = $(BUILD_DIR)/volume
-DRIVERS_DIR = $(DISK_DIR)/DRIVERS
+USER_COMMON_CFLAGS = $(COMMON_CFLAGS) -fno-asynchronous-unwind-tables $(ARCH_CFLAGS) $(ARCH_USER_CFLAGS)
+LIB_CFLAGS = $(USER_COMMON_CFLAGS) -nostdinc
+DRV_CFLAGS = $(USER_COMMON_CFLAGS)
+USR_CFLAGS = $(USER_COMMON_CFLAGS)
 
-KERNEL_OBJS = $(TEMP_DIR)/asmaosldr.o $(TEMP_DIR)/caosldr.o $(TEMP_DIR)/pmm.o \
+LDFLAGS = --no-warn-rwx-segments $(ARCH_LDFLAGS)
+
+
+COMMON_OBJS = $(TEMP_DIR)/caosldr.o $(TEMP_DIR)/pmm.o \
               $(TEMP_DIR)/vmm.o $(TEMP_DIR)/sched.o $(TEMP_DIR)/ipc.o \
               $(TEMP_DIR)/syscall.o $(TEMP_DIR)/ide.o $(TEMP_DIR)/elf.o \
               $(TEMP_DIR)/console.o $(TEMP_DIR)/shm.o $(TEMP_DIR)/vfs.o
+
+KERNEL_OBJS = $(COMMON_OBJS) $(ARCH_OBJS)
 			  
 AOSLIB_OBJS = $(TEMP_DIR)/aos_syscalls.o $(TEMP_DIR)/aos_vfs.o $(TEMP_DIR)/aos_sync.o \
 			  $(TEMP_DIR)/aos_utils.o $(TEMP_DIR)/aos_stdio.o $(TEMP_DIR)/aos_auth.o \
@@ -54,10 +68,10 @@ AOSLIBLIN_OBJS = $(AOSLIB_OBJS) \
 				 $(TEMP_DIR)/libc_unistd.o $(TEMP_DIR)/libc_time.o $(TEMP_DIR)/libc_sys_time.o \
 				 $(TEMP_DIR)/libc_sys_stat.o $(TEMP_DIR)/libc_pwd.o $(TEMP_DIR)/libc_grp.o
 			  
-.PHONY: all clean kernel drivers configs userspace userlinux
+.PHONY: all clean kernel libs drivers configs userspace userlinux prepare
 
-all: prepare kernel libs drivers configs userspace userlinux
-	@echo "Build Successful!"
+all: prepare kernel libs drivers configs $(ARCH_EXTRA_TARGETS) userspace userlinux
+	@echo "Build Successful for $(ARCH)!"
 	
 prepare:
 	$(ECHO) "${RED}[  MKDIR  ]${NC} ${DRIVERS_DIR}\n"
@@ -69,11 +83,7 @@ prepare:
 	$(ECHO) "${RED}[  MKDIR  ]${NC} ${TEMP_DIR}\n"
 	$(Q)$(MKDIR) -p $(TEMP_DIR)
 	
-kernel: $(BUILD_DIR)/pbr.bin $(BUILD_DIR)/volume/AOSLDR.BIN
-
-$(BUILD_DIR)/pbr.bin: $(CURDIR)/data/pbr.asm
-	$(ECHO) "${GREEN}[   AS    ]${NC} $<\n"
-	$(Q)$(NASM) $< -o $@
+kernel: $(DISK_DIR)/AOSLDR.BIN
 
 $(DISK_DIR)/AOSLDR.BIN: $(KERNEL_OBJS)
 	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
@@ -123,8 +133,8 @@ $(DISK_DIR)/tree_linux.elf:
 	$(ECHO) "${GRAY}[  MAKE   ]${NC} ${CYAN}${CURDIR}/userlinux/tree${NC}\n"
 	$(Q)$(MAKE) -s -C $(CURDIR)/userlinux/tree \
 		CC="$(CC)" \
-		CFLAGS="-O2 -Wall -m64 -nostdinc -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables $(LIBC_CFLAGS)" \
-		LDFLAGS="-nostdlib -static -m64 -T $(CURDIR)/data/drivers/driver.ld $(TEMP_DIR)/libc_start.o $(TEMP_DIR)/libaoslin.a"
+		CFLAGS="-O2 -Wall -nostdinc $(USER_COMMON_CFLAGS) -fno-stack-protector $(LIBC_CFLAGS)" \
+		LDFLAGS="-nostdlib -static $(ARCH_LDFLAGS) -T $(CURDIR)/data/drivers/driver.ld $(TEMP_DIR)/libc_start.o $(TEMP_DIR)/libaoslin.a"
 	$(ECHO) "${BROWN}[   CP    ]${NC} ${CURDIR}/userlinux/tree/tree ${GREEN}->${NC} ${DISK_DIR}/tree_linux\n"
 	$(Q)$(CP) $(CURDIR)/userlinux/tree/tree $(DISK_DIR)/tree_linux
 
@@ -147,18 +157,19 @@ $(TEMP_DIR)/%.o: $(CURDIR)/data/userspace/%.c
 	@$(MKDIR) -p $(dir $@)
 	$(ECHO) "${CYAN}[   CC    ]${NC} $<\n"
 	$(Q)$(CC) $(USR_CFLAGS) -c $< -o $@
+	
+$(TEMP_DIR)/hal_%.o: $(CURDIR)/data/arch/$(ARCH)/hal_%.c
+	@$(MKDIR) -p $(dir $@)
+	$(ECHO) "${CYAN}[   CC    ]${NC} $<\n"
+	$(Q)$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(TEMP_DIR)/%.o: $(CURDIR)/data/%.c
 	@$(MKDIR) -p $(dir $@)
 	$(ECHO) "${CYAN}[   CC    ]${NC} $<\n"
 	$(Q)$(CC) $(KERNEL_CFLAGS) -c $< -o $@
-
-$(TEMP_DIR)/%.o: $(CURDIR)/data/%.asm
-	$(ECHO) "${GREEN}[   AS    ]${NC} $<\n"
-	$(Q)$(NASM) -f elf64 $< -o $@
 	
 clean:
 	$(ECHO) "${DRED}[   RM    ]${NC} ${TEMP_DIR}/*\n"
 	$(Q)$(RM) -rf $(TEMP_DIR)/*
-	$(ECHO) "${DRED}[   RM    ]${NC} ${BUILD_DIR}/*\n"
-	$(Q)$(RM) -rf $(BUILD_DIR)/*
+	$(ECHO) "${DRED}[   RM    ]${NC} ${ABUILD_DIR}/*\n"
+	$(Q)$(RM) -rf $(ABUILD_DIR)/*

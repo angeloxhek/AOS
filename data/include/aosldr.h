@@ -5,14 +5,10 @@
 #include "bootparams.h"
 #include "elf-min.h"
 #include "aoslib.h"
+#include "hal.h"
 
 #define MAX_VOLUMES 32
 #define KBD_BUFFER_SIZE 256
-#define KERNEL_BASE 0xFFFFFFFF80000000
-
-#define ATA_CMD_READ_PIO_EXT    0x24
-#define ATA_CMD_WRITE_PIO_EXT   0x34
-#define ATA_CMD_CACHE_FLUSH_EXT 0xEA
 
 struct fat32_bpb {
     uint8_t  boot_jmp[3];
@@ -88,106 +84,10 @@ typedef struct {
     uint16_t write_time;
 } fat32_dirent_t;
 
-typedef struct {
-    uint64_t rax, rbx, rcx, rdx, rsi, rdi, rbp, r8, r9, r10, r11, r12, r13, r14, r15;
-    uint64_t int_no, err_code;
-    uint64_t rip, cs, rflags, rsp, ss;
-} __attribute__((packed)) registers_t;
-
-typedef struct {
-    uint64_t r15;
-    uint64_t r14;
-    uint64_t r13;
-    uint64_t r12;
-    uint64_t r10;
-    uint64_t r9;
-    uint64_t r8;
-    uint64_t rdi;
-    uint64_t rsi;
-    uint64_t rdx;
-    uint64_t rbp;
-    uint64_t rbx;
-    uint64_t rax;
-    uint64_t rcx;
-    uint64_t r11;
-    uint64_t rsp;
-} syscall_regs_t;
-
-struct idt_entry {
-    uint16_t base_low;
-    uint16_t sel;
-    uint8_t  ist;
-    uint8_t  flags;
-    uint16_t base_mid;
-    uint32_t base_high;
-    uint32_t reserved;
-} __attribute__((packed));
-
-struct idt_ptr {
-    uint16_t limit;
-    uint64_t base;
-} __attribute__((packed));
-
-struct gdt_entry {
-    uint16_t limit_low;
-    uint16_t base_low;
-    uint8_t  base_middle;
-    uint8_t  access;
-    uint8_t  granularity;
-    uint8_t  base_high;
-} __attribute__((packed));
-
-struct gdt_ptr {
-    uint16_t limit;
-    uint64_t base;
-} __attribute__((packed));
-
-typedef struct symbol {
-    char name[16];
-    uint32_t address;
-    struct symbol* next;
-} symbol_t;
-
 typedef struct st_flags {
 	uint32_t system_flags; // CAN_REGISTER_KERNEL_DRIVERS, CAN_PRINT, KERNEL_PANIC
 	uint16_t cpu_flags; // FSGSBASE
 } st_flags_t;
-
-#define E820_RAM      1
-#define E820_RESERVED 2
-#define E820_ACPI     3
-
-typedef struct {
-    uint64_t base;
-    uint64_t length;
-    uint32_t type;
-    uint32_t unused;
-} __attribute__((packed)) e820_entry_t;
-
-typedef struct {
-    uint64_t user_rsp_scratch;
-    uint64_t kernel_rsp;
-    uint64_t reserved[3];
-    uint64_t canary;
-} __attribute__((packed)) kernel_tcb_t;
-
-struct tss_entry_t {
-    uint32_t reserved1;
-    uint64_t rsp0;
-    uint64_t rsp1;
-    uint64_t rsp2;
-    uint64_t reserved2;
-    uint64_t ist1;
-    uint64_t ist2;
-    uint64_t ist3;
-    uint64_t ist4;
-    uint64_t ist5;
-    uint64_t ist6;
-    uint64_t ist7;
-    uint64_t reserved3;
-    uint16_t reserved4;
-    uint16_t iomap_base;
-} __attribute__((packed));
 
 typedef enum {
     THREAD_READY,
@@ -274,25 +174,6 @@ typedef struct shm_object {
 } shm_object_t;
 	
 
-// --------------------------
-//           ASM
-// --------------------------
-
-void outb(uint16_t port, uint8_t val);
-uint8_t inb(uint16_t port);
-uint16_t inw(uint16_t port);
-void outw(uint16_t port, uint16_t val);
-void insw(uint16_t port, void* addr, uint32_t count);
-void outsw(uint16_t port, const void* addr, uint32_t count);
-void wrmsr(uint32_t msr, uint64_t value);
-uint64_t rdmsr(uint32_t msr);
-uint8_t read_cmos(uint8_t reg);
-uint8_t is_bcd_mode();
-uint8_t bcd_to_bin(uint8_t bcd);
-uint64_t rtc_to_unix(uint8_t sec, uint8_t min, uint8_t hour, 
-                     uint8_t day, uint8_t month, uint8_t year);
-void init_rtc(void);
-
 // -------------------------
 //     Print Functions
 // -------------------------
@@ -307,7 +188,6 @@ void kprint(const char* str);
 void kprint_error(const char* str);
 void _kprint(const char* str);
 void _kprint_error(const char* str);
-void _kprint_error_vga(const char* str);
 
 
 // ------------------------
@@ -347,67 +227,29 @@ uint64_t pmm_alloc_block();
 void pmm_free_block(uint64_t p_addr);
 void pmm_init_region(uint64_t base, uint64_t size);
 void pmm_deinit_region(uint64_t base, uint64_t size);
-void copy_address_space(uint64_t* src_pml4_virt, uint64_t* dst_pml4_virt);
-void destroy_address_space(process_t* proc);
-
-
-// -------------------------
-//           VMM
-// -------------------------
-
-uint64_t* vmm_get_pte(uint64_t virt, int alloc);
-uint64_t vmm_get_phys_from_pml4(uint64_t* pml4_phys_root, uint64_t virt);
-void vmm_map_page(uint64_t phys, uint64_t virt, uint64_t flags);
-void vmm_unmap_page(uint64_t virt);
-
-
-// -------------------------
-//        PIC & IDT
-// -------------------------
-
-void pic_remap();
-void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags);
-void idt_install();
-void timer_init(uint32_t frequency);
-void schedule();
-void isr_handler(registers_t *r);
 
 
 // -------------------------
 //           GDT
 // -------------------------
 
-void gdt_set_gate(int num, uint64_t base, uint64_t limit, uint8_t access, uint8_t gran);
-void write_tss(int32_t num, uint64_t base, uint32_t limit);
-void gdt_install();
-void init_syscall();
 int is_valid_user_pointer(const void* ptr);
 int copy_string_from_user(const char* user_src, char* kernel_dest, int max_len);
-void syscall_handler(syscall_regs_t* regs);
-void fpu_init();
+void generic_syscall_handler(syscall_args_t* regs);
 
 
 // -------------------------
 //           IDE
 // -------------------------
 
-void get_ide_device_name(ide_device_t* device, char* buff);
+void get_drv_device_name(ide_device_t* device, char* buff);
 void get_volume_name(volume_t* v, char* buff);
-int ide_identify(ide_device_t* dev);
-int ide_wait_ready(void* dev);
-int ide_wait_drq(void* dev);
-int ide_read_sectors(ide_device_t* dev, uint64_t lba, uint16_t count, uint8_t* buffer);
-int ide_read_sector(ide_device_t* dev, uint64_t lba, uint8_t* buffer);
-int ide_write_sectors(ide_device_t* dev, uint64_t lba, uint16_t count, const uint8_t* buffer);
-int ide_write_sector(ide_device_t* dev, uint64_t lba, const uint8_t* buffer);
 
 
 // ----------------------------
 //         File System
 // ----------------------------
 
-void mbr_mount_all_partitions(ide_device_t* dev, uint8_t is_boot_device);
-void mbr_storage_init(uint8_t boot_drive_id);
 uint64_t cluster_to_lba(volume_t* vol, uint32_t cluster);
 uint32_t get_next_cluster(volume_t* vol, uint32_t current_cluster);
 
@@ -439,13 +281,9 @@ void* fat32_read_file(volume_t* v, fat32_dirent_t* file, uint64_t* out_size);
 //         Process
 // -------------------------
 
-uint64_t get_current_pml4();
-void set_current_pml4(uint64_t phys_addr);
 void* temp_map(uint64_t phys_addr);
 void temp_unmap(void* virt_ptr);
 process_t* create_process(const char* name);
-uint64_t get_or_alloc_table(uint64_t parent_phys, int index, int flags);
-void map_to_other_pml4(uint64_t* pml4_phys, uint64_t phys, uint64_t virt, int flags);
 void process_map_memory(process_t* proc, uint64_t virt, uint64_t size);
 int copy_string_from_user(const char* user_src, char* kernel_dest, int max_len);
 
@@ -465,6 +303,7 @@ int64_t register_driver(driver_type_t type, const char* user_name);
 uint64_t get_driver_tid(driver_type_t type);
 uint64_t get_driver_tid_by_name(const char* name);
 int get_driver_tid_sleep_wrapper(void* arg);
+void schedule(void);
 
 
 // -------------------------
