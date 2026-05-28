@@ -2,14 +2,15 @@ ARCH ?= x86_64
 
 .DEFAULT_GOAL := all
 
-CC = $(CROSS_COMPILE)gcc
-NASM = nasm
-LD = $(CROSS_COMPILE)ld
-AR = $(CROSS_COMPILE)ar
-OBJCOPY = $(CROSS_COMPILE)objcopy
-CP = cp
-MKDIR = mkdir
-RM = rm
+CC ?= $(CROSS_COMPILE)gcc
+NASM ?= nasm
+LD ?= $(CROSS_COMPILE)ld
+AR ?= $(CROSS_COMPILE)ar
+OBJCOPY ?= $(CROSS_COMPILE)objcopy
+CP ?= cp
+MKDIR ?= mkdir
+RM ?= rm
+TAR ?= tar
 
 ABUILD_DIR = $(CURDIR)/build
 BUILD_DIR = $(ABUILD_DIR)/$(ARCH)
@@ -38,31 +39,31 @@ BROWN  := \033[0;33m
 GRAY   := \033[0;37m
 NC     := \033[0m
 
-COMMON_CFLAGS = -Wall -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fstack-protector
-KERNEL_CFLAGS = $(COMMON_CFLAGS) -g3 -O0 $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS)
-
 AOSLIB_CFLAGS = -I $(CURDIR)/data/include
 LIBC_CFLAGS = -I $(CURDIR)/aosliblin/include
 
+COMMON_CFLAGS = -Wall -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fstack-protector
+KERNEL_CFLAGS = $(COMMON_CFLAGS) -g3 -O0 $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS) $(AOSLIB_CFLAGS)
+
 USER_COMMON_CFLAGS = $(COMMON_CFLAGS) -fno-asynchronous-unwind-tables $(ARCH_CFLAGS) $(ARCH_USER_CFLAGS)
 LIB_CFLAGS = $(USER_COMMON_CFLAGS) -nostdinc
-DRV_CFLAGS = $(USER_COMMON_CFLAGS)
-USR_CFLAGS = $(USER_COMMON_CFLAGS)
+DRV_CFLAGS = $(USER_COMMON_CFLAGS) $(AOSLIB_CFLAGS)
+USR_CFLAGS = $(USER_COMMON_CFLAGS) $(AOSLIB_CFLAGS)
 
 LDFLAGS = --no-warn-rwx-segments $(ARCH_LDFLAGS)
 
 
 COMMON_OBJS = $(TEMP_DIR)/caosldr.o $(TEMP_DIR)/pmm.o \
               $(TEMP_DIR)/vmm.o $(TEMP_DIR)/sched.o $(TEMP_DIR)/ipc.o \
-              $(TEMP_DIR)/syscall.o $(TEMP_DIR)/ide.o $(TEMP_DIR)/elf.o \
-              $(TEMP_DIR)/console.o $(TEMP_DIR)/shm.o $(TEMP_DIR)/vfs.o
+              $(TEMP_DIR)/syscall.o $(TEMP_DIR)/elf.o $(TEMP_DIR)/console.o \
+			  $(TEMP_DIR)/shm.o
 
 KERNEL_OBJS = $(COMMON_OBJS) $(ARCH_OBJS)
 			  
 AOSLIB_OBJS = $(TEMP_DIR)/aos_syscalls.o $(TEMP_DIR)/aos_vfs.o $(TEMP_DIR)/aos_sync.o \
 			  $(TEMP_DIR)/aos_utils.o $(TEMP_DIR)/aos_stdio.o $(TEMP_DIR)/aos_auth.o \
 			  $(TEMP_DIR)/libc_stdlib.o $(TEMP_DIR)/libc_ctype.o $(TEMP_DIR)/libc_stdio.o \
-			  $(TEMP_DIR)/libc_string.o $(TEMP_DIR)/libc_strings.o
+			  $(TEMP_DIR)/libc_string.o $(TEMP_DIR)/libc_strings.o $(AOSLIB_ARCH_OBJS)
 
 AOSLIBLIN_OBJS = $(AOSLIB_OBJS) \
 				 $(TEMP_DIR)/libc_unistd.o $(TEMP_DIR)/libc_time.o $(TEMP_DIR)/libc_sys_time.o \
@@ -70,7 +71,7 @@ AOSLIBLIN_OBJS = $(AOSLIB_OBJS) \
 			  
 .PHONY: all clean kernel libs drivers configs userspace userlinux prepare
 
-all: prepare kernel libs drivers configs $(ARCH_EXTRA_TARGETS) userspace userlinux
+all: prepare kernel $(ARCH_EXTRA_TARGETS) libs drivers configs userspace userlinux
 	@echo "Build Successful for $(ARCH)!"
 	
 prepare:
@@ -83,13 +84,29 @@ prepare:
 	$(ECHO) "${RED}[  MKDIR  ]${NC} ${TEMP_DIR}\n"
 	$(Q)$(MKDIR) -p $(TEMP_DIR)
 	
-kernel: $(DISK_DIR)/AOSLDR.BIN
+kernel: $(DISK_DIR)/AOSLDR.BIN $(DISK_DIR)/INITRD.TAR
 
 $(DISK_DIR)/AOSLDR.BIN: $(KERNEL_OBJS)
 	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
 	$(Q)$(LD) $(LDFLAGS) -T $(CURDIR)/data/aosldr.ld -Map $(TEMP_DIR)/aosldr.map -o $(TEMP_DIR)/aosldr.elf $(KERNEL_OBJS)
 	$(ECHO) "${PURPLE}[ OBJCOPY ]${NC} $@\n"
 	$(Q)$(OBJCOPY) -O binary -S -R .bss -R .note -R .comment -R .note.gnu.property $(TEMP_DIR)/aosldr.elf $@
+	
+$(DISK_DIR)/INITRD.TAR: $(TEMP_DIR)/INITDRIVER.ELF $(TEMP_DIR)/AUTHDRIVER.ELF $(TEMP_DIR)/VFSDRIVER.ELF
+	$(ECHO) "${PURPLE}[   TAR   ]${NC} $@\n"
+	$(Q)$(TAR) -cf $@ -C $(TEMP_DIR) INITDRIVER.ELF AUTHDRIVER.ELF VFSDRIVER.ELF
+
+$(TEMP_DIR)/INITDRIVER.ELF: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/initdriver.o $(BUILD_DIR)/libs/libaos.a
+	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
+	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/initdriver.map -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
+
+$(TEMP_DIR)/AUTHDRIVER.ELF: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/authdriver.o $(BUILD_DIR)/libs/libaos.a
+	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
+	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/authdriver.map -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
+	
+$(TEMP_DIR)/VFSDRIVER.ELF: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/vfsdriver.o $(TEMP_DIR)/fat32_vfsmodule.o $(TEMP_DIR)/procfs_vfsmodule.o $(TEMP_DIR)/ide_diskmodule.o $(TEMP_DIR)/mbr_partmodule.o $(BUILD_DIR)/libs/libaos.a
+	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
+	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/vfsdriver.map -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
 	
 libs: $(BUILD_DIR)/libs/libaos.a $(BUILD_DIR)/libs/libaoslin.a $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/libc_start.o
 
@@ -100,20 +117,8 @@ $(BUILD_DIR)/libs/libaos.a: $(AOSLIB_OBJS)
 $(BUILD_DIR)/libs/libaoslin.a: $(AOSLIBLIN_OBJS)
 	$(ECHO) "${LCYAN}[   AR    ]${NC} $@\n"
 	$(Q)$(AR) rcs $@ $^
-	
-drivers: $(DRIVERS_DIR)/INITDRIVER.ELF $(DRIVERS_DIR)/AUTHDRIVER.ELF $(DRIVERS_DIR)/VFSDRIVER.ELF
 
-$(DRIVERS_DIR)/INITDRIVER.ELF: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/initdriver.o $(BUILD_DIR)/libs/libaos.a
-	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/initdriver.map -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
-
-$(DRIVERS_DIR)/AUTHDRIVER.ELF: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/authdriver.o $(BUILD_DIR)/libs/libaos.a
-	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/authdriver.map -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
-	
-$(DRIVERS_DIR)/VFSDRIVER.ELF: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/vfsdriver.o $(TEMP_DIR)/fat32_vfsmodule.o $(TEMP_DIR)/procfs_vfsmodule.o $(BUILD_DIR)/libs/libaos.a
-	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/vfsdriver.map -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
+drivers: 
 	
 configs:
 	$(ECHO) "${BROWN}[   CP    ]${NC} ${CURDIR}/configs ${GREEN}->${NC} ${DISK_DIR}/configs\n"

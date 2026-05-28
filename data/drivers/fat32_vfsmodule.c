@@ -1,8 +1,8 @@
 #include <stdint.h>
 #define AOSLIB_SYSCALLS
 #define AOSLIB_STRING
-#include "../include/aoslib.h"
-#include "../include/fs_interface.h"
+#include <aoslib.h>
+#include <vfs/fs_interface.h>
 
 #define FAT_ATTR_READ_ONLY 0x01
 #define FAT_ATTR_HIDDEN    0x02

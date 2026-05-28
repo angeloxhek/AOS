@@ -32,13 +32,6 @@ extern process_t kernel_process;
 extern uint8_t kernel_stack[KERNEL_STACK_SIZE];
 extern thread_t* zombies_list;
 
-extern ide_device_t* system_ide;
-extern ide_device_t mounted_ides[MAX_VOLUMES];
-extern int ide_count;
-extern volume_t* system_volume;
-extern volume_t mounted_volumes[MAX_VOLUMES];
-extern int volume_count;
-
 extern driver_info_t* drivers_list_head;
 extern uint64_t keyboard_driver_tid;
 

@@ -1,4 +1,4 @@
-#include "include/kernel_internal.h"
+#include <kernel/internal.h>
 
 // -------------------------
 //        Scheduler
@@ -58,7 +58,7 @@ thread_t* create_thread_core(uint64_t root_phys, process_t* owner) {
     return t;
 }
 
-void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, uint64_t arg1, uint64_t arg2) {
+thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, uint64_t arg1, uint64_t arg2) {
     uint64_t irq = hal_irq_save();
     thread_t* t = create_thread_core(cr3_phys, proc);
 
@@ -98,16 +98,18 @@ void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_
 
     hal_setup_user_thread(t, entry_point, user_stack, arg1, arg2);
     
-    hal_irq_restore(irq); // Заменяем sti
+    hal_irq_restore(irq);
+	return t;
 }
 
-void create_kernel_thread(void (*entry)(void)) {
+thread_t* create_kernel_thread(void (*entry)(void)) {
     uint64_t irq = hal_irq_save();
     thread_t* t = create_thread_core(hal_get_current_address_space(), &kernel_process);
     
     hal_setup_kernel_thread(t, (uint64_t)entry);
     
     hal_irq_restore(irq);
+	return t;
 }
 
 void schedule() {
@@ -186,8 +188,8 @@ process_t* get_process_by_id(uint32_t pid) {
     return 0;
 }
 
-int get_driver_tid_sleep_wrapper(void* arg) {
-    return get_driver_tid(*(driver_type_t*)arg);
+int get_driver_pid_sleep_wrapper(void* arg) {
+    return get_driver_pid(*(driver_type_t*)arg);
 }
 
 void sleep(uint64_t ms) {

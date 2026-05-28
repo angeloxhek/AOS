@@ -1,9 +1,10 @@
 #include <stdint.h>
-#include "../include/aoslib.h"
-#include "../include/fs_interface.h"
+#include <aoslib.h>
+#include <vfs/fs_interface.h>
+#include <vfs/disk_interface.h>
+#include <vfs/part_interface.h>
 
-extern fs_driver_t fat32_driver;
-extern fs_driver_t procfs_driver;
+AOS_DECLARE_DRIVER(DT_VFS, DRV_PERM_IO_PORTS, 0xFFFF);
 
 typedef enum {
     VFS_TYPE_DIR,
@@ -123,18 +124,29 @@ vfs_file_t* vfs_get_file(int fd, uint64_t tid) {
     return f;
 }
 
+extern disk_driver_t ide_disk_driver;
+disk_driver_t* available_disks[] = { &ide_disk_driver, 0 };
+
+extern part_driver_t mbr_part_driver;
+part_driver_t* available_parsers[] = { &mbr_part_driver, 0 }; // Сюда потом добавите gpt_driver
+
+extern fs_driver_t fat32_driver;
+extern fs_driver_t procfs_driver;
+fs_driver_t* available_filesystems[] = { &fat32_driver, 0 };
+
+
 int dev_read_raw(void* param, void* buf, uint64_t size, uint64_t offset) {
     block_dev_t* dev = (block_dev_t*)param;
-    uint64_t lba = offset / 512;
-    uint64_t count = (size + 511) / 512;
-    return block_read(dev, lba, count, buf); 
+    uint64_t lba = offset / dev->sector_size;
+    uint64_t count = (size + dev->sector_size - 1) / dev->sector_size;
+    return block_read(dev, lba, count, buf) == 0 ? size : -1;
 }
 
 int dev_write_raw(void* param, void* buf, uint64_t size, uint64_t offset) {
     block_dev_t* dev = (block_dev_t*)param;
-    uint64_t lba = offset / 512;
-    uint64_t count = (size + 511) / 512;
-    return block_write(dev, lba, count, buf); 
+    uint64_t lba = offset / dev->sector_size;
+    uint64_t count = (size + dev->sector_size - 1) / dev->sector_size;
+    return block_write(dev, lba, count, buf) == 0 ? size : -1;
 }
 
 int dev_read_uptime(void* param, void* buf, uint64_t size, uint64_t offset) {
@@ -254,93 +266,125 @@ vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
     return 0;
 }
 
+typedef struct {
+    vfs_node_t* disk_node;
+    char disk_name[32];
+    int* global_part_id;
+    vfs_node_t* mnt_id_node;
+    vfs_node_t* mnt_node;
+} vfs_part_ctx_t;
+
+void vfs_on_partition_found(block_dev_t* raw_disk, uint8_t part_id, uint64_t start_lba, uint64_t size_sectors, int is_bootable, void* context) {
+    vfs_part_ctx_t* ctx = (vfs_part_ctx_t*)context;
+    
+    char part_name[16];
+    sprintf(part_name, "v%d", *ctx->global_part_id);
+    
+    // /hw/ide0/v0
+    vfs_node_t* p_node = vfs_mkdir(ctx->disk_node, part_name);
+    
+    block_dev_t* part_dev = malloc(sizeof(block_dev_t));
+    memcpy(part_dev, raw_disk, sizeof(block_dev_t));
+    part_dev->partition_offset_lba = start_lba;
+    part_dev->size_sectors = size_sectors;
+    
+    vfs_mkdev(p_node, "raw", dev_read_raw, dev_write_raw, part_dev);
+
+    for (int i = 0; available_filesystems[i] != 0; i++) {
+        fs_driver_t* fs_drv = available_filesystems[i];
+        fs_instance_t fs_inst = fs_drv->mount(part_dev);
+        
+        if (fs_inst) {
+            vfs_node_t* fs_node = vfs_mkdir(p_node, "fs");
+            fs_node->type = VFS_TYPE_MOUNT_POINT;
+            fs_node->mount.driver = fs_drv;
+            fs_node->mount.fs_inst = fs_inst;
+            
+            char target[64];
+            snprintf(target, sizeof(target), "/hw/%s/%s/fs", ctx->disk_name, part_name);
+            vfs_symlink(ctx->mnt_id_node, part_name, target); // /mnt/id/v0
+            
+            char label[12] = "NO_NAME";
+            if (fs_drv->get_label) fs_drv->get_label(fs_inst, label);
+            if (strcmp(label, "NO_NAME") != 0) vfs_symlink(ctx->mnt_node, label, target); // /mnt/DISK_C
+            
+            if (is_bootable) vfs_symlink(vfs_root, "boot", target); // /boot -> активный диск
+            break;
+        }
+    }
+    
+    (*ctx->global_part_id)++;
+}
+
 void vfs_init_tree() {
     vfs_root = calloc(1, sizeof(vfs_node_t));
     vfs_root->type = VFS_TYPE_DIR;
 
     vfs_node_t* hw   = vfs_mkdir(vfs_root, "hw");
-	vfs_mkdev(hw, "null", dev_read_null, dev_write_null, 0);
-	vfs_mkdev(hw, "zero", dev_read_zero, dev_write_null, 0);
-	vfs_mkdev(hw, "urandom", dev_read_urandom, dev_write_null, 0);
+    vfs_mkdev(hw, "null", dev_read_null, dev_write_null, 0);
+    vfs_mkdev(hw, "zero", dev_read_zero, dev_write_null, 0);
+    vfs_mkdev(hw, "urandom", dev_read_urandom, dev_write_null, 0);
 
     vfs_node_t* sys  = vfs_mkdir(vfs_root, "sys");
-	
     vfs_node_t* tasks = vfs_mkdir(vfs_root, "tasks");
-	tasks->type = VFS_TYPE_MOUNT_POINT;
+    tasks->type = VFS_TYPE_MOUNT_POINT;
     tasks->mount.driver = &procfs_driver;
     tasks->mount.fs_inst = procfs_driver.mount(0);
-	
+    
     vfs_node_t* mnt  = vfs_mkdir(vfs_root, "mnt");
     vfs_node_t* mnt_id = vfs_mkdir(mnt, "id");
-
+    
     vfs_node_t* sysstat  = vfs_mkdir(sys, "stat");
-	vfs_mkdev(sysstat, "uptime", dev_read_uptime, 0, 0);
-	vfs_mkdev(sysstat, "flags", dev_read_flags, 0, 0);
-	
+    vfs_mkdev(sysstat, "uptime", dev_read_uptime, 0, 0);
+    vfs_mkdev(sysstat, "flags", dev_read_flags, 0, 0);
+    
+    int global_disk_id = 0;
+    int global_part_id = 0;
 
-    uint64_t disk_count = get_disk_count();
-    for (int i = 0; i < disk_count; i++) {
-        char name[16];
-        sprintf(name, "ide%d", i);
-        vfs_node_t* disk_node = vfs_mkdir(hw, name);
-        block_dev_t* raw_disk = malloc(sizeof(block_dev_t));
-		if (!raw_disk) return;
-		memset(raw_disk, 0, sizeof(block_dev_t));
-        raw_disk->disk_id = i;
-        raw_disk->partition_offset_lba = 0;
-		
-        vfs_mkdev(disk_node, "raw", dev_read_raw, dev_write_raw, raw_disk);
-        vfs_mkdev(disk_node, "ctl", 0, 0, raw_disk);
-    }
-
-    uint64_t part_count = get_partition_count();
-    for (int i = 0; i < part_count; i++) {
-        partition_info_t pinfo;
-        get_partition_info(i, &pinfo);
-		
-        char disk_name[16];
-        sprintf(disk_name, "ide%d", (int)pinfo.parent_disk_id);
-        vfs_node_t* disk_node = find_child(hw, disk_name); 
-		
-        char part_name[16];
-        sprintf(part_name, "v%d", (int)pinfo.id);
-		
-        vfs_node_t* p_node = vfs_mkdir(disk_node, part_name);
-        block_dev_t* part_dev = malloc(sizeof(block_dev_t));
-		if (!part_dev) return;
-		memset(part_dev, 0, sizeof(block_dev_t));
-        part_dev->disk_id = pinfo.parent_disk_id;
-        part_dev->partition_offset_lba = pinfo.start_lba;
-        part_dev->size_sectors = pinfo.size_sectors;
+    for (int d = 0; available_disks[d] != 0; d++) {
+        disk_driver_t* disk_drv = available_disks[d];
+        int count = disk_drv->init();
         
-        vfs_mkdev(p_node, "raw", dev_read_raw, dev_write_raw, part_dev);
+        for (int i = 0; i < count; i++) {
+            uint64_t total_sec;
+            uint32_t sec_size;
+            disk_instance_t d_inst = disk_drv->get_disk(i, &total_sec, &sec_size);
+            if (!d_inst) continue;
 
-        fs_instance_t fs_inst = fat32_driver.mount(part_dev);
-        if (fs_inst) {
-            vfs_node_t* fs_node = vfs_mkdir(p_node, "fs");
-            fs_node->type = VFS_TYPE_MOUNT_POINT;
-            fs_node->mount.driver = &fat32_driver;
-            fs_node->mount.fs_inst = fs_inst;
+            char disk_name[32];
+            sprintf(disk_name, "%s%d", disk_drv->name, i); // "ide0", "ide1"
+            vfs_node_t* d_node = vfs_mkdir(hw, disk_name);
             
-            char target[64];
-            snprintf(target, sizeof(target), "/hw/%s/%s/fs", disk_name, part_name);
+            block_dev_t* raw_disk = malloc(sizeof(block_dev_t));
+            memset(raw_disk, 0, sizeof(block_dev_t));
+            raw_disk->driver = disk_drv;
+            raw_disk->disk_inst = d_inst;
+            raw_disk->disk_id = global_disk_id++;
+            raw_disk->partition_offset_lba = 0;
+            raw_disk->size_sectors = total_sec;
+            raw_disk->sector_size = sec_size;
             
-            char link_name[16];
-            snprintf(link_name, sizeof(link_name), "v%d", i);
-            
-            vfs_symlink(mnt_id, link_name, target);
-			
-            char label[12];
-            memset(label, 0, 12);
-            strcpy(label, "NO_NAME"); 
-            
-            if (fs_node->mount.driver->get_label) {
-                fs_node->mount.driver->get_label(fs_inst, label);
+            vfs_mkdev(d_node, "raw", dev_read_raw, dev_write_raw, raw_disk);
+
+            vfs_part_ctx_t ctx = {
+                .disk_node = d_node,
+                .global_part_id = &global_part_id,
+                .mnt_id_node = mnt_id,
+                .mnt_node = mnt
+            };
+            strcpy(ctx.disk_name, disk_name);
+
+            int parsed = 0;
+            for (int p = 0; available_parsers[p] != 0; p++) {
+                if (available_parsers[p]->parse(raw_disk, vfs_on_partition_found, &ctx)) {
+                    parsed = 1;
+                    break;
+                }
             }
             
-            if (strcmp(label, "NO_NAME") != 0) vfs_symlink(mnt, label, target);
-			
-			if (pinfo.bootable) vfs_symlink(vfs_root, "boot", target);
+            if (!parsed) {
+                vfs_on_partition_found(raw_disk, 0, 0, total_sec, 0, &ctx);
+            }
         }
     }
 }
@@ -931,8 +975,6 @@ int driver_main(void* reserved1, void* reserved2) {
 	
     vfs_init_tree();
     printf("VFS: Tree initialized.\n");
-	
-	register_driver(DT_VFS, 0);
 	
 	message_t msg;
     while (1) {

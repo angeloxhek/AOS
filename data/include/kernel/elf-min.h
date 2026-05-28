@@ -83,10 +83,13 @@ typedef struct {
 #define ELF_RESULT_NO_MEM 2
 
 typedef struct process_t process_t;
+typedef struct aos_driver_info_t aos_driver_info_t;
 typedef struct {
     uint64_t entry_point;
     process_t* proc;
     uint32_t result;
+	uint8_t is_driver;
+    aos_driver_info_t* driver_info;
 } elf_load_result_t;
 
 #endif /* ELF_MIN_H */

@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define BOOT_MAGIC 0xB007CAFE
-#define BOOT_VERSION 1
+#define BOOT_VERSION 2
 
 typedef enum {
     BOOT_TYPE_UNKNOWN = 0,
@@ -14,7 +14,7 @@ typedef enum {
 
 /* --- 1. ОБЩИЕ СТРУКТУРЫ (COMMON) --- */
 
-/* Видео (FrameBuffer) - одинаково нужно всем */
+/* Видео (FrameBuffer) */
 typedef struct {
     uint64_t framebuffer_addr;
     uint32_t width;
@@ -60,23 +60,28 @@ typedef struct {
 
 typedef struct {
     // [0] Заголовок
-    uint32_t magic;           // 0xB007CAFE
-    uint32_t version;         // Версия структуры
-    uint8_t  type;            // boot_type_t
+    uint32_t magic;           // Оффсет 0. 0xB007CAFE
+    uint32_t version;         // Оффсет 4. Версия структуры
+    uint8_t  type;            // Оффсет 8. boot_type_t
+    uint8_t  reserved1[7];    // Оффсет 9. Выравнивание до 16 байт
 
-    // [9] Общие данные
-    boot_video_t video;       // Смещение 9, Размер 30
-    boot_mmap_t  mmap;        // Смещение 39, Размер 24
-    uint64_t acpi_rsdp;       // Offset 63. Адрес структуры ACPI
-    uint64_t smbios_entry;    // Offset 71. Адрес структуры SMBIOS
-    uint64_t kernel_size;     // Offset 79. Размер загруженного ядра в байтах
-	uint32_t flags;
+    // [16] Данные INITRD
+    uint64_t initrd_addr;     // Оффсет 16. Физ. адрес INITRD.TAR
+    uint64_t initrd_size;     // Оффсет 24. Размер в байтах
 
-    // [91] Специфичные данные (Union)
+    // [32] Общие данные
+    boot_video_t video;       // Оффсет 32, Размер 30
+    boot_mmap_t  mmap;        // Оффсет 62, Размер 24
+    uint64_t acpi_rsdp;       // Оффсет 86. Адрес структуры ACPI
+    uint64_t smbios_entry;    // Оффсет 94. Адрес структуры SMBIOS
+    uint64_t reserved2;       // Оффсет 102.
+    uint32_t flags;           // Оффсет 110. Флаги
+
+    // [114] Специфичные данные (Union)
     union {
         mbr_info_t  mbr;
         uefi_info_t uefi;
-    } specific;               // Смещение 91
+    } specific;               // Оффсет 114
 
 } __attribute__((packed)) boot_info_t;
 

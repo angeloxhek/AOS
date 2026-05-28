@@ -7,55 +7,27 @@
 #include "aoslib.h"
 #include "hal.h"
 
-#define MAX_VOLUMES 32
 #define KBD_BUFFER_SIZE 256
 
-struct fat32_bpb {
-    uint8_t  boot_jmp[3];
-    uint8_t  oem_name[8];
-    uint16_t bytes_per_sec;
-    uint8_t  sec_per_clus;
-    uint16_t reserved_sec_cnt;
-    uint8_t  num_fats;
-    uint16_t root_ent_cnt;
-    uint16_t tot_sec_16;
-    uint8_t  media;
-    uint16_t fat_sz_16;
-    uint16_t sec_per_trk;
-    uint16_t num_heads;
-    uint32_t hidd_sec;
-    uint32_t tot_sec_32;
-    uint32_t fat_sz_32;
-    uint16_t ext_flags;
-    uint16_t fs_ver;
-    uint32_t root_clus;
-} __attribute__((packed));
-
-struct fat32_dir_entry {
-    char     name[11];
-    uint8_t  attr;
-    uint8_t  nt_res;
-    uint8_t  crt_time_ten;
-    uint16_t crt_time;
-    uint16_t crt_date;
-    uint16_t lst_acc_date;
-    uint16_t cluster_high;
-    uint16_t wrt_time;
-    uint16_t wrt_date;
-    uint16_t cluster_low;
-    uint32_t file_size;
-} __attribute__((packed));
-
-struct fat32_lfn_entry {
-    uint8_t  order;
-    uint16_t name1[5];
-    uint8_t  attr;
-    uint8_t  type;
-    uint8_t  checksum;
-    uint16_t name2[6];
-    uint16_t zero;
-    uint16_t name3[2];
-} __attribute__((packed));
+typedef struct {
+    char name[100];
+    char mode[8];
+    char uid[8];
+    char gid[8];
+    char size[12];
+    char mtime[12];
+    char chksum[8];
+    char typeflag;
+    char linkname[100];
+    char magic[6];
+    char version[2];
+    char uname[32];
+    char gname[32];
+    char devmajor[8];
+    char devminor[8];
+    char prefix[155];
+    char padding[12];
+} __attribute__((packed)) tar_header_t;
 
 typedef struct {
 	uint64_t    id;
@@ -74,15 +46,6 @@ typedef struct {
     uint32_t sec_per_clus;
     uint8_t  active;
 } volume_t;
-
-typedef struct {
-    char name[256];
-    uint64_t cluster;
-    uint64_t size;
-    uint8_t  attr;
-    uint16_t write_date;
-    uint16_t write_time;
-} fat32_dirent_t;
 
 typedef struct st_flags {
 	uint32_t system_flags; // CAN_REGISTER_KERNEL_DRIVERS, CAN_PRINT, KERNEL_PANIC
@@ -141,18 +104,20 @@ typedef struct thread_t {
 
 typedef volatile int spinlock_t;
 
-#define DRIVER_NAME_MAX 32
+#define ALLOWED_PORTS_MAX 8
 
 typedef struct driver_info_t {
-	thread_t* thread;
-	uint64_t tid;
+	process_t* process;
+	uint32_t pid;
 	driver_type_t type;
 	char name[DRIVER_NAME_MAX];
+	uint32_t driver_perms;
+    uint16_t allowed_ports[ALLOWED_PORTS_MAX];
 	struct driver_info_t* next;
 } driver_info_t;
 
 typedef struct shm_allow_node {
-    uint64_t tid;
+    uint64_t pid;
     struct shm_allow_node* next;
 } shm_allow_node_t;
 
@@ -198,6 +163,7 @@ void uint32_to_hex(uint32_t value, char* out_buffer);
 void uint64_to_hex(uint64_t value, char* out_buffer);
 void uint32_to_dec(uint32_t value, char* out_buffer);
 void uint64_to_dec(uint64_t value, char* out_buffer);
+uint64_t octal_to_int(const char* str);
 
 
 // --------------------------
@@ -239,21 +205,6 @@ void generic_syscall_handler(syscall_args_t* regs);
 
 
 // -------------------------
-//           IDE
-// -------------------------
-
-void get_drv_device_name(ide_device_t* device, char* buff);
-void get_volume_name(volume_t* v, char* buff);
-
-
-// ----------------------------
-//         File System
-// ----------------------------
-
-uint64_t cluster_to_lba(volume_t* vol, uint32_t cluster);
-uint32_t get_next_cluster(volume_t* vol, uint32_t current_cluster);
-
-// -------------------------
 //           Heap
 // -------------------------
 
@@ -262,19 +213,6 @@ void* kernel_malloc(uint64_t size);
 void kernel_free(void* ptr);
 void* kernel_realloc(void* ptr, uint64_t new_size);
 void* kernel_malloc_aligned(uint64_t size, uint64_t alignment);
-
-
-// -------------------------
-//          FAT32
-// -------------------------
-
-void fat32_entry_to_dirent(struct fat32_dir_entry* raw, fat32_dirent_t* out);
-void fat32_collect_lfn_chars(struct fat32_lfn_entry* lfn, char* lfn_buffer);
-void fat32_format_sfn(char* dest, const char* sfn_name);
-unsigned char fat32_checksum(unsigned char *pName);
-fat32_dirent_t* fat32_read_dir(volume_t* v, fat32_dirent_t* dir_entry, int* out_count);
-int fat32_find_in_dir(volume_t* v, fat32_dirent_t* dir_entry, const char* search_name, fat32_dirent_t* result);
-void* fat32_read_file(volume_t* v, fat32_dirent_t* file, uint64_t* out_size);
 
 
 // -------------------------
@@ -294,16 +232,23 @@ int copy_string_from_user(const char* user_src, char* kernel_dest, int max_len);
 
 void init_scheduler();
 thread_t* create_thread_core(uint64_t cr3, process_t* owner);
-void create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, uint64_t arg1, uint64_t arg2);
-void create_kernel_thread(void (*entry)(void));
+thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, uint64_t arg1, uint64_t arg2);
+thread_t* create_kernel_thread(void (*entry)(void));
 int kill_thread(thread_t* target, int exit_code);
 thread_t* get_thread_by_id(uint64_t tid);
 process_t* get_process_by_id(uint32_t pid);
-int64_t register_driver(driver_type_t type, const char* user_name);
-uint64_t get_driver_tid(driver_type_t type);
-uint64_t get_driver_tid_by_name(const char* name);
-int get_driver_tid_sleep_wrapper(void* arg);
 void schedule(void);
+
+
+// -------------------------
+//      Driver Registry
+// -------------------------
+
+int64_t register_driver(driver_type_t type, const char* user_name, uint32_t perms, uint16_t* allowed_ports, process_t* process);
+uint32_t get_driver_pid(driver_type_t type);
+driver_info_t* get_driver_by_pid(uint32_t pid);
+uint32_t get_driver_pid_by_name(const char* name);
+int get_driver_pid_sleep_wrapper(void* arg);
 
 
 // -------------------------
@@ -312,11 +257,17 @@ void schedule(void);
 
 void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, elf_load_result_t* result);
 void load_elf_raw(char* name, uint8_t* raw_data, uint64_t file_size, elf_load_result_t* result);
-void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* result);
 int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg2);
 int startup_info_args_copy(startup_info_t* k_info, startup_info_t* child_info, void* kvirt, uint64_t child_virt_addr);
 startup_info_t* prepare_child_startup_info(process_t* proc, startup_info_t* user_info_ptr);
 startup_info_t* prepare_child_startup_info_kernel(process_t* proc, startup_info_t* k_info);
+
+
+// -------------------------
+//          InitRD
+// -------------------------
+
+uint8_t* load_file_initrd(void* initrd, const char* name, uint64_t* out_size);
 
 
 // -------------------------
@@ -358,24 +309,9 @@ shm_object_t* shm_find_by_id(uint64_t id);
 void shm_add(shm_object_t* obj);
 void shm_remove(shm_object_t* obj);
 uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr);
-int shm_allow(uint64_t shm_id, uint64_t target_tid);
+int shm_allow(uint64_t shm_id, uint64_t target_pid);
 uint64_t shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
-
-
-// -------------------------
-//        VFS Driver
-// -------------------------
-
-int vfs_open(const char* path, uint32_t flags);
-int vfs_openat(int dir_fd, const char* name, uint32_t flags);
-int vfs_close(int fd);
-int vfs_read(int fd, void* buf, int count);
-int vfs_write(int fd, const void* buf, int count);
-int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries);
-int vfs_flock(int fd, vfs_lock_type_t lock_type);
-int vfs_stat(int fd, vfs_stat_info_t* out_stat);
-int vfs_read_from_path(const char* user_path, uint8_t* data, char* name, uint64_t* size);
 
 
 // -------------------------

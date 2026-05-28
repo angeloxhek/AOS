@@ -1,16 +1,8 @@
 #include "../include/aoslib.h"
 
-int64_t block_read(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer) {
-    return (int64_t)syscall(SYS_BLOCK_READ, dev->disk_id, dev->partition_offset_lba + lba, count, (uint64_t)buffer, 0);
-}
+static uint64_t vfs_driver_pid = 0;
 
-int64_t block_write(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer) {
-    return (int64_t)syscall(SYS_BLOCK_WRITE, dev->disk_id, dev->partition_offset_lba + lba, count, (uint64_t)buffer, 0);
-}
-
-static uint64_t vfs_driver_tid = 0;
-
-#define ensure_vfs_init() { if (vfs_driver_tid == 0) vfs_driver_tid = get_driver_tid(DT_VFS); }
+#define ensure_vfs_init() { if (vfs_driver_pid == 0) vfs_driver_pid = get_driver_pid(DT_VFS); }
 
 void vfs_init() {
     ensure_vfs_init();
@@ -21,10 +13,10 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
 
     req->type = MSG_TYPE_VFS;
 
-    ipc_send(vfs_driver_tid, req);
+    ipc_send(vfs_driver_pid, req);
 
     ipc_recv_ex(
-        vfs_driver_tid,
+        vfs_driver_pid,
         MSG_TYPE_VFS,
         MSG_SUBTYPE_NONE,
         resp_out
@@ -105,7 +97,7 @@ int vfs_read(int fd, void* buf, int count) {
     uint64_t shm_id = shm_alloc((uint64_t)count, &shm_vaddr);
     if (!shm_id) return -1;
 
-    shm_allow(shm_id, vfs_driver_tid);
+    shm_allow(shm_id, vfs_driver_pid);
 
     message_t req;
     message_t resp;
@@ -144,7 +136,7 @@ int vfs_write(int fd, const void* buf, int count) {
 
     memcpy(shm_vaddr, buf, count);
 
-    shm_allow(shm_id, vfs_driver_tid);
+    shm_allow(shm_id, vfs_driver_pid);
 
     message_t req;
     message_t resp;
@@ -177,7 +169,7 @@ int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries) {
     uint64_t shm_id = shm_alloc(size, &shm_vaddr);
     if (!shm_id) return -1;
 
-    shm_allow(shm_id, vfs_driver_tid);
+    shm_allow(shm_id, vfs_driver_pid);
 
     message_t req;
     message_t resp;
@@ -259,7 +251,7 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
     uint64_t shm_id = shm_alloc(sizeof(vfs_stat_info_t), &shm_vaddr);
     if (!shm_id) return -1;
 
-    shm_allow(shm_id, vfs_driver_tid);
+    shm_allow(shm_id, vfs_driver_pid);
 
     message_t req;
     message_t resp;

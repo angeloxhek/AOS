@@ -1,5 +1,5 @@
-#include "include/kernel_internal.h"
-#include "include/fonts.h"
+#include <kernel/internal.h>
+#include <kernel/fonts.h>
 
 extern uint32_t boot_ver;
 
@@ -14,9 +14,9 @@ st_flags_t state;
 const char* const kernel_messages[] = {
 	"NO_ERROR_DEBUG",
 	"STACK_SMASHING_DETECTED",
-	"VOLUME_ERROR",
-	"IDE_ERROR",
-	"FS_NOT_FOUND",
+	"RESERVED1",
+	"RESERVED2",
+	"INITRD_ERROR",
 	"MEMORY_ERROR",
 	"DRIVER_ERROR",
 	"ISR_ERROR",
@@ -35,13 +35,6 @@ int malloc_initialized = 0;
 
 __attribute__((aligned(16)))
 uint8_t kernel_stack[16384];
-
-ide_device_t* system_ide = 0;
-ide_device_t mounted_ides[MAX_VOLUMES];
-int ide_count = 0;
-volume_t* system_volume = 0;
-volume_t mounted_volumes[MAX_VOLUMES];
-int volume_count = 0;
 
 process_t kernel_process;
 thread_t* current_thread;
@@ -361,228 +354,6 @@ void* kernel_malloc_aligned(uint64_t size, uint64_t alignment) {
 
 
 // -------------------------
-//          FAT32
-// -------------------------
-
-void fat32_entry_to_dirent(struct fat32_dir_entry* raw, fat32_dirent_t* out) {
-    kernel_memset(out->name, 0, 256);
-    kernel_memcpy(out->name, raw->name, 11);
-
-    out->cluster = ((uint64_t)raw->cluster_high << 16) | (uint64_t)raw->cluster_low;
-    out->size = (uint64_t)raw->file_size;
-    out->attr = raw->attr;
-
-    out->write_date   = raw->wrt_date;
-    out->write_time   = raw->wrt_time;
-}
-
-void fat32_collect_lfn_chars(struct fat32_lfn_entry* lfn, char* lfn_buffer) {
-    int order = lfn->order & 0x1F;
-    if (order < 1 || order > 20) return;
-
-    int index = (order - 1) * 13;
-    if (index < 0 || index + 13 > 255) return;
-
-    for (int i = 0; i < 5; i++)  lfn_buffer[index++] = (char)(lfn->name1[i] & 0xFF);
-    for (int i = 0; i < 6; i++)  lfn_buffer[index++] = (char)(lfn->name2[i] & 0xFF);
-    for (int i = 0; i < 2; i++)  lfn_buffer[index++] = (char)(lfn->name3[i] & 0xFF);
-}
-
-void fat32_format_sfn(char* dest, const char* sfn_name) {
-    int p = 0;
-    for (int i = 0; i < 8; i++) {
-        if (sfn_name[i] == ' ') break;
-        dest[p++] = sfn_name[i];
-    }
-    if (sfn_name[8] != ' ') {
-        dest[p++] = '.';
-        for (int i = 8; i < 11; i++) {
-            if (sfn_name[i] == ' ') break;
-            dest[p++] = sfn_name[i];
-        }
-    }
-    dest[p] = '\0';
-}
-
-unsigned char fat32_checksum(unsigned char *pName) {
-    unsigned char sum = 0;
-    for (int i = 11; i; i--) {
-        sum = ((sum & 1) << 7) + (sum >> 1) + *pName++;
-    }
-    return sum;
-}
-
-fat32_dirent_t* fat32_read_dir(volume_t* v, fat32_dirent_t* dir_entry, int* out_count) {
-    uint8_t buffer[512];
-    uint32_t start_cluster = (dir_entry == 0) ? v->root_cluster : (uint32_t)dir_entry->cluster;
-    uint32_t current_cluster = start_cluster;
-    int total_files = 0;
-
-    while (current_cluster < 0x0FFFFFF8 && current_cluster >= 2) {
-        uint64_t lba = cluster_to_lba(v, current_cluster);
-        for (uint32_t s = 0; s < v->sec_per_clus; s++) {
-            hal_disk_read(v->device.id, lba + s, 1, buffer); // ИЗМЕНЕНО НА HAL
-            struct fat32_dir_entry* dir = (struct fat32_dir_entry*)buffer;
-            for (int i = 0; i < 16; i++) {
-                if (dir[i].name[0] == 0x00) goto count_finished;
-                if (dir[i].name[0] == 0xE5) continue;
-                if (dir[i].attr == 0x0F) continue;
-                if (dir[i].attr & 0x08) continue;
-                total_files++;
-            }
-        }
-        current_cluster = get_next_cluster(v, current_cluster);
-    }
-
-count_finished:
-    if (total_files == 0) {
-        *out_count = 0;
-        return 0;
-    }
-
-    fat32_dirent_t* result_array = (fat32_dirent_t*)kernel_malloc(sizeof(fat32_dirent_t) * total_files);
-    if (!result_array) {
-        *out_count = 0;
-        return 0;
-    }
-
-    current_cluster = start_cluster;
-    int current_index = 0;
-    char lfn_temp[256];
-    uint8_t lfn_checksum = 0;
-    kernel_memset(lfn_temp, 0, 256);
-
-    while (current_cluster < 0x0FFFFFF8 && current_cluster >= 2) {
-        uint64_t lba = cluster_to_lba(v, current_cluster);
-        for (uint32_t s = 0; s < v->sec_per_clus; s++) {
-            hal_disk_read(v->device.id, lba + s, 1, buffer);
-            struct fat32_dir_entry* dir = (struct fat32_dir_entry*)buffer;
-
-            for (int i = 0; i < 16; i++) {
-                if (dir[i].name[0] == 0x00) {
-                    *out_count = current_index;
-                    return result_array;
-                }
-                if (dir[i].name[0] == 0xE5) {
-                    kernel_memset(lfn_temp, 0, 256);
-                    lfn_checksum = 0;
-                    continue;
-                }
-
-                if (dir[i].attr == 0x0F) {
-                    struct fat32_lfn_entry* lfn = (struct fat32_lfn_entry*)&dir[i];
-
-                    if (lfn->order & 0x40) {
-                        kernel_memset(lfn_temp, 0, 256);
-                        lfn_checksum = lfn->checksum;
-                    }
-
-                    fat32_collect_lfn_chars(lfn, lfn_temp);
-                    continue;
-                }
-
-                if (dir[i].attr & 0x08) {
-                    kernel_memset(lfn_temp, 0, 256);
-                    continue;
-                }
-
-                fat32_entry_to_dirent(&dir[i], &result_array[current_index]);
-                uint8_t sfn_sum = fat32_checksum((unsigned char*)dir[i].name);
-                if (lfn_temp[0] != 0 && sfn_sum == lfn_checksum) {
-                    kernel_memcpy(result_array[current_index].name, lfn_temp, 256);
-                } else {
-                    fat32_format_sfn(result_array[current_index].name, dir[i].name);
-                }
-                kernel_memset(lfn_temp, 0, 256);
-                lfn_checksum = 0;
-                current_index++;
-                if (current_index >= total_files) {
-                     *out_count = current_index;
-                     return result_array;
-                }
-            }
-        }
-        current_cluster = get_next_cluster(v, current_cluster);
-    }
-    *out_count = current_index;
-    return result_array;
-}
-
-int fat32_find_in_dir(volume_t* v, fat32_dirent_t* dir_entry, const char* search_name, fat32_dirent_t* result) {
-    if (dir_entry != 0 && !(dir_entry->attr & 0x10)) return 0;
-
-    char name_upper[256];
-    kernel_memcpy(name_upper, search_name, 255);
-    name_upper[255] = 0;
-    kernel_to_upper(name_upper);
-
-    int count = 0;
-    fat32_dirent_t* file_list = fat32_read_dir(v, dir_entry, &count);
-
-    if (!file_list) return 0;
-
-    int found = 0;
-    for (int i = 0; i < count; i++) {
-        char file_name_upper[256];
-        kernel_memcpy(file_name_upper, file_list[i].name, 256);
-        kernel_to_upper(file_name_upper);
-
-        if (kernel_strcmp(file_name_upper, name_upper) == 0) {
-            kernel_memcpy(result, &file_list[i], sizeof(fat32_dirent_t));
-            found = 1;
-            break;
-        }
-    }
-
-    kernel_free(file_list);
-    return found;
-}
-
-void* fat32_read_file(volume_t* v, fat32_dirent_t* file, uint64_t* out_size) {
-    if (file == 0 || (file->attr & 0x10)) return 0;
-    uint8_t* destination = (uint8_t*)kernel_malloc(file->size);
-    if (!destination) {
-        return 0;
-    }
-    if (out_size != 0) {
-        *out_size = file->size;
-    }
-    uint32_t cluster = (uint32_t)file->cluster;
-    uint64_t bytes_left = file->size;
-    uint64_t offset = 0;
-    uint8_t temp_sector[512];
-
-    while (bytes_left > 0 && cluster < 0x0FFFFFF8 && cluster >= 2) {
-        uint64_t lba = cluster_to_lba(v, cluster);
-        uint64_t cluster_size = v->sec_per_clus * 512;
-        if (bytes_left >= cluster_size) {
-            hal_disk_read(v->device.id, lba, v->sec_per_clus, destination + offset);
-            offset += cluster_size;
-            bytes_left -= cluster_size;
-        }
-        else {
-            for (uint32_t i = 0; i < v->sec_per_clus && bytes_left > 0; i++) {
-                if (bytes_left >= 512) {
-                    hal_disk_read(v->device.id, lba + i, 1, destination + offset);
-                    offset += 512;
-                    bytes_left -= 512;
-                } else {
-                    hal_disk_read(v->device.id, lba + i, 1, temp_sector);
-                    kernel_memcpy(destination + offset, temp_sector, bytes_left);
-                    bytes_left = 0;
-                    break;
-                }
-            }
-        }
-        if (bytes_left > 0) {
-            cluster = get_next_cluster(v, cluster);
-        }
-    }
-    return (void*)destination;
-}
-
-
-// -------------------------
 //         Process
 // -------------------------
 
@@ -612,10 +383,10 @@ process_t* create_process(const char* name) {
 //      Driver Registry
 // -------------------------
 
-int64_t register_driver(driver_type_t type, const char* user_name) {
+int64_t register_driver(driver_type_t type, const char* user_name, uint32_t perms, uint16_t* allowed_ports, process_t* process) {
     char name_buf[DRIVER_NAME_MAX];
     kernel_memset(name_buf, 0, DRIVER_NAME_MAX);
-    if (user_name != 0 && !copy_string_from_user(user_name, name_buf, DRIVER_NAME_MAX)) {
+    if (user_name != 0) {
         return -1;
     }
     
@@ -638,10 +409,17 @@ int64_t register_driver(driver_type_t type, const char* user_name) {
         hal_irq_restore(irq);
         return -4;
     }
-    new_driver->thread = current_thread;
-    new_driver->tid = current_thread->tid;
+	if (!process) {
+		new_driver->process = current_thread->owner;
+		new_driver->pid = current_thread->owner->id;
+	} else {
+		new_driver->process = process;
+		new_driver->pid = process->id;
+	}
     new_driver->type = type;
     kernel_memcpy(new_driver->name, name_buf, DRIVER_NAME_MAX);
+	new_driver->driver_perms = perms;
+	kernel_memcpy(new_driver->allowed_ports, allowed_ports, ALLOWED_PORTS_MAX*sizeof(uint16_t));
     new_driver->next = drivers_list_head;
     drivers_list_head = new_driver;
     
@@ -649,25 +427,67 @@ int64_t register_driver(driver_type_t type, const char* user_name) {
     return 0;
 }
 
-uint64_t get_driver_tid(driver_type_t type) {
+uint32_t get_driver_pid(driver_type_t type) {
     driver_info_t* cur = drivers_list_head;
     while (cur) {
         if (cur->type == type) {
-            return cur->tid;
+            return cur->pid;
         }
         cur = cur->next;
     }
     return 0;
 }
 
-uint64_t get_driver_tid_by_name(const char* name) {
+driver_info_t* get_driver_by_pid(uint32_t pid) {
     driver_info_t* cur = drivers_list_head;
     while (cur) {
-        if (kernel_strcmp(cur->name, name) == 0) {
-            return cur->tid;
+        if (cur->pid == pid) {
+            return cur;
         }
         cur = cur->next;
     }
+    return 0;
+}
+
+uint32_t get_driver_pid_by_name(const char* name) {
+    driver_info_t* cur = drivers_list_head;
+    while (cur) {
+        if (kernel_strcmp(cur->name, name) == 0) {
+            return cur->pid;
+        }
+        cur = cur->next;
+    }
+    return 0;
+}
+
+
+// -------------------------
+//          InitRD
+// -------------------------
+
+uint8_t* load_file_initrd(void* initrd, const char* name, uint64_t* out_size) {
+    uint8_t* ptr = (uint8_t*)initrd;
+    
+    while (1) {
+        tar_header_t* header = (tar_header_t*)ptr;
+        
+        if (header->name[0] == '\0') break; 
+        
+        uint64_t file_size = octal_to_int(header->size);
+        
+        if (kernel_strcmp(header->name, name) == 0) {
+            uint8_t* file_buf = (uint8_t*)kernel_malloc(file_size);
+            if (!file_buf) return 0;
+            
+            kernel_memcpy(file_buf, ptr + 512, file_size);
+			if (out_size) *out_size = file_size;
+            return file_buf;
+        }
+        
+        uint64_t offset = 512 + ((file_size + 511) & ~511);
+        ptr += offset;
+    }
+    
     return 0;
 }
 
@@ -727,6 +547,7 @@ void kernel_main(boot_info_t* boot_info) {
     uint64_to_hex(boot_info->type, buff);
     _kprint(buff);
     _kprint("\n");
+	if (boot_info->version != BOOT_VERSION) kernel_error(0x8, 2, boot_info->version, BOOT_VERSION, 0);
     if (boot_info->type == BOOT_TYPE_UNKNOWN) kernel_error(0x8, 2, boot_info->type, 0, 0);
 
     hal_cpu_init();
@@ -756,76 +577,67 @@ void kernel_main(boot_info_t* boot_info) {
     hal_enable_interrupts();
     create_kernel_thread(idle_thread);
 
-    hal_storage_init(boot_info->specific.mbr.drive_num);
-
-    kprint("System volume is ");
-    kernel_memset(buff, 0, 32);
-    get_drv_device_name(system_ide, buff);
-    kprint(buff);
-    kprint("/");
-    kernel_memset(buff, 0, 32);
-    get_volume_name(system_volume, buff);
-    kprint(buff);
-    kprint("\n");
-
-    int entries = 0;
-    fat32_dirent_t* files;
     kprint("Load drivers...\n");
     
-    fat32_dirent_t file, drivers_dir;
-    if (!fat32_find_in_dir(system_volume, 0, "DRIVERS", &drivers_dir)){
-        kernel_error(0x4, system_volume->id, 0, 0, 0);
-    }
-    files = fat32_read_dir(system_volume, &drivers_dir, &entries);
-    for (int i = 0; i < entries; i++) {
-        kprint(" - ");
-        kprint(files[i].name);
-        if (files[i].attr & 0x10) kprint(" [D]");
-        kprint("\n");
-    }
-
-    // AUTH Driver
+	void* initrd_vaddr = (void*)boot_info->initrd_addr;
     elf_load_result_t* driver = (elf_load_result_t*)kernel_malloc(sizeof(elf_load_result_t));
+    uint8_t* file_buf;
+	uint64_t file_size;
+    uint32_t pid = 0;
+    driver_type_t dtype;
+
+     // --- AUTH Driver ---
     kprint("Auth driver..\n");
-    if (!fat32_find_in_dir(system_volume, &drivers_dir, "AUTHDRIVER.ELF", &file)){
-        kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
+    dtype = DT_AUTH;
+    file_buf = load_file_initrd(initrd_vaddr, "AUTHDRIVER.ELF", &file_size); 
+    if (!file_buf) {
+        kernel_error(0x4, dtype, 0, 0, 0);
     }
+    
     kernel_memset(driver, 0, sizeof(elf_load_result_t));
-    load_elf_raw_fat32(system_volume, &file, driver);
+    load_elf_raw("AUTHDRIVER.ELF", file_buf, file_size, driver); 
+    kernel_free(file_buf);
+    
     if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
-    
-    int tid = 0;
-    driver_type_t dtype = DT_AUTH;
-    if(!sleep_while_zero(get_driver_tid_sleep_wrapper, &dtype, 5000, &tid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
+    pid = 0;
+    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (int*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
 
-    // VFS Driver
+
+    // --- VFS Driver ---
     kprint("VFS driver..\n");
-    if (!fat32_find_in_dir(system_volume, &drivers_dir, "VFSDRIVER.ELF", &file)){
-        kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
-    }
-    kernel_memset(driver, 0, sizeof(elf_load_result_t));
-    load_elf_raw_fat32(system_volume, &file, driver);
-    if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
-    start_elf_process(driver, 0, 0);
-    
-    tid = 0;
     dtype = DT_VFS;
-    if(!sleep_while_zero(get_driver_tid_sleep_wrapper, &dtype, 5000, &tid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
-
-    // INIT Driver
-    kprint("Init driver..\n");
-    if (!fat32_find_in_dir(system_volume, &drivers_dir, "INITDRIVER.ELF", &file)){
-        kernel_error(0x4, system_volume->id, drivers_dir.cluster, 0, 0);
+    file_buf = load_file_initrd(initrd_vaddr, "VFSDRIVER.ELF", &file_size);
+    if (!file_buf) {
+        kernel_error(0x4, dtype, 0, 0, 0);
     }
+    
     kernel_memset(driver, 0, sizeof(elf_load_result_t));
-    load_elf_raw_fat32(system_volume, &file, driver);
+    load_elf_raw("VFSDRIVER.ELF", file_buf, file_size, driver);
+    kernel_free(file_buf);
+    
     if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
-    
-    tid = 0;
+    pid = 0;
+    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (int*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
+
+
+    // --- INIT Driver ---
+    kprint("Init driver..\n");
     dtype = DT_INIT;
-    if(!sleep_while_zero(get_driver_tid_sleep_wrapper, &dtype, 5000, &tid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
+    file_buf = load_file_initrd(initrd_vaddr, "INITDRIVER.ELF", &file_size);
+    if (!file_buf) {
+        kernel_error(0x4, dtype, 0, 0, 0);
+    }
+    
+    kernel_memset(driver, 0, sizeof(elf_load_result_t));
+    load_elf_raw("INITDRIVER.ELF", file_buf, file_size, driver);
+    kernel_free(file_buf);
+    
+    if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
+    start_elf_process(driver, 0, 0);
+    pid = 0;
+    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (int*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
 
     kprint("Stage 2 completed!\n");
     

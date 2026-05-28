@@ -1,4 +1,4 @@
-#include "include/kernel_internal.h"
+#include <kernel/internal.h>
 
 // -------------------------
 //        Syscall
@@ -72,21 +72,18 @@ void generic_syscall_handler(syscall_args_t* args) {
             args->ret = ipc_try_receive(user_msg_buffer);
             break;
         }
-        case SYS_REGISTER_DRIVER:
-            args->ret = register_driver((driver_type_t)args->arg1, (const char*)args->arg2);
+
+        case SYS_GET_DRIVER_PID:
+            args->ret = get_driver_pid((driver_type_t)args->arg1);
             break;
 
-        case SYS_GET_DRIVER_TID:
-            args->ret = get_driver_tid((driver_type_t)args->arg1);
-            break;
-
-        case SYS_GET_DRIVER_TID_BY_NAME: {
+        case SYS_GET_DRIVER_PID_BY_NAME: {
             const char* name_ptr = (const char*)args->arg1;
             if (!hal_is_valid_user_pointer(name_ptr)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
-            args->ret = get_driver_tid_by_name(name_ptr);
+            args->ret = get_driver_pid_by_name(name_ptr);
             break;
         }
 
@@ -137,76 +134,6 @@ void generic_syscall_handler(syscall_args_t* args) {
             proc->heap_limit = new_brk;
             args->ret = old_brk;
             hal_irq_restore(irq);
-            break;
-        }
-
-        case SYS_BLOCK_READ: {
-            uint64_t dev_id = args->arg1;
-            uint64_t lba    = args->arg2;
-            uint64_t count  = args->arg3;
-            void* buffer    = (void*)args->arg4;
-
-            if (!hal_is_valid_user_pointer(buffer)) {
-                args->ret = SYS_RES_INVALID;
-                break;
-            }
-            args->ret = hal_disk_read(dev_id, lba, count, buffer) ? SYS_RES_OK : SYS_RES_DSK_ERR;
-            break;
-        }
-
-        case SYS_BLOCK_WRITE: {
-            uint64_t dev_id = args->arg1;
-            uint64_t lba    = args->arg2;
-            uint64_t count  = args->arg3;
-            const void* buffer = (const void*)args->arg4;
-
-            if (!hal_is_valid_user_pointer(buffer)) {
-                args->ret = SYS_RES_INVALID;
-                break;
-            }
-            args->ret = hal_disk_write(dev_id, lba, count, buffer) ? SYS_RES_OK : SYS_RES_DSK_ERR;
-            break;
-        }
-
-        case SYS_GET_DISK_COUNT:
-            args->ret = ide_count;
-            break;
-
-        case SYS_GET_DISK_INFO: {
-            uint64_t idx = args->arg1;
-            disk_info_t* user_info = (disk_info_t*)args->arg2;
-            if (!hal_is_valid_user_pointer(user_info) || idx >= ide_count) {
-                args->ret = SYS_RES_INVALID;
-                break;
-            }
-            user_info->id = idx;
-            user_info->sector_size = 512;
-            user_info->type = DISK_TYPE_IDE;
-            user_info->total_sectors = 0;
-            kernel_strcpy(user_info->model, "Generic Drive");
-            args->ret = SYS_RES_OK;
-            break;
-        }
-
-        case SYS_GET_PARTITION_COUNT:
-            args->ret = volume_count;
-            break;
-
-        case SYS_GET_PARTITION_INFO: {
-            uint64_t idx = args->arg1;
-            partition_info_t* user_info = (partition_info_t*)args->arg2;
-            if (!hal_is_valid_user_pointer(user_info) || idx >= volume_count) {
-                args->ret = SYS_RES_INVALID;
-                break;
-            }
-            volume_t* vol = &mounted_volumes[idx];
-            user_info->id = vol->id;
-            user_info->parent_disk_id = vol->device.id;
-            user_info->start_lba = vol->partition_lba;
-            user_info->size_sectors = vol->sector_count;
-            user_info->bootable = vol->active;
-            user_info->partition_type = 0x0B; // FAT32
-            args->ret = SYS_RES_OK;
             break;
         }
 
@@ -391,30 +318,34 @@ void generic_syscall_handler(syscall_args_t* args) {
         }
         
         case SYS_SPAWN: {
-            const char* user_path = (const char*)args->arg1;
-            startup_info_t* info = (startup_info_t*)args->arg2;
-            uint64_t arg2_val = args->arg3;
+            spawn_args_t* user_sargs = (spawn_args_t*)args->arg1;
             
-            if (!hal_is_valid_user_pointer(user_path) || !hal_is_valid_user_pointer(info)) {
+            if (!hal_is_valid_user_pointer(user_sargs)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
             
-            uint8_t* data = 0;
-            char name[256];
-            uint64_t size;
-            int res = vfs_read_from_path(user_path, data, name, &size);
-            if (res) {
-                if (res != -2) kernel_free(data);
-                args->ret = SYS_RES_KERNEL_ERR;
+            spawn_args_t kargs;
+            kernel_memcpy(&kargs, user_sargs, sizeof(spawn_args_t));
+            
+            if (!hal_is_valid_user_pointer(kargs.name) || 
+                !hal_is_valid_user_pointer(kargs.data) || 
+                (kargs.info && !hal_is_valid_user_pointer(kargs.info))) {
+                args->ret = SYS_RES_INVALID;
                 break;
             }
             
-            elf_load_result_t elf;
-            load_elf_raw(name, data, size, &elf);
-            kernel_free(data);
+            char name[32];
+            kernel_memset(name, 0, 32);
+            for (int i = 0; i < 31; i++) {
+                name[i] = kargs.name[i];
+                if (name[i] == '\0') break;
+            }
             
-            if (elf.result != ELF_RESULT_OK || start_elf_process(&elf, info, arg2_val) != 0) {
+            elf_load_result_t elf;
+            load_elf_raw(name, kargs.data, kargs.size, &elf);
+            
+            if (elf.result != ELF_RESULT_OK || start_elf_process(&elf, kargs.info, kargs.arg_val) != 0) {
                 args->ret = SYS_RES_KERNEL_ERR;
                 break;
             }
@@ -437,45 +368,54 @@ void generic_syscall_handler(syscall_args_t* args) {
             hal_prepare_fork_context(current_thread, child_thread);
             
             child_thread->state = THREAD_READY;
+            
             args->ret = child->id;
             break;
         }
         
         case SYS_EXEC: {
-            const char* user_path = (const char*)args->arg1;
-            startup_info_t* user_info = (startup_info_t*)args->arg2;
-            uint64_t arg2_val = args->arg3;
+            spawn_args_t* user_sargs = (spawn_args_t*)args->arg1;
             
-            if (!hal_is_valid_user_pointer(user_path) || !hal_is_valid_user_pointer(user_info)) {
+            if (!hal_is_valid_user_pointer(user_sargs)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
             
-            uint8_t* data = 0;
-            char name[256];
-            uint64_t size;
-            int res = vfs_read_from_path(user_path, data, name, &size);
-            if (res) {
-                if (res != -2) kernel_free(data);
-                args->ret = SYS_RES_KERNEL_ERR;
+            spawn_args_t kargs;
+            kernel_memcpy(&kargs, user_sargs, sizeof(spawn_args_t));
+            
+            if (!hal_is_valid_user_pointer(kargs.name) || 
+                !hal_is_valid_user_pointer(kargs.data) || 
+                (kargs.info && !hal_is_valid_user_pointer(kargs.info))) {
+                args->ret = SYS_RES_INVALID;
                 break;
             }
             
+            uint8_t* k_data = (uint8_t*)kernel_malloc(kargs.size);
+            if (!k_data) {
+                args->ret = SYS_RES_KERNEL_ERR;
+                break;
+            }
+            kernel_memcpy(k_data, kargs.data, kargs.size);
+            
             process_t* proc = current_thread->owner;
+            
             hal_destroy_address_space(proc); 
             
             elf_load_result_t elf;
-            load_elf_raw_proc(proc, data, size, &elf);
-            kernel_free(data);
+            load_elf_raw_proc(proc, k_data, kargs.size, &elf);
+            
+            kernel_free(k_data); 
             
             if (elf.result != ELF_RESULT_OK) {
+                kill_thread(current_thread, -1);
                 args->ret = SYS_RES_KERNEL_ERR;
                 break;
             }
             
             uint64_t info_addr = 0;
-            if (user_info) {
-                info_addr = (uint64_t)prepare_child_startup_info(proc, user_info);
+            if (kargs.info) {
+                info_addr = (uint64_t)prepare_child_startup_info(proc, kargs.info);
             }
             
             uint64_t user_stack_virt = 0x0000700000000000;
@@ -484,6 +424,7 @@ void generic_syscall_handler(syscall_args_t* args) {
             for (uint64_t i = 0; i < stack_pages; i++) {
                 uint64_t phys_page = pmm_alloc_block();
                 if (phys_page == 0) {
+                    kill_thread(current_thread, -1);
                     args->ret = SYS_RES_KERNEL_ERR;
                     break;
                 }
@@ -495,7 +436,7 @@ void generic_syscall_handler(syscall_args_t* args) {
             uint64_t user_rsp = user_stack_virt + 4096;
             user_rsp = (user_rsp & ~0xFULL) - 8;
             
-            hal_set_exec_context(args->arch_context, elf.entry_point, user_rsp, info_addr, arg2_val);
+            hal_set_exec_context(args->arch_context, elf.entry_point, user_rsp, info_addr, kargs.arg_val);
             
             args->ret = SYS_RES_OK;
             hal_set_current_address_space((uint64_t)proc->page_directory);

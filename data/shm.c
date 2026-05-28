@@ -1,4 +1,4 @@
-#include "include/kernel_internal.h"
+#include <kernel/internal.h>
 
 // -------------------------
 //       Shared Memory
@@ -93,14 +93,14 @@ oom_cleanup:
     return 0;
 }
 
-int shm_allow(uint64_t shm_id, uint64_t target_tid) {
+int shm_allow(uint64_t shm_id, uint64_t target_pid) {
     shm_object_t* obj = shm_find_by_id(shm_id);
     if (!obj || obj->owner_pid != current_thread->owner->id) return SYS_RES_NO_PERM;
 
     shm_allow_node_t* node = (shm_allow_node_t*)kernel_malloc(sizeof(shm_allow_node_t));
     if (!node) return SYS_RES_KERNEL_ERR;
 
-    node->tid = target_tid;
+    node->pid = target_pid;
     node->next = obj->allow_list;
     obj->allow_list = node;
 
@@ -114,7 +114,7 @@ uint64_t shm_map(uint64_t shm_id) {
     int has_access = (obj->owner_pid == current_thread->owner->id);
     shm_allow_node_t* an = obj->allow_list;
     while (an && !has_access) {
-        if (an->tid == current_thread->tid) {
+        if (an->pid == current_thread->owner->id) {
             has_access = 1; break;
         }
         an = an->next;

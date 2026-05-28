@@ -12,6 +12,8 @@
 #define AOSLIB_IO
 #elif defined(AOSLIB_AUTH_ONLY)
 #define AOSLIB_AUTH
+#elif defined(AOSLIB_HAL_ONLY)
+#define AOSLIB_HAL
 #elif !defined(AOSKERNEL)
 #define AOSLIB
 #define AOSLIB_START
@@ -20,6 +22,7 @@
 #define AOSLIB_STRING
 #define AOSLIB_IO
 #define AOSLIB_AUTH
+#define AOSLIB_HAL
 #endif
 
 #ifndef AOSLIB_DEFINE
@@ -36,17 +39,17 @@ extern "C" {
 #define SYS_IPC_SEND                  2
 #define SYS_IPC_TRYRECV               3
 #define SYS_IPC_RECV                  4
-#define SYS_REGISTER_DRIVER           5
-#define SYS_GET_DRIVER_TID            6
-#define SYS_GET_DRIVER_TID_BY_NAME    7
+#define SYS_RESERVED1                 5
+#define SYS_GET_DRIVER_PID            6
+#define SYS_GET_DRIVER_PID_BY_NAME    7
 #define SYS_GET_SYSTEM_INFO           8
 #define SYS_SBRK                      9
-#define SYS_BLOCK_READ               10
-#define SYS_BLOCK_WRITE              11
-#define SYS_GET_DISK_COUNT           12
-#define SYS_GET_DISK_INFO            13
-#define SYS_GET_PARTITION_COUNT      14
-#define SYS_GET_PARTITION_INFO       15
+#define SYS_RESERVED2                10
+#define SYS_RESERVED3                11
+#define SYS_RESERVED4                12
+#define SYS_RESERVED5                13
+#define SYS_RESERVED6                14
+#define SYS_RESERVED7                15
 #define SYS_YIELD                    16
 #define SYS_PRINT                    17
 #define SYS_SHM_ALLOC                18
@@ -328,12 +331,6 @@ typedef struct {
     uint64_t wake_up_time;
 } thread_info_user_t;
 
-typedef struct {
-    uint64_t disk_id;
-    uint64_t partition_offset_lba;
-    uint64_t size_sectors;
-} block_dev_t;
-
 typedef struct malloc_header {
     uint64_t size;
     uint64_t is_free;
@@ -378,6 +375,40 @@ typedef struct {
 		} driver;
 	} data;
 } startup_info_t;
+
+typedef struct {
+    const char* name;
+    uint8_t* data;
+    uint64_t size;
+    startup_info_t* info;
+    uint64_t arg_val;
+} spawn_args_t;
+
+#define AOS_DRIVER_MAGIC 0x44525652 // "DRVR"
+#define DRIVER_NAME_MAX 32
+
+#define DRV_PERM_IO_PORTS      (1 << 0)
+#define DRV_PERM_PHYS_MAP      (1 << 1)
+#define DRV_PERM_IRQ_LISTEN    (1 << 2)
+
+typedef struct aos_driver_info_t {
+    uint32_t magic;
+    uint32_t version;
+    driver_type_t type;
+	char name[DRIVER_NAME_MAX];
+    uint32_t requested_perms;
+    uint16_t allowed_ports[8];
+} __attribute__((packed)) aos_driver_info_t;
+
+#define AOS_DECLARE_DRIVER(drv_type, perms, ...) \
+    __attribute__((section(".driver_info"), used)) \
+    const aos_driver_info_t _driver_metadata = { \
+        .magic = AOS_DRIVER_MAGIC, \
+        .version = 1, \
+        .type = drv_type, \
+        .requested_perms = perms, \
+        .allowed_ports = {__VA_ARGS__} \
+    };
 
 #define AOS_GET_TCB() ((aos_tcb_t __seg_fs *)0)
 
@@ -436,19 +467,13 @@ void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t
 void ipc_seek(int64_t offset, seek_whence_t whence);
 int ipc_get_at(uint64_t index, message_t* out);
 
-int64_t register_driver(driver_type_t type, const char* name);
-uint64_t get_driver_tid(driver_type_t type);
-uint64_t get_driver_tid_name(const char* name);
+uint32_t get_driver_pid(driver_type_t type);
+uint32_t get_driver_pid_name(const char* name);
 driver_type_t dt_from_str(const char* str);
 
 uint8_t get_scancode();
 int get_sysinfo(system_info_t* info);
 void* syscall_sbrk(int64_t increment);
-
-uint64_t get_disk_count(void);
-uint64_t get_partition_count(void);
-uint64_t get_disk_info(uint64_t index, disk_info_t* pinfo);
-uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo);
 
 int get_proc_info(uint32_t pid, proc_info_user_t* out_info);
 int get_thread_info(uint64_t tid, thread_info_user_t* out_info);
@@ -456,7 +481,7 @@ int get_pid_list(uint32_t* buff, uint64_t count);
 int get_tid_list(uint32_t pid, uint32_t* buff, uint64_t count);
 
 uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr);
-int shm_allow(uint64_t shm_id, uint64_t target_tid);
+int shm_allow(uint64_t shm_id, uint64_t target_pid);
 void* shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
 
@@ -550,8 +575,6 @@ int  bcmp(const void *s1, const void *s2, size_t n);
 
 #ifdef AOSLIB_VFS
 
-int64_t block_read(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
-int64_t block_write(block_dev_t* dev, uint64_t lba, uint64_t count, void* buffer);
 void vfs_init();
 int vfs_open(const char* path, uint32_t flags);
 int vfs_openat(int dir_fd, const char* name, uint32_t flags);
@@ -584,6 +607,19 @@ int auth_get_group(auth_id_t in, auth_grpex_t* out);
 int auth_get_group_by_name(const char* in, auth_grpex_t* out);
 int auth_add_group(auth_grpex_t* inout);
 int auth_del_group(auth_id_t in);
+
+#endif
+
+#ifdef AOSLIB_HAL
+
+void hal_outb(uint16_t port, uint8_t val);
+uint8_t hal_inb(uint16_t port);
+
+void hal_outw(uint16_t port, uint16_t val);
+uint16_t hal_inw(uint16_t port);
+
+void hal_insw(uint16_t port, void* addr, uint32_t count);
+void hal_outsw(uint16_t port, const void* addr, uint32_t count);
 
 #endif
 

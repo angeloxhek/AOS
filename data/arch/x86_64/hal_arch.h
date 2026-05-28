@@ -2,7 +2,7 @@
 #define HAL_ARCH_H
 
 #include <stdint.h>
-#include "../../include/kernel_internal.h"
+#include <kernel/internal.h>
 
 #define ATA_CMD_READ_PIO_EXT    0x24
 #define ATA_CMD_WRITE_PIO_EXT   0x34
@@ -88,7 +88,9 @@ struct tss_entry_t {
     uint64_t ist7;
     uint64_t reserved3;
     uint16_t reserved4;
-    uint16_t iomap_base;
+    uint16_t iopb_offset;
+    uint8_t  io_bitmap[8192];
+    uint8_t  iopb_end;
 } __attribute__((packed));
 
 typedef struct {

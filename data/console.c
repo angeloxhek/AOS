@@ -1,4 +1,4 @@
-#include "include/kernel_internal.h"
+#include <kernel/internal.h>
 
 // -------------------------
 //     Print Functions
@@ -185,6 +185,15 @@ void uint64_to_dec(uint64_t value, char* out_buffer) { // buff size 21
         out_buffer[j++] = temp[--i];
     }
     out_buffer[j] = '\0';
+}
+
+uint64_t octal_to_int(const char* str) {
+    uint64_t size = 0;
+    while (*str >= '0' && *str <= '7') {
+        size = size * 8 + (*str - '0');
+        str++;
+    }
+    return size;
 }
 
 

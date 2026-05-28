@@ -1,5 +1,7 @@
 #include <stdint.h>
-#include "../include/aoslib.h"
+#include <aoslib.h>
+
+AOS_DECLARE_DRIVER(DT_INIT, 0, 0);
 
 int spawn_driver(driver_type_t type, const char* name, const char* path) {
 	startup_info_t info;
@@ -48,9 +50,7 @@ void parse_drivers_conf(char* buffer) {
     }
 }
 
-int driver_main(void* reserved1, void* reserved2) {
-    register_driver(DT_INIT, 0);
-	
+int driver_main(void* reserved1, void* reserved2) {	
 	printf("AOS, Initdriver is here...\n");
 	
 	int drvfd = vfs_open("/boot/Configs/drivers.conf", VFS_FREAD);

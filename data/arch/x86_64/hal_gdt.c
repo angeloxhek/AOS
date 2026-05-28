@@ -46,7 +46,13 @@ static void gdt_install() {
     
     kernel_memset(&tss, 0, sizeof(struct tss_entry_t));
     tss.rsp0 = 0xFFFFFFFF80090000;
-    tss.iomap_base = sizeof(struct tss_entry_t);
+    
+    tss.iopb_offset = 104; 
+    
+    kernel_memset(tss.io_bitmap, 0xFF, sizeof(tss.io_bitmap));
+    
+    tss.iopb_end = 0xFF;   
+    
     write_tss(5, (uint64_t)&tss, sizeof(tss) - 1);
     
     __asm__ volatile("lgdt (%0)" : : "r"(&gp));
@@ -105,4 +111,29 @@ void hal_cpu_init(void) {
     asm volatile("mov %0, %%cr4" :: "r"(cr4));
 
     kernel_tcb.canary = hal_get_random_seed() ^ 0xDEADBEEFCAFEBABEULL;
+}
+
+void hal_set_io_permissions(uint32_t pid) {
+	driver_info_t* drv = get_driver_by_pid(pid);
+    if (!drv || !(drv->driver_perms & DRV_PERM_IO_PORTS)) {
+        kernel_memset(tss.io_bitmap, 0xFF, sizeof(tss.io_bitmap));
+        return;
+    }
+
+    if (drv->allowed_ports[0] == 0xFFFF) {
+        kernel_memset(tss.io_bitmap, 0x00, sizeof(tss.io_bitmap));
+        return;
+    }
+
+    kernel_memset(tss.io_bitmap, 0xFF, sizeof(tss.io_bitmap));
+
+    for (int i = 0; i < 8; i++) {
+        uint16_t port = drv->allowed_ports[i];
+        if (port != 0) {
+            int byte_index = port / 8;
+            int bit_index  = port % 8;
+            
+            tss.io_bitmap[byte_index] &= ~(1 << bit_index);
+        }
+    }
 }

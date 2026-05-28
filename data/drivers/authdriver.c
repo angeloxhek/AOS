@@ -1,5 +1,7 @@
 #include <stdint.h>
-#include "../include/aoslib.h"
+#include <aoslib.h>
+
+AOS_DECLARE_DRIVER(DT_AUTH, 0, 0);
 
 typedef struct auth_idex_node_t {
 	auth_idex_t data;
@@ -658,7 +660,6 @@ void handle_message(message_t* in) {
 
 int driver_main(void* reserved1, void* reserved2) {
 	if (init_auth() != 0) return -1;
-    register_driver(DT_AUTH, 0);
     
     message_t msg;
     while(1) {

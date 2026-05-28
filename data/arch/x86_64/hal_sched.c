@@ -101,7 +101,9 @@ void hal_setup_kernel_thread(thread_t* t, uint64_t entry_point) {
 
 void hal_switch_task(thread_t* prev, thread_t* next) {
     tss.rsp0 = next->stack_base + 16384; // KERNEL_STACK_SIZE
-    kernel_tcb.kernel_rsp = next->stack_base + 16384; 
+    kernel_tcb.kernel_rsp = next->stack_base + 16384;
+	
+	hal_set_io_permissions(next->owner->id);
     
     switch_to_task(prev, next);
 }

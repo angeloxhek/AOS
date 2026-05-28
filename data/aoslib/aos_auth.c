@@ -1,8 +1,8 @@
 #include "../include/aoslib.h"
 
-static uint64_t auth_driver_tid = 0;
+static uint64_t auth_driver_pid = 0;
 
-#define ensure_auth_init() { if (auth_driver_tid == 0) auth_driver_tid = get_driver_tid(DT_AUTH); }
+#define ensure_auth_init() { if (auth_driver_pid == 0) auth_driver_pid = get_driver_pid(DT_AUTH); }
 
 void auth_init() {
     ensure_auth_init();
@@ -13,10 +13,10 @@ static int auth_rpc_call(message_t* req, message_t* resp_out) {
 
     req->type = MSG_TYPE_AUTH;
 
-    ipc_send(auth_driver_tid, req);
+    ipc_send(auth_driver_pid, req);
 
     ipc_recv_ex(
-        auth_driver_tid,
+        auth_driver_pid,
         MSG_TYPE_AUTH,
         MSG_SUBTYPE_NONE,
         resp_out
@@ -38,7 +38,7 @@ int auth_get_user(auth_id_t in, auth_idex_t* out) {
     uint64_t shm_id = shm_alloc(sizeof(auth_idex_t), &shm_vaddr);
     if (!shm_id) return -1;
 
-    shm_allow(shm_id, auth_driver_tid);
+    shm_allow(shm_id, auth_driver_pid);
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = AUTH_CMD_GET_USER;
@@ -64,7 +64,7 @@ int auth_get_user_by_name(const char* in, auth_idex_t* out) {
     uint64_t shm_id = shm_alloc(64, &shm_vaddr);
     if (!shm_id) return -1;
 
-    shm_allow(shm_id, auth_driver_tid);
+    shm_allow(shm_id, auth_driver_pid);
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = AUTH_CMD_GET_USER_BY_NAME;
@@ -90,7 +90,7 @@ int auth_add_user(auth_idex_t* inout) {
     uint64_t shm_id = shm_alloc(sizeof(auth_idex_t), &shm_vaddr);
     if (!shm_id) return -1;
 	
-	shm_allow(shm_id, auth_driver_tid);
+	shm_allow(shm_id, auth_driver_pid);
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = AUTH_CMD_ADD_USER;
@@ -130,7 +130,7 @@ int auth_get_group(auth_id_t in, auth_grpex_t* out) {
     uint64_t shm_id = shm_alloc(sizeof(auth_grpex_t), &shm_vaddr);
     if (!shm_id) return -1;
 
-    shm_allow(shm_id, auth_driver_tid);
+    shm_allow(shm_id, auth_driver_pid);
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = AUTH_CMD_GET_GROUP;
@@ -156,7 +156,7 @@ int auth_get_group_by_name(const char* in, auth_grpex_t* out) {
     uint64_t shm_id = shm_alloc(64, &shm_vaddr);
     if (!shm_id) return -1;
 
-    shm_allow(shm_id, auth_driver_tid);
+    shm_allow(shm_id, auth_driver_pid);
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = AUTH_CMD_GET_GROUP_BY_NAME;
@@ -182,7 +182,7 @@ int auth_add_group(auth_grpex_t* inout) {
     uint64_t shm_id = shm_alloc(sizeof(auth_grpex_t), &shm_vaddr);
     if (!shm_id) return -1;
 	
-	shm_allow(shm_id, auth_driver_tid);
+	shm_allow(shm_id, auth_driver_pid);
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = AUTH_CMD_ADD_GROUP;
@@ -222,7 +222,7 @@ int auth_get_members(auth_id_t in, uint32_t index, auth_members_t* out) {
     uint64_t shm_id = shm_alloc(sizeof(auth_members_t), &shm_vaddr);
     if (!shm_id) return -1;
 
-    shm_allow(shm_id, auth_driver_tid);
+    shm_allow(shm_id, auth_driver_pid);
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = AUTH_CMD_GET_MEMBERS;

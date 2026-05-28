@@ -1,4 +1,4 @@
-#include "include/kernel_internal.h"
+#include <kernel/internal.h>
 
 // -------------------------
 //           ELF
@@ -23,6 +23,7 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
 
     result->entry_point = hdr->e_entry;
     result->proc = proc;
+	result->is_driver = 0; 
 
     if (hdr->e_phoff >= file_size || hdr->e_phoff + (uint64_t)hdr->e_phnum * sizeof(Elf64_Phdr) > file_size) {
         kernel_free(raw_data);
@@ -107,6 +108,27 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
         return;
     }
     Elf64_Shdr* shdr = (Elf64_Shdr*)(raw_data + hdr->e_shoff);
+	
+	if (hdr->e_shstrndx != 0 && hdr->e_shstrndx < hdr->e_shnum) {
+        Elf64_Shdr* sh_strtab_hdr = &shdr[hdr->e_shstrndx];
+        const char* sh_strtab = (const char*)(raw_data + sh_strtab_hdr->sh_offset);
+
+        for (int i = 0; i < hdr->e_shnum; i++) {
+            const char* section_name = sh_strtab + shdr[i].sh_name;
+            
+            if (kernel_strcmp(section_name, ".driver_info") == 0) {
+                aos_driver_info_t* info = (aos_driver_info_t*)(raw_data + shdr[i].sh_offset);
+                
+                if (info->magic == AOS_DRIVER_MAGIC) {
+                    result->is_driver = 1;
+					result->driver_info = (aos_driver_info_t*)kernel_malloc(sizeof(aos_driver_info_t));
+                    kernel_memcpy(result->driver_info, info, sizeof(aos_driver_info_t));
+                }
+                break;
+            }
+        }
+    }
+	
     char* strtab = 0;
     Elf64_Sym* symtab = 0;
     uint64_t sym_count = 0;
@@ -144,19 +166,6 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
 void load_elf_raw(char* name, uint8_t* raw_data, uint64_t file_size, elf_load_result_t* result) {
     process_t* proc = create_process(name);
     load_elf_raw_proc(proc, raw_data, file_size, result);
-}
-
-void load_elf_raw_fat32(volume_t* v, fat32_dirent_t* file, elf_load_result_t* result) {
-    uint64_t file_size = 0;
-    uint8_t* raw_data = (uint8_t*)fat32_read_file(v, file, &file_size);
-    if (!raw_data) {
-        result->result = ELF_RESULT_INVALID;
-        return;
-    }
-
-    load_elf_raw(file->name, raw_data, file_size, result);
-
-    kernel_free(raw_data);
 }
 
 int startup_info_args_copy(startup_info_t* k_info, startup_info_t* child_info, void* kvirt, uint64_t child_virt_addr) {
@@ -285,6 +294,24 @@ int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg
         }
     }
     
-    create_user_thread(res->entry_point, user_rsp, (uint64_t)res->proc->page_directory, res->proc, (uint64_t)info_addr, arg2);
+    thread_t* thread = create_user_thread(res->entry_point, user_rsp, (uint64_t)res->proc->page_directory, res->proc, (uint64_t)info_addr, arg2);
+	
+	if (res->is_driver) {
+		uint16_t temp_ports[ALLOWED_PORTS_MAX];
+        for (int i = 0; i < ALLOWED_PORTS_MAX; i++) {
+            temp_ports[i] = res->driver_info->allowed_ports[i]; 
+        }
+		const char* drv_name = res->driver_info->name;
+        if (drv_name[0] == '\0') {
+            drv_name = 0;
+        }
+        register_driver(
+            res->driver_info->type, 
+            drv_name,
+            res->driver_info->requested_perms, 
+            temp_ports,
+			thread->owner
+        );
+    }
     return 0;
 }

@@ -92,7 +92,7 @@ file_found:
     mov dx, [di + 0x1A]
     mov [Cluster], edx
 
-    mov ax, 0x1000
+    mov ax, 0x0900
     mov es, ax
     xor bx, bx
 
@@ -111,7 +111,7 @@ load_file_loop:
     cmp eax, 0x0FFFFFF8
     jb load_file_loop
 
-    mov ax, 0x1000
+    mov ax, 0x0900
     mov es, ax
     xor ax, ax
     mov ds, ax
@@ -122,7 +122,7 @@ load_file_loop:
     jne sig_error
 
     mov dl, [DrvNum]
-    jmp 0x1000:0x0000
+    jmp 0x0900:0x0000
 
 sig_error:
     mov si, MsgErrSig
@@ -193,7 +193,7 @@ read_error:
     mov si, MsgErrRead
     jmp boot_error
 
-FileName     db 'AOSLDR  BIN'
+FileName     db 'PBRLDR  BIN'
 SigText      db 'AOSLDR'
 MsgErrRead   db 'RE', 0
 MsgErrFile   db 'NF', 0

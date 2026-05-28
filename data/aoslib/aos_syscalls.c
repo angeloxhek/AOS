@@ -39,16 +39,12 @@ int64_t ipc_send(uint64_t dest_tid, message_t* msg) {
     return syscall(SYS_IPC_SEND, dest_tid, (uint64_t)msg, 0, 0, 0);
 }
 
-int64_t register_driver(driver_type_t type, const char* name) {
-    return (int64_t)syscall(SYS_REGISTER_DRIVER, (uint64_t)type, (uint64_t)name, 0, 0, 0);
+uint32_t get_driver_pid(driver_type_t type) {
+    return (uint32_t)syscall(SYS_GET_DRIVER_PID, (uint64_t)type, 0, 0, 0, 0);
 }
 
-uint64_t get_driver_tid(driver_type_t type) {
-    return (uint64_t)syscall(SYS_GET_DRIVER_TID, (uint64_t)type, 0, 0, 0, 0);
-}
-
-uint64_t get_driver_tid_name(const char* name) {
-    return (uint64_t)syscall(SYS_GET_DRIVER_TID_BY_NAME, (uint64_t)name, 0, 0, 0, 0);
+uint32_t get_driver_pid_name(const char* name) {
+    return (uint64_t)syscall(SYS_GET_DRIVER_PID_BY_NAME, (uint64_t)name, 0, 0, 0, 0);
 }
 
 int get_sysinfo(system_info_t* info) {
@@ -175,41 +171,25 @@ int ipc_get_at(uint64_t index, message_t* out) {
     return -1;
 }
 
-uint64_t __kbd_driver_tid_cache = 0;
+uint64_t __kbd_driver_pid_cache = 0;
 
 uint8_t get_scancode() {
-    if (__kbd_driver_tid_cache == 0) {
-        __kbd_driver_tid_cache = get_driver_tid(DT_KEYBOARD);
-        if (__kbd_driver_tid_cache == 0) return 0;
+    if (__kbd_driver_pid_cache == 0) {
+        __kbd_driver_pid_cache = get_driver_pid(DT_KEYBOARD);
+        if (__kbd_driver_pid_cache == 0) return 0;
     }
     message_t msg;
     msg.type = MSG_TYPE_KEYBOARD;
     msg.subtype = MSG_SUBTYPE_QUERY;
     msg.param1 = 0;
-    int res = ipc_send(__kbd_driver_tid_cache, &msg);
+    int res = ipc_send(__kbd_driver_pid_cache, &msg);
     if (res < 0) {
-        __kbd_driver_tid_cache = 0;
+        __kbd_driver_pid_cache = 0;
         return 0;
     }
     message_t response;
-    ipc_recv_ex(__kbd_driver_tid_cache, MSG_TYPE_KEYBOARD, MSG_SUBTYPE_RESPONSE, &response);
+    ipc_recv_ex(__kbd_driver_pid_cache, MSG_TYPE_KEYBOARD, MSG_SUBTYPE_RESPONSE, &response);
     return (uint8_t)(response.param1 & 0xFF);
-}
-
-uint64_t get_disk_count(void) {
-	return syscall(SYS_GET_DISK_COUNT, 0, 0, 0, 0, 0);
-}
-
-uint64_t get_partition_count(void) {
-	return syscall(SYS_GET_PARTITION_COUNT, 0, 0, 0, 0, 0);
-}
-
-uint64_t get_disk_info(uint64_t index, disk_info_t* pinfo) {
-	return syscall(SYS_GET_DISK_INFO, index, (uint64_t)pinfo, 0, 0, 0);
-}
-
-uint64_t get_partition_info(uint64_t index, partition_info_t* pinfo) {
-	return syscall(SYS_GET_PARTITION_INFO, index, (uint64_t)pinfo, 0, 0, 0);
 }
 
 int get_proc_info(uint32_t pid, proc_info_user_t* out_info) {
@@ -232,8 +212,8 @@ uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr) {
     return syscall(SYS_SHM_ALLOC, size_bytes, (uint64_t)out_vaddr, 0, 0, 0);
 }
 
-int shm_allow(uint64_t shm_id, uint64_t target_tid) {
-    return (int)syscall(SYS_SHM_ALLOW, shm_id, target_tid, 0, 0, 0);
+int shm_allow(uint64_t shm_id, uint64_t target_pid) {
+    return (int)syscall(SYS_SHM_ALLOW, shm_id, target_pid, 0, 0, 0);
 }
 
 void* shm_map(uint64_t shm_id) {

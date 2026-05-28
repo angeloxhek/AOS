@@ -71,4 +71,6 @@ uint64_t hal_get_kernel_tls_base(void);
 void hal_prepare_fork_context(struct thread_t* parent, struct thread_t* child);
 void hal_set_exec_context(void* arch_context, uint64_t entry_point, uint64_t user_stack, uint64_t arg1, uint64_t arg2);
 
+void hal_set_io_permissions(uint32_t pid);
+
 #endif

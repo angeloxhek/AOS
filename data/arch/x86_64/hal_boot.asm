@@ -6,7 +6,7 @@ extern kernel_stack
 %define KERNEL_VMA 0xFFFFFFFF80000000
 %define KERNEL_BASE 0x10000
 %define BOOT_INFO_ADDR 0x7000
-%define BOOT_STRUCT_VERSION 1
+%define BOOT_STRUCT_VERSION 2
 %define BOOT_MAGIC 0xB007CAFE
 
 %define VBE_INFO_BLOCK  0x5000  ; 512 байт
@@ -37,6 +37,10 @@ entry:
     cli
 	cld
 	
+	mov [cs:V2P16(initrd_phys_tmp)], ebx
+	mov [cs:V2P16(initrd_size_tmp)], ecx
+	mov [cs:V2P16(boot_drive)], dl
+	
 	mov al, 0xFF
 	out 0xA1, al
 	out 0x21, al
@@ -48,7 +52,6 @@ entry:
     mov ds, ax
 	mov es, ax
 	
-	mov [cs:V2P16(boot_drive)], dl
 	
     call V2P16(get_memory_map)
 
@@ -58,7 +61,7 @@ entry:
 	
 	mov edi, BOOT_INFO_ADDR
     xor eax, eax
-    mov ecx, 30             ; 30 dword-ов = 120 байт
+    mov ecx, 35             ; Очищаем 35 dword-ов = 140 байт (структура стала больше)
     rep stosd
 	mov edi, BOOT_INFO_ADDR
 	
@@ -67,49 +70,53 @@ entry:
     mov dword [edi + 4], BOOT_STRUCT_VERSION
     mov byte  [edi + 8], 1  ; BOOT_TYPE_MBR
 
-    ; [9] Video (Common)
+    ; [16] Initrd Info (64-bit поля)
+    mov eax, [cs:V2P16(initrd_phys_tmp)]
+    mov dword [edi + 16], eax
+    mov dword [edi + 20], 0      ; High 32 bits (всегда 0 в реальном режиме)
+    
+    mov eax, [cs:V2P16(initrd_size_tmp)]
+    mov dword [edi + 24], eax
+    mov dword [edi + 28], 0      ; High 32 bits
+
+    ; [32] Video (Common)
 	call V2P16(init_vbe)
 
-    ; [39] MMap (Common)
-    mov dword [edi + 39], 0x2004 ; mmap.map_addr low
-    mov dword [edi + 43], 0      ; mmap.map_addr high
+    ; [62] MMap (Common)
+    mov dword [edi + 62], 0x2004 ; mmap.map_addr low
+    mov dword [edi + 66], 0      ; mmap.map_addr high
     
     xor eax, eax
-    mov ax, [0x2000]             ; Количество записей, полученное в get_memory_map
-    imul eax, 24                 ; Умножаем на размер записи (desc_size)
-    mov dword [edi + 47], eax    ; mmap.map_size low
-    mov dword [edi + 51], 0      ; mmap.map_size high
+    mov ax, [0x2000]             
+    imul eax, 24                 
+    mov dword [edi + 70], eax    ; mmap.map_size low
+    mov dword [edi + 74], 0      ; mmap.map_size high
     
-    mov dword [edi + 55], 24     ; mmap.desc_size
-    mov dword [edi + 59], 0      ; mmap.desc_version
+    mov dword [edi + 78], 24     ; mmap.desc_size
+    mov dword [edi + 82], 0      ; mmap.desc_version
 
-    ; [63] ACPI RSDP (Common)
-    mov eax, dword [0x3000]      ; Адрес был сохранен функцией find_acpi сюда
-    mov dword [edi + 63], eax    ; acpi_rsdp low
-    mov dword [edi + 67], 0      ; acpi_rsdp high
+    ; [86] ACPI RSDP (Common)
+    mov eax, dword [0x3000]      
+    mov dword [edi + 86], eax    ; acpi_rsdp low
+    mov dword [edi + 90], 0      ; acpi_rsdp high
 	
 	test eax, eax
     jz .no_acpi
-    or dword [edi + 87], BOOT_FLAG_ACPI
+    or dword [edi + 110], BOOT_FLAG_ACPI
 .no_acpi:
 
-    ; [71] SMBIOS Entry (Common)
-    mov eax, dword [0x4000]      ; Адрес был сохранен функцией find_smbios сюда
-    mov dword [edi + 71], eax    ; smbios_entry low
-    mov dword [edi + 75], 0      ; smbios_entry high
+    ; [94] SMBIOS Entry (Common)
+    mov eax, dword [0x4000]      
+    mov dword [edi + 94], eax    ; smbios_entry low
+    mov dword [edi + 98], 0      ; smbios_entry high
 	
 	test eax, eax
     jz .no_smbios
-    or dword [edi + 87], BOOT_FLAG_SMBIOS
+    or dword [edi + 110], BOOT_FLAG_SMBIOS
 .no_smbios:
 
-    ; [79] Kernel Size (Common)
-    mov dword [edi + 79], 0x100000 ; kernel_size low
-    mov dword [edi + 83], 0        ; kernel_size high
-
-    ; [91] Specific (MBR)
+    ; [114] Specific (MBR)
     mov al, [cs:V2P16(boot_drive)]
-    mov byte [edi + 91], al
     
     in al, 0x92
     or al, 2
@@ -257,7 +264,7 @@ init_vbe:
     cmp ax, 0x004F
     jne .vbe_fail
 	
-	or dword [BOOT_INFO_ADDR + 87], BOOT_FLAG_VIDEO
+	or dword [BOOT_INFO_ADDR + 110], BOOT_FLAG_VIDEO
 
     ; boot_video_t:
     ; +0  addr (8)
@@ -267,7 +274,7 @@ init_vbe:
     ; +20 bpp (4)
     ; +24 masks...
     
-    mov bx, BOOT_INFO_ADDR + 9
+    mov bx, BOOT_INFO_ADDR + 32
     
     ; Framebuffer Phys Address (offset 40 in ModeInfo)
     mov eax, [di + 40]
@@ -363,7 +370,7 @@ init_32bit:
 
     mov edi, PD_VIDEO
     
-    mov esi, BOOT_INFO_ADDR + 9
+    mov esi, BOOT_INFO_ADDR + 32
     mov eax, [esi]
     
     test eax, eax
@@ -377,7 +384,7 @@ init_32bit:
     add edi, 8
     loop .video_loop
 
-    mov esi, BOOT_INFO_ADDR + 9
+    mov esi, BOOT_INFO_ADDR + 32
     mov dword [esi], 0xC0000000     
     mov dword [esi+4], 0xFFFFFFFF   
 
@@ -658,6 +665,8 @@ trampoline_enter_kernel:
 boot_drive: db 0
 acpi_found_addr: dd 0
 smbios_found_addr: dd 0
+initrd_phys_tmp: dd 0
+initrd_size_tmp: dd 0
 
 align 16
 gdt32_start:

@@ -1,6 +1,6 @@
 #include <stdint.h>
-#include "../include/aoslib.h"
-#include "../include/fs_interface.h"
+#include <aoslib.h>
+#include <vfs/fs_interface.h>
 
 // --- 1. ТИПЫ ДВИЖКА (ENGINE) ---
 

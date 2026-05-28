@@ -1,5 +1,7 @@
 #include <stdint.h>
-#include "../include/aoslib.h"
+#include <aoslib.h>
+
+AOS_DECLARE_DRIVER(DT_KEYBOARD, 0, 0);
 
 typedef struct kbd_node {
     uint8_t scancode;
@@ -51,8 +53,6 @@ uint64_t pop_waiter() {
 }
 
 int driver_main(void* reserved1, void* reserved2) {
-    register_driver(DT_KEYBOARD, 0);
-    
     message_t msg;
     while(1) {
         ipc_recv(&msg);

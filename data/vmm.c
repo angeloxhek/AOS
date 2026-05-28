@@ -1,4 +1,4 @@
-#include "include/kernel_internal.h"
+#include <kernel/internal.h>
 
 spinlock_t temp_lock = 0;
 uint64_t temp_bitmap[TEMP_PAGES_COUNT / 64] = {0};
