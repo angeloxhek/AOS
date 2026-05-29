@@ -194,6 +194,50 @@ process_t* get_process_by_id(uint32_t pid) {
     return 0;
 }
 
+uint64_t get_thread_list(uint32_t target_pid, uint64_t* user_buffer, uint64_t* max_elements) {
+	if (!user_buffer || !max_elements) return 0;
+	uint64_t count = 0;
+	uint64_t mx = *max_elements;
+	thread_t* t = ready_queue;
+	*max_elements = 0;
+	if (t) {
+		do {
+			if (count < mx && (target_pid == (uint32_t)-1 || t->owner->id == target_pid)) {
+				user_buffer[count++] = t->tid;
+			}
+			t = t->next;
+			(*max_elements)++;
+		} while (t != ready_queue);
+	}
+	return count;
+}
+
+uint64_t get_proc_list(uint32_t* user_buffer, uint64_t* max_elements) {
+	if (!user_buffer || !max_elements) return 0;
+	uint64_t count = 0;
+	thread_t* t = ready_queue;
+	uint64_t mx = *max_elements;
+	*max_elements = 0;
+	if (t) {
+		do {
+			uint32_t pid = t->owner->id;
+			int is_duplicate = 0;
+			for (uint64_t i = 0; i < count; i++) {
+				if (user_buffer[i] == pid) {
+					is_duplicate = 1;
+					break;
+				}
+			}
+			if (!is_duplicate && count < mx) {
+				user_buffer[count++] = pid;
+			}
+			t = t->next;
+			(*max_elements)++;
+		} while (t != ready_queue);
+	}
+	return count;
+}
+
 int get_driver_pid_sleep_wrapper(void* arg) {
     return get_driver_pid(*(driver_type_t*)arg);
 }

@@ -169,6 +169,7 @@ void generic_syscall_handler(syscall_args_t* args) {
             kernel_memcpy(info.name, target_proc->name, 32);
             info.state = target_proc->state;
             info.heap_limit = target_proc->heap_limit;
+			info.user.raw = target_proc->user.raw;
 
             info.threads_count = 0;
             t = ready_queue;
@@ -213,7 +214,6 @@ void generic_syscall_handler(syscall_args_t* args) {
             info.state = target_thread->state;
             info.waiting_for_msg = target_thread->waiting_for_msg;
             info.wake_up_time = target_thread->wake_up_time;
-            info.user.raw = target_thread->user.raw;
 
             kernel_memcpy(user_ptr, &info, sizeof(thread_info_user_t));
             args->ret = SYS_RES_OK;
@@ -253,56 +253,28 @@ void generic_syscall_handler(syscall_args_t* args) {
         
         case SYS_GET_PID_LIST: {
             uint32_t* user_buffer = (uint32_t*)args->arg1;
-            uint64_t max_elements = args->arg2;
+            uint64_t* max_elements = (uint64_t*)args->arg2;
 
-            if (!hal_is_valid_user_pointer(user_buffer) || max_elements == 0) {
+            if (!hal_is_valid_user_pointer(user_buffer) || !hal_is_valid_user_pointer(max_elements)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
 
-            uint64_t count = 0;
-            thread_t* t = ready_queue;
-            if (t) {
-                do {
-                    uint32_t pid = t->owner->id;
-                    int is_duplicate = 0;
-                    for (uint64_t i = 0; i < count; i++) {
-                        if (user_buffer[i] == pid) {
-                            is_duplicate = 1;
-                            break;
-                        }
-                    }
-                    if (!is_duplicate && count < max_elements) {
-                        user_buffer[count++] = pid;
-                    }
-                    t = t->next;
-                } while (t != ready_queue && count < max_elements);
-            }
-            args->ret = count;
+            args->ret = get_proc_list(user_buffer, max_elements);
             break;
         }
 
         case SYS_GET_TID_LIST: {
             uint32_t target_pid = (uint32_t)args->arg1;
-            uint32_t* user_buffer = (uint32_t*)args->arg2;
-            uint64_t max_elements = args->arg3;
+            uint64_t* user_buffer = (uint64_t*)args->arg2;
+            uint64_t* max_elements = (uint64_t*)args->arg3;
 
-            if (!hal_is_valid_user_pointer(user_buffer) || max_elements == 0) {
+            if (!hal_is_valid_user_pointer(user_buffer) || !hal_is_valid_user_pointer(max_elements)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
-
-            uint64_t count = 0;
-            thread_t* t = ready_queue;
-            if (t) {
-                do {
-                    if (target_pid == (uint32_t)-1 || t->owner->id == target_pid) {
-                        user_buffer[count++] = t->tid;
-                    }
-                    t = t->next;
-                } while (t != ready_queue && count < max_elements);
-            }
-            args->ret = count;
+			
+            args->ret = get_thread_list(target_pid, user_buffer, max_elements);
             break;
         }
         
@@ -442,6 +414,12 @@ void generic_syscall_handler(syscall_args_t* args) {
             hal_set_current_address_space((uint64_t)proc->page_directory);
             break;
         }
+		
+		case SYS_SLEEP: {
+			sleep(args->arg1);
+			args->ret = SYS_RES_OK;
+			break;
+		}
 
         default: {
             kprint("Unknown Syscall invoked!\n");

@@ -27,3 +27,7 @@ void hal_insw(uint16_t port, void* addr, uint32_t count) {
 void hal_outsw(uint16_t port, const void* addr, uint32_t count) {
     __asm__ volatile ( "cld; rep outsw" : "+S" (addr), "+c" (count) : "d" (port) : "memory" );
 }
+
+void hal_cpu_relax(void) {
+    asm volatile("pause" ::: "memory");
+}

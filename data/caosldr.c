@@ -49,8 +49,7 @@ volatile uint64_t ticks = 0;
 uint64_t boot_time = 0;
 
 driver_info_t* drivers_list_head;
-uint64_t keyboard_driver_tid = 0;
-uint64_t vfs_driver_tid = 0;
+uint64_t keyboard_driver_pid = 0;
 
 shm_object_t* shm_global_list = 0;
 uint64_t next_shm_id = 1;
@@ -213,15 +212,15 @@ void kernel_on_timer_tick(void) {
 }
 
 void kernel_on_keyboard_irq(uint8_t scancode) {
-    if (keyboard_driver_tid != 0) {
+    if (keyboard_driver_pid != 0) {
         message_t msg;
-        msg.sender_tid = 0;
+        msg.sender_pid = 0;
         msg.type = MSG_TYPE_KEYBOARD;
         msg.subtype = MSG_SUBTYPE_SEND;
         msg.param1 = scancode;
         msg.param2 = 0;
         msg.param3 = 0;
-        ipc_send(keyboard_driver_tid, &msg);
+        ipc_send(keyboard_driver_pid, &msg);
     }
 }
 
@@ -565,14 +564,14 @@ void kernel_main(boot_info_t* boot_info) {
     init_pmm(total_ram, bitmap_addr);
     pmm_deinit_region(0x0, 0x1000000);
     pmm_init_region(0x1000000, total_ram - 0x1000000);
-    _kprint("PMM & VMM is configured!\n");
+    _kprint("Memory is configured!\n");
 
     hal_interrupts_init();
     hal_timer_init(TIMER_FREQ);
     boot_time = hal_get_boot_time();
 
     init_scheduler();
-    _kprint("IDT, PIC & Scheduler are set! We're safe\n");
+    _kprint("Threads are set! We're safe\n");
     
     hal_enable_interrupts();
     create_kernel_thread(idle_thread);

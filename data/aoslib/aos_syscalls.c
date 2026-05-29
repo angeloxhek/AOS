@@ -35,8 +35,8 @@ int64_t ipc_tryrecv(message_t* out_msg) {
     return syscall(SYS_IPC_TRYRECV, (uint64_t)out_msg, 0, 0, 0, 0);
 }
 
-int64_t ipc_send(uint64_t dest_tid, message_t* msg) {
-    return syscall(SYS_IPC_SEND, dest_tid, (uint64_t)msg, 0, 0, 0);
+int64_t ipc_send(uint64_t dest_pid, message_t* msg) {
+    return syscall(SYS_IPC_SEND, dest_pid, (uint64_t)msg, 0, 0, 0);
 }
 
 uint32_t get_driver_pid(driver_type_t type) {
@@ -47,8 +47,18 @@ uint32_t get_driver_pid_name(const char* name) {
     return (uint64_t)syscall(SYS_GET_DRIVER_PID_BY_NAME, (uint64_t)name, 0, 0, 0, 0);
 }
 
+int get_driver_pid_sleep_wrapper(void* arg) {
+    return get_driver_pid(*(driver_type_t*)arg);
+}
+
 int get_sysinfo(system_info_t* info) {
     return (int)syscall(SYS_GET_SYSTEM_INFO, (uint64_t)info, 0, 0, 0, 0);
+}
+
+uint64_t get_system_ticks(void) {
+	system_info_t info;
+	int res = get_sysinfo(&info);
+	return res ? 0 : info.uptime;
 }
 
 void* syscall_sbrk(int64_t increment) {
@@ -111,12 +121,12 @@ void ipc_recv(message_t* out_msg) {
     __ipc_recv(out_msg);
 }
 
-void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
+void ipc_recv_ex(uint64_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
     msg_node_t *curr = pending_head;
     msg_node_t *prev = NULL;
 
     while (curr) {
-        if ((tid == 0 || curr->msg.sender_tid == tid) &&
+        if ((pid == 0 || curr->msg.sender_pid == pid) &&
             (type == MSG_TYPE_NONE || curr->msg.type == type) &&
             (subtype == MSG_SUBTYPE_NONE || curr->msg.subtype == subtype)) {
             
@@ -138,7 +148,7 @@ void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t
         message_t temp_msg;
         __ipc_recv(&temp_msg);
         
-        if ((tid == 0 || temp_msg.sender_tid == tid) && 
+        if ((pid == 0 || temp_msg.sender_pid == pid) && 
             (type == MSG_TYPE_NONE || temp_msg.type == type) && 
             (subtype == MSG_SUBTYPE_NONE || temp_msg.subtype == subtype)) {
             
@@ -200,12 +210,12 @@ int get_thread_info(uint64_t tid, thread_info_user_t* out_info) {
     return syscall(SYS_GET_THREAD_INFO, tid, (uint64_t)out_info, 0, 0, 0);
 }
 
-int get_pid_list(uint32_t* buff, uint64_t count) {
-    return syscall(SYS_GET_PID_LIST, (uint64_t)buff, count, 0, 0, 0);
+int get_pid_list(uint32_t* buff, uint64_t* count) {
+    return syscall(SYS_GET_PID_LIST, (uint64_t)buff, (uint64_t)count, 0, 0, 0);
 }
 
-int get_tid_list(uint32_t pid, uint32_t* buff, uint64_t count) {
-    return syscall(SYS_GET_TID_LIST, (uint64_t)pid, (uint64_t)buff, count, 0, 0);
+int get_tid_list(uint32_t pid, uint64_t* buff, uint64_t* count) {
+    return syscall(SYS_GET_TID_LIST, (uint64_t)pid, (uint64_t)buff, (uint64_t)count, 0, 0);
 }
 
 uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr) {
@@ -346,4 +356,8 @@ int sysexec(const char* path, startup_info_t* info, uint64_t arg2) {
 
 int sysexecex(spawn_args_t* args) {
 	return (int)syscall(SYS_EXEC, (uint64_t)args, 0, 0, 0, 0);
+}
+
+void syssleep(uint64_t ms) {
+	syscall(SYS_SLEEP, ms, 0, 0, 0, 0);
 }

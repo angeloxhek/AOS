@@ -244,11 +244,10 @@ int get_user_by_name(const char* user, auth_idex_t* out) {
 	return -1;
 }
 
-int get_thread_user(uint64_t tid, auth_idex_t* out) {
+int get_process_user(uint32_t pid, auth_idex_t* out) {
 	if (!out) return -1;
-	thread_info_user_t* info = (thread_info_user_t*)malloc(sizeof(thread_info_user_t));
-	if (get_thread_info(tid, info) != SYS_RES_OK) {
-		free(info);
+	proc_info_user_t* info = (proc_info_user_t*)malloc(sizeof(proc_info_user_t));
+	if (get_proc_info(pid, info) != SYS_RES_OK) {
 		return -1;
 	}
 	return get_user(info->user, out);
@@ -320,11 +319,10 @@ int get_group_by_name(const char* group, auth_grpex_t* out) {
 	return -1;
 }
 
-int get_thread_group(uint64_t tid, auth_grpex_t* out) {
+int get_process_group(uint32_t pid, auth_grpex_t* out) {
 	if (!out) return -1;
-	thread_info_user_t* info = (thread_info_user_t*)malloc(sizeof(thread_info_user_t));
-	if (get_thread_info(tid, info) != SYS_RES_OK) {
-		free(info);
+	proc_info_user_t* info = (proc_info_user_t*)malloc(sizeof(proc_info_user_t));
+	if (get_proc_info(pid, info) != SYS_RES_OK) {
 		return -1;
 	}
 	return get_group(info->user, out);
@@ -517,7 +515,7 @@ void handle_message(message_t* in) {
 				out->param1 = AUTH_ERR_UNKNOWN;
 				break;
 			}
-			if (get_thread_user(in->sender_tid, curr_user) || get_thread_group(in->sender_tid, curr_group)) {
+			if (get_process_user(in->sender_pid, curr_user) || get_process_group(in->sender_pid, curr_group)) {
 				out->param1 = AUTH_ERR_NOTFOUND;
 				break;
 			}
@@ -541,7 +539,7 @@ void handle_message(message_t* in) {
 				out->param1 = AUTH_ERR_UNKNOWN;
 				break;
 			}
-			if (get_thread_user(in->sender_tid, curr_user) || get_thread_group(in->sender_tid, curr_group)) {
+			if (get_process_user(in->sender_pid, curr_user) || get_process_group(in->sender_pid, curr_group)) {
 				out->param1 = AUTH_ERR_NOTFOUND;
 				break;
 			}
@@ -592,7 +590,7 @@ void handle_message(message_t* in) {
 				out->param1 = AUTH_ERR_UNKNOWN;
 				break;
 			}
-			if (get_thread_user(in->sender_tid, curr_user) || get_thread_group(in->sender_tid, curr_group)) {
+			if (get_process_user(in->sender_pid, curr_user) || get_process_group(in->sender_pid, curr_group)) {
 				out->param1 = AUTH_ERR_NOTFOUND;
 				break;
 			}
@@ -616,7 +614,7 @@ void handle_message(message_t* in) {
 				out->param1 = AUTH_ERR_UNKNOWN;
 				break;
 			}
-			if (get_thread_user(in->sender_tid, curr_user) || get_thread_group(in->sender_tid, curr_group)) {
+			if (get_process_user(in->sender_pid, curr_user) || get_process_group(in->sender_pid, curr_group)) {
 				out->param1 = AUTH_ERR_NOTFOUND;
 				break;
 			}
@@ -654,7 +652,7 @@ void handle_message(message_t* in) {
 			break;
 		}
 	}
-	ipc_send(in->sender_tid, out);
+	ipc_send(in->sender_pid, out);
 	free(out);
 }
 

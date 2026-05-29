@@ -78,7 +78,10 @@ typedef struct process_t {
     uint64_t          tls_align;
 	uint64_t          heap_limit;
 	uint64_t          next_shm_vaddr;
+	auth_id_t         user;
     struct process_t* next;
+	msg_node_t*       msg_queue_head;
+    msg_node_t*       msg_queue_tail;
 	uint8_t           state;
 } process_t;
 
@@ -92,13 +95,10 @@ typedef struct thread_t {
 	struct thread_t* next;
 	struct thread_t* next_zombie;
 	struct thread_t* next_waiter;
-	auth_id_t        user;
-	msg_node_t*      msg_queue_head;
-    msg_node_t*      msg_queue_tail;
 	process_t*       owner;
-    int              waiting_for_msg;
 	thread_state_t   state;
-	int exit_code;
+	int              exit_code;
+	int              waiting_for_msg;
 	uint8_t fpu_state[512] __attribute__((aligned(16)));
 } thread_t;
 
@@ -237,6 +237,8 @@ thread_t* create_kernel_thread(void (*entry)(void));
 int kill_thread(thread_t* target, int exit_code);
 thread_t* get_thread_by_id(uint64_t tid);
 process_t* get_process_by_id(uint32_t pid);
+uint64_t get_thread_list(uint32_t target_pid, uint64_t* user_buffer, uint64_t* max_elements);
+uint64_t get_proc_list(uint32_t* user_buffer, uint64_t* max_elements);
 void schedule(void);
 void yield(void);
 
@@ -296,7 +298,7 @@ void get_time_info(time_info_t* out);
 
 int64_t ipc_forward(uint64_t dest_tid, message_t* user_msg);
 int64_t ipc_requeue(message_t* user_msg);
-int64_t ipc_send(uint64_t dest_tid, message_t* msg);
+int64_t ipc_send(uint64_t dest_pid, message_t* msg);
 int64_t ipc_try_receive(message_t* out_msg);
 int64_t ipc_receive(message_t* out_msg);
 int64_t ipc_receive_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);

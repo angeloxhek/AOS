@@ -19,7 +19,7 @@ typedef struct proc_entry {
     struct proc_entry* children; // Указатель на содержимое (для папок)
     
     int (*read_cb)(uint32_t id1, uint32_t id2, void* buf, uint64_t size, uint64_t offset);
-    int (*get_list_cb)(uint32_t parent_id, uint32_t* out_arr, int max);
+    int (*get_list_cb)(uint32_t parent_id, uint64_t* out_arr, uint64_t* max);
 } proc_entry_t;
 
 typedef struct {
@@ -67,13 +67,20 @@ static int read_thread_symlink(uint32_t pid, uint32_t tid, void* buf, uint64_t s
 }
 
 // Функции списков
-static int get_all_pids(uint32_t none, uint32_t* arr, int max) { return get_pid_list(arr, max); }
-static int get_all_tids(uint32_t none, uint32_t* arr, int max) { return get_tid_list(0xFFFFFFFF, arr, max); }
-static int get_threads_for_pid(uint32_t pid, uint32_t* arr, int max) { return get_tid_list(pid, arr, max); }
+static int get_all_pids(uint32_t none, uint64_t* arr, uint64_t* max) { 
+	uint32_t* buffer = (uint32_t*)calloc(*max, sizeof(uint32_t));
+	if (!buffer) return -1;
+	for (uint64_t i = 0; i < *max; i++) buffer[i] = (uint32_t)(arr[i] & UINT32_MAX);
+	int res = get_pid_list(buffer, max);
+	free(buffer);
+	return res;
+}
+static int get_all_tids(uint32_t none, uint64_t* arr, uint64_t* max) { return get_tid_list(0xFFFFFFFF, arr, max); }
+static int get_threads_for_pid(uint32_t pid, uint64_t* arr, uint64_t* max) { return get_tid_list(pid, arr, max); }
 
 // ЗАГЛУШКА: Для списка FD
-static int get_thread_fds(uint32_t tid, uint32_t* arr, int max) {
-    if (max < 3) return 0;
+static int get_thread_fds(uint32_t tid, uint64_t* arr, uint64_t* max) {
+    if (*max < 3) return 0;
     arr[0] = 0; arr[1] = 1; arr[2] = 2; // Возвращаем фейковые 0, 1, 2
     return 3; 
 }
@@ -235,8 +242,9 @@ int procfs_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offs
     if ((h->entry->type == PROC_DYNAMIC_DIR || h->entry->type == PROC_DYNAMIC_SYMLINK) && h->is_dynamic_root) {
         if (!h->entry->get_list_cb) { *offset = (uint64_t)-1; return 0; }
         
-        uint32_t ids[512];
-        int total = h->entry->get_list_cb(h->id1, ids, 512); 
+        uint64_t ids[512];
+		uint64_t max_limit = 512;
+        int total = h->entry->get_list_cb(h->id1, ids, &max_limit); 
         
         while (count < max_entries && *offset < (uint64_t)total) {
             utoa(ids[*offset], out_array[count].name, 10);

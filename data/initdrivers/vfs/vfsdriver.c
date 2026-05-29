@@ -41,7 +41,7 @@ vfs_node_t* vfs_root = 0;
 
 typedef struct {
     int id;
-    uint64_t owner_tid;
+    uint32_t owner_pid;
     int used;
     uint64_t offset;
     vfs_node_type_t type;
@@ -78,12 +78,12 @@ typedef struct {
     vfs_node_t* mount_node;
     uint64_t inode_id;
     int type;
-    uint64_t owner_tid;
+    uint32_t owner_pid;
 } vfs_lock_t;
 
 vfs_lock_t active_locks[MAX_LOCKED_FILES];
 
-int vfs_check_lock(vfs_node_t* mount_node, uint64_t inode_id, uint64_t tid, int is_write) {
+int vfs_check_lock(vfs_node_t* mount_node, uint64_t inode_id, uint32_t pid, int is_write) {
     if (!mount_node) return 0;
 
     for (int i = 0; i < MAX_LOCKED_FILES; i++) {
@@ -92,23 +92,23 @@ int vfs_check_lock(vfs_node_t* mount_node, uint64_t inode_id, uint64_t tid, int 
             active_locks[i].inode_id == inode_id) 
         {
             if (active_locks[i].type == VFS_LOCK_EX) {
-                if (active_locks[i].owner_tid != tid) return VFS_ERR_BUSY;
+                if (active_locks[i].owner_pid != pid) return VFS_ERR_BUSY;
             } 
             else if (active_locks[i].type == VFS_LOCK_SH && is_write) {
-                if (active_locks[i].owner_tid != tid) return VFS_ERR_BUSY;
+                if (active_locks[i].owner_pid != pid) return VFS_ERR_BUSY;
             }
         }
     }
     return 0;
 }
 
-int vfs_alloc_fd(uint64_t tid) {
+int vfs_alloc_fd(uint32_t pid) {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         if (!open_files[i].used) {
 			memset(&open_files[i], 0, sizeof(vfs_file_t));
             open_files[i].used = 1;
             open_files[i].id = i + 1;
-            open_files[i].owner_tid = tid;
+            open_files[i].owner_pid = pid;
             open_files[i].offset = 0;
             return i + 1;
         }
@@ -116,11 +116,11 @@ int vfs_alloc_fd(uint64_t tid) {
     return -1;
 }
 
-vfs_file_t* vfs_get_file(int fd, uint64_t tid) {
+vfs_file_t* vfs_get_file(int fd, uint32_t pid) {
     if (fd < 1 || fd > MAX_OPEN_FILES) return 0;
     vfs_file_t* f = &open_files[fd - 1];
     if (!f->used) return 0;
-    if (f->owner_tid != tid) return 0;
+    if (f->owner_pid != pid) return 0;
     return f;
 }
 
@@ -547,12 +547,12 @@ void handle_vfs_request(message_t* in) {
             vfs_node_t* start_node = vfs_root;
 
             if (in->param1 == VFS_CMD_OPENAT && path[0] != '/') {
-                vfs_file_t* parent_f = vfs_get_file(dir_fd, in->sender_tid);
+                vfs_file_t* parent_f = vfs_get_file(dir_fd, in->sender_pid);
                 if (parent_f) {
                     if (parent_f->type == VFS_TYPE_DIR) {
                         start_node = parent_f->dir.node;
                     } else if (parent_f->type == VFS_TYPE_MOUNT_POINT) {
-                        int new_fd = vfs_alloc_fd(in->sender_tid);
+                        int new_fd = vfs_alloc_fd(in->sender_pid);
                         if (new_fd < 0) {
                             out.param1 = VFS_ERR_UNKNOWN; break;
                         }
@@ -600,7 +600,7 @@ void handle_vfs_request(message_t* in) {
                 break;
             }
 
-            int new_fd = vfs_alloc_fd(in->sender_tid);
+            int new_fd = vfs_alloc_fd(in->sender_pid);
             if (new_fd < 0) {
                 out.param1 = VFS_ERR_UNKNOWN;
                 if (res.fs_path) free(res.fs_path);
@@ -670,7 +670,7 @@ void handle_vfs_request(message_t* in) {
             uint64_t size = in->param3;
             uint64_t shm_id = *(uint64_t*)(in->data);
             
-            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
             if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
 			if (!(f->flags & VFS_FREAD)) { out.param1 = VFS_ERR_PERM; break; }
@@ -682,7 +682,7 @@ void handle_vfs_request(message_t* in) {
             int bytes = -1;
 
             if (f->type == VFS_TYPE_MOUNT_POINT) {
-				if (vfs_check_lock(f->mount_node, f->inode_id, in->sender_tid, 0) == VFS_ERR_BUSY) {
+				if (vfs_check_lock(f->mount_node, f->inode_id, in->sender_pid, 0) == VFS_ERR_BUSY) {
 					out.param1 = VFS_ERR_BUSY;
 					break;
 				}
@@ -711,7 +711,7 @@ void handle_vfs_request(message_t* in) {
             uint64_t size = in->param3;
             uint64_t shm_id = *(uint64_t*)(in->data);
             
-            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
             if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
 			if (!(f->flags & VFS_FWRITE)) { out.param1 = VFS_ERR_PERM; break; }
@@ -722,7 +722,7 @@ void handle_vfs_request(message_t* in) {
             int bytes = -1;
 
             if (f->type == VFS_TYPE_MOUNT_POINT) {
-				if (vfs_check_lock(f->mount_node, f->inode_id, in->sender_tid, 1) == VFS_ERR_BUSY) {
+				if (vfs_check_lock(f->mount_node, f->inode_id, in->sender_pid, 1) == VFS_ERR_BUSY) {
 					out.param1 = VFS_ERR_BUSY;
 					break;
 				}
@@ -753,7 +753,7 @@ void handle_vfs_request(message_t* in) {
             
             if (max_entries <= 0 || max_entries > 128) max_entries = 32;
             
-            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
 
             vfs_dirent_t* dirent_array = (vfs_dirent_t*)shm_map(shm_id);
@@ -837,12 +837,12 @@ void handle_vfs_request(message_t* in) {
         
         case VFS_CMD_CLOSE: {
             int fd = in->param2;
-            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (f) {
                 if (f->type == VFS_TYPE_MOUNT_POINT && f->mounted_file.driver && f->mounted_file.driver->close) {
 					for (int i = 0; i < MAX_LOCKED_FILES; i++) {
 						if (active_locks[i].used && 
-							active_locks[i].owner_tid == in->sender_tid &&
+							active_locks[i].owner_pid == in->sender_pid &&
 							active_locks[i].mount_node == f->mount_node &&
 							active_locks[i].inode_id == f->inode_id) 
 						{
@@ -863,7 +863,7 @@ void handle_vfs_request(message_t* in) {
             int fd = in->param2;
             vfs_lock_type_t lock_type = in->param3;
             
-            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
             if (f->type != VFS_TYPE_MOUNT_POINT) { out.param1 = VFS_ERR_OK; break; }
 
@@ -882,14 +882,14 @@ void handle_vfs_request(message_t* in) {
             }
 
             if (lock_type == VFS_LOCK_UN) { 
-                if (existing_lock && existing_lock->owner_tid == in->sender_tid) {
+                if (existing_lock && existing_lock->owner_pid == in->sender_pid) {
                     existing_lock->used = 0; 
                 }
                 out.param1 = VFS_ERR_OK;
             } 
             else { 
                 if (existing_lock) {
-                    if (existing_lock->owner_tid != in->sender_tid) {
+                    if (existing_lock->owner_pid != in->sender_pid) {
                         out.param1 = VFS_ERR_BUSY;
                     } else {
                         existing_lock->type = lock_type;
@@ -899,7 +899,7 @@ void handle_vfs_request(message_t* in) {
                     if (free_slot != -1) {
                         active_locks[free_slot].used = 1;
                         active_locks[free_slot].type = lock_type;
-                        active_locks[free_slot].owner_tid = in->sender_tid;
+                        active_locks[free_slot].owner_pid = in->sender_pid;
                         active_locks[free_slot].mount_node = f->mount_node;
                         active_locks[free_slot].inode_id = f->inode_id;
                         out.param1 = VFS_ERR_OK;
@@ -916,7 +916,7 @@ void handle_vfs_request(message_t* in) {
             vfs_seek_t whence = in->param3;
             int64_t offset = *(int64_t*)(in->data);
 
-            vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+            vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
             if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
 
@@ -953,7 +953,7 @@ void handle_vfs_request(message_t* in) {
 			int fd = in->param2;
 			uint64_t shm_id = *(uint64_t*)(in->data);
 			
-			vfs_file_t* f = vfs_get_file(fd, in->sender_tid);
+			vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
 			if (!f) { out.param1 = VFS_ERR_PERM; break; }
 
 			vfs_stat_info_t* user_stat = (vfs_stat_info_t*)shm_map(shm_id);
@@ -983,7 +983,7 @@ void handle_vfs_request(message_t* in) {
         }
     }
     
-    ipc_send(in->sender_tid, &out);
+    ipc_send(in->sender_pid, &out);
 }
 
 int driver_main(void* reserved1, void* reserved2) {

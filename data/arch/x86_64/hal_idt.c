@@ -88,9 +88,8 @@ void isr_handler(registers_t *r) {
                 kernel_error(0x7, r->int_no, r->err_code, r->rip, r->cs);
             }
             kernel_error(0x7, r->int_no, r->rip, r->err_code, 0);
+			__builtin_unreachable();
         }
-		
-		__asm__ volatile("cli; hlt");
         
         kernel_handle_user_exception(r->int_no, r->rip);
         return;

@@ -39,7 +39,7 @@ extern "C" {
 #define SYS_IPC_SEND                  2
 #define SYS_IPC_TRYRECV               3
 #define SYS_IPC_RECV                  4
-#define SYS_RESERVED1                 5
+#define SYS_SLEEP                     5
 #define SYS_GET_DRIVER_PID            6
 #define SYS_GET_DRIVER_PID_BY_NAME    7
 #define SYS_GET_SYSTEM_INFO           8
@@ -248,7 +248,7 @@ typedef enum {
 } msg_subtype_t;
 
 typedef struct message_t {
-    uint64_t sender_tid;
+    uint64_t sender_pid;
     uint32_t type;
 	uint32_t subtype;
     uint64_t param1;
@@ -320,11 +320,11 @@ typedef struct {
     uint8_t  state;
     uint64_t heap_limit;
     uint64_t threads_count;
+	auth_id_t user;
 } proc_info_user_t;
 
 typedef struct {
     uint64_t tid;
-	auth_id_t user;
     uint32_t parent_pid;
     uint8_t  state;
     int      waiting_for_msg; 
@@ -460,7 +460,7 @@ void sysprint(const char* str);
 
 int64_t __ipc_recv(message_t* out_msg);
 int64_t ipc_tryrecv(message_t* out_msg);
-int64_t ipc_send(uint64_t dest_tid, message_t* msg);
+int64_t ipc_send(uint64_t dest_pid, message_t* msg);
 uint64_t get_ipc_count(void);
 void ipc_recv(message_t* out_msg);
 void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
@@ -468,17 +468,19 @@ void ipc_seek(int64_t offset, seek_whence_t whence);
 int ipc_get_at(uint64_t index, message_t* out);
 
 uint32_t get_driver_pid(driver_type_t type);
+int get_driver_pid_sleep_wrapper(void* arg);
 uint32_t get_driver_pid_name(const char* name);
 driver_type_t dt_from_str(const char* str);
 
 uint8_t get_scancode();
 int get_sysinfo(system_info_t* info);
+uint64_t get_system_ticks(void);
 void* syscall_sbrk(int64_t increment);
 
 int get_proc_info(uint32_t pid, proc_info_user_t* out_info);
 int get_thread_info(uint64_t tid, thread_info_user_t* out_info);
-int get_pid_list(uint32_t* buff, uint64_t count);
-int get_tid_list(uint32_t pid, uint32_t* buff, uint64_t count);
+int get_pid_list(uint32_t* buff, uint64_t* count);
+int get_tid_list(uint32_t pid, uint64_t* buff, uint64_t* count);
 
 uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr);
 int shm_allow(uint64_t shm_id, uint64_t target_pid);
@@ -494,6 +496,9 @@ int sysspawnex(spawn_args_t* args);
 uint32_t sysfork(void);
 int sysexec(const char* path, startup_info_t* info, uint64_t arg2);
 int sysexecex(spawn_args_t* args);
+
+void syssleep(uint64_t ms);
+int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result);
 #endif
 
 #ifdef AOSLIB_STRING
@@ -622,6 +627,8 @@ uint16_t hal_inw(uint16_t port);
 
 void hal_insw(uint16_t port, void* addr, uint32_t count);
 void hal_outsw(uint16_t port, const void* addr, uint32_t count);
+
+void hal_cpu_relax(void);
 
 #endif
 
