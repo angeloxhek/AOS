@@ -71,7 +71,7 @@ extern "C" {
 #define SYS_RES_ALREADY              -3
 #define SYS_RES_DRV_ERR              -4
 #define SYS_RES_QUEUE_EMPTY          -5
-#define SYS_RES_DSK_ERR              -6
+#define SYS_RES_RESERVED1            -6
 #define SYS_RES_RANGE                -7
 #define SYS_RES_NOTFOUND             -8
 #define SYS_RES_KERNEL_ERR          -99
@@ -490,8 +490,10 @@ void thread_yield(void);
 int get_time_info(time_info_t* info);
 
 int sysspawn(const char* path, startup_info_t* info, uint64_t arg2);
+int sysspawnex(spawn_args_t* args);
 uint32_t sysfork(void);
 int sysexec(const char* path, startup_info_t* info, uint64_t arg2);
+int sysexecex(spawn_args_t* args);
 #endif
 
 #ifdef AOSLIB_STRING

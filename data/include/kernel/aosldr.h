@@ -238,6 +238,7 @@ int kill_thread(thread_t* target, int exit_code);
 thread_t* get_thread_by_id(uint64_t tid);
 process_t* get_process_by_id(uint32_t pid);
 void schedule(void);
+void yield(void);
 
 
 // -------------------------

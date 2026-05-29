@@ -91,22 +91,12 @@ $(DISK_DIR)/AOSLDR.BIN: $(KERNEL_OBJS)
 	$(Q)$(LD) $(LDFLAGS) -T $(CURDIR)/data/aosldr.ld -Map $(TEMP_DIR)/aosldr.map -o $(TEMP_DIR)/aosldr.elf $(KERNEL_OBJS)
 	$(ECHO) "${PURPLE}[ OBJCOPY ]${NC} $@\n"
 	$(Q)$(OBJCOPY) -O binary -S -R .bss -R .note -R .comment -R .note.gnu.property $(TEMP_DIR)/aosldr.elf $@
+
+include data/initdrivers/make.mk
 	
 $(DISK_DIR)/INITRD.TAR: $(TEMP_DIR)/INITDRIVER.ELF $(TEMP_DIR)/AUTHDRIVER.ELF $(TEMP_DIR)/VFSDRIVER.ELF
 	$(ECHO) "${PURPLE}[   TAR   ]${NC} $@\n"
 	$(Q)$(TAR) -cf $@ -C $(TEMP_DIR) INITDRIVER.ELF AUTHDRIVER.ELF VFSDRIVER.ELF
-
-$(TEMP_DIR)/INITDRIVER.ELF: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/initdriver.o $(BUILD_DIR)/libs/libaos.a
-	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/initdriver.map -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
-
-$(TEMP_DIR)/AUTHDRIVER.ELF: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/authdriver.o $(BUILD_DIR)/libs/libaos.a
-	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/authdriver.map -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
-	
-$(TEMP_DIR)/VFSDRIVER.ELF: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/vfsdriver.o $(TEMP_DIR)/fat32_vfsmodule.o $(TEMP_DIR)/procfs_vfsmodule.o $(TEMP_DIR)/ide_diskmodule.o $(TEMP_DIR)/mbr_partmodule.o $(BUILD_DIR)/libs/libaos.a
-	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/vfsdriver.map -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
 	
 libs: $(BUILD_DIR)/libs/libaos.a $(BUILD_DIR)/libs/libaoslin.a $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/libc_start.o
 
@@ -128,7 +118,7 @@ userspace: $(DISK_DIR)/tree.elf
 
 $(DISK_DIR)/tree.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/tree.o $(BUILD_DIR)/libs/libaos.a
 	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -N -T $(CURDIR)/data/drivers/driver.ld $^ -o $@
+	$(Q)$(LD) $(LDFLAGS) -N -T $(CURDIR)/data/driver.ld $^ -o $@
 	
 userlinux: $(DISK_DIR)/tree_linux.elf
 
@@ -139,7 +129,7 @@ $(DISK_DIR)/tree_linux.elf:
 	$(Q)$(MAKE) -s -C $(CURDIR)/userlinux/tree \
 		CC="$(CC)" \
 		CFLAGS="-O2 -Wall -nostdinc $(USER_COMMON_CFLAGS) -fno-stack-protector $(LIBC_CFLAGS)" \
-		LDFLAGS="-nostdlib -static $(ARCH_LDFLAGS) -T $(CURDIR)/data/drivers/driver.ld $(TEMP_DIR)/libc_start.o $(TEMP_DIR)/libaoslin.a"
+		LDFLAGS="-nostdlib -static $(ARCH_LDFLAGS) -T $(CURDIR)/data/driver.ld $(TEMP_DIR)/libc_start.o $(TEMP_DIR)/libaoslin.a"
 	$(ECHO) "${BROWN}[   CP    ]${NC} ${CURDIR}/userlinux/tree/tree ${GREEN}->${NC} ${DISK_DIR}/tree_linux\n"
 	$(Q)$(CP) $(CURDIR)/userlinux/tree/tree $(DISK_DIR)/tree_linux
 

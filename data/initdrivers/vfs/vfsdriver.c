@@ -125,14 +125,29 @@ vfs_file_t* vfs_get_file(int fd, uint64_t tid) {
 }
 
 extern disk_driver_t ide_disk_driver;
-disk_driver_t* available_disks[] = { &ide_disk_driver, 0 };
+disk_driver_t* available_disks[] = {
+	&ide_disk_driver,
+	0
+};
 
+extern part_driver_t gpt_part_driver;
+extern part_driver_t bsd_part_driver;
+extern part_driver_t iso9660_part_driver; 
 extern part_driver_t mbr_part_driver;
-part_driver_t* available_parsers[] = { &mbr_part_driver, 0 }; // Сюда потом добавите gpt_driver
+part_driver_t* available_parsers[] = {
+	&gpt_part_driver,
+	&bsd_part_driver,
+	&iso9660_part_driver,
+	&mbr_part_driver,
+	0
+};
 
 extern fs_driver_t fat32_driver;
 extern fs_driver_t procfs_driver;
-fs_driver_t* available_filesystems[] = { &fat32_driver, 0 };
+fs_driver_t* available_filesystems[] = {
+	&fat32_driver,
+	0
+};
 
 
 int dev_read_raw(void* param, void* buf, uint64_t size, uint64_t offset) {

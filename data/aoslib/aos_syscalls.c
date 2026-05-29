@@ -233,7 +233,59 @@ int get_time_info(time_info_t* info) {
 }
 
 int sysspawn(const char* path, startup_info_t* info, uint64_t arg2) {
-	return (int)syscall(SYS_SPAWN, (uint64_t)path, (uint64_t)info, arg2, 0, 0);
+	spawn_args_t args;
+	if (!path || !info) return SYS_RES_INVALID;
+	int fd = vfs_open(path, VFS_FREAD);
+	if (fd < 0) return fd;
+	vfs_stat_info_t* stat = (vfs_stat_info_t*)malloc(sizeof(vfs_stat_info_t));
+	if (!stat) {
+		vfs_close(fd);
+		return SYS_RES_KERNEL_ERR;
+	}
+	int res = vfs_stat(fd, stat);
+	if (res) {
+		vfs_close(fd);
+		free(stat);
+		return res;
+	}
+	uint64_t size = stat->size_bytes;
+	char* name = stat->name;
+	if (size == 0 || size == -1 || !name) {
+		vfs_close(fd);
+		return SYS_RES_RANGE;
+	}
+	char* data = (char*)calloc(size, sizeof(char));
+	if (!data) {
+		vfs_close(fd);
+		free(stat);
+		return SYS_RES_KERNEL_ERR;
+	}
+	uint64_t total_read = 0;
+	while (total_read < size) {
+		int res = vfs_read(fd, (void*)(data + total_read), (int)(size - total_read));
+		if (res <= 0) break;
+		total_read += res;
+	}
+	vfs_close(fd);
+	if (total_read != size) {
+		free(data);
+		vfs_close(fd);
+		free(stat);
+		return SYS_RES_DRV_ERR;
+	}
+	data[size] = '\0';
+	args.name = name;
+	args.data = (uint8_t*)data;
+	args.size = size;
+	args.info = info;
+	args.arg_val = arg2;
+	res = sysspawnex(&args);
+	free(stat);
+	return res;
+}
+
+int sysspawnex(spawn_args_t* args) {
+	return (int)syscall(SYS_SPAWN, (uint64_t)args, 0, 0, 0, 0);
 }
 
 uint32_t sysfork(void) {
@@ -241,5 +293,57 @@ uint32_t sysfork(void) {
 }
 
 int sysexec(const char* path, startup_info_t* info, uint64_t arg2) {
-	return (int)syscall(SYS_EXEC, (uint64_t)path, (uint64_t)info, arg2, 0, 0);
+	spawn_args_t args;
+	if (!path || !info) return SYS_RES_INVALID;
+	int fd = vfs_open(path, VFS_FREAD);
+	if (fd < 0) return fd;
+	vfs_stat_info_t* stat = (vfs_stat_info_t*)malloc(sizeof(vfs_stat_info_t));
+	if (!stat) {
+		vfs_close(fd);
+		return SYS_RES_KERNEL_ERR;
+	}
+	int res = vfs_stat(fd, stat);
+	if (res) {
+		vfs_close(fd);
+		free(stat);
+		return res;
+	}
+	uint64_t size = stat->size_bytes;
+	char* name = stat->name;
+	if (size == 0 || size == -1 || !name) {
+		vfs_close(fd);
+		return SYS_RES_RANGE;
+	}
+	char* data = (char*)calloc(size, sizeof(char));
+	if (!data) {
+		vfs_close(fd);
+		free(stat);
+		return SYS_RES_KERNEL_ERR;
+	}
+	uint64_t total_read = 0;
+	while (total_read < size) {
+		int res = vfs_read(fd, (void*)(data + total_read), (int)(size - total_read));
+		if (res <= 0) break;
+		total_read += res;
+	}
+	vfs_close(fd);
+	if (total_read != size) {
+		free(data);
+		vfs_close(fd);
+		free(stat);
+		return SYS_RES_DRV_ERR;
+	}
+	data[size] = '\0';
+	args.name = name;
+	args.data = (uint8_t*)data;
+	args.size = size;
+	args.info = info;
+	args.arg_val = arg2;
+	res = sysexecex(&args);
+	free(stat);
+	return res;
+}
+
+int sysexecex(spawn_args_t* args) {
+	return (int)syscall(SYS_EXEC, (uint64_t)args, 0, 0, 0, 0);
 }

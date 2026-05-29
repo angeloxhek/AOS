@@ -5,9 +5,11 @@ AOS_DECLARE_DRIVER(DT_INIT, 0, 0);
 
 int spawn_driver(driver_type_t type, const char* name, const char* path) {
 	startup_info_t info;
+	memset(&info, 0, sizeof(startup_info_t));
 	info.type = STARTUP_DRIVERMAIN;
+	int res = sysspawn(path, &info, 0);
+	if (res) return res;
 	
-	return 0;
 }
 
 void parse_drivers_conf(char* buffer) {

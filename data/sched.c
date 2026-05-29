@@ -142,6 +142,12 @@ void schedule() {
     hal_switch_task(prev, next);
 }
 
+void yield(void) {
+    uint64_t irq = hal_irq_save();
+    schedule();
+    hal_irq_restore(irq);
+}
+
 int kill_thread(thread_t* target, int exit_code) {
     if (target->tid == 1) return SYS_RES_NO_PERM;
     uint64_t irq = hal_irq_save();
@@ -205,30 +211,40 @@ void sleep(uint64_t ms) {
 }
 
 int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result) {
-    int attempts = 0;
     int res = func(arg);
+    if (res != 0) {
+        if (out_result) *out_result = res;
+        return 1;
+    }
+
     uint64_t start_tick = ticks;
     uint64_t timeout_ticks = timeout_ms / 10;
     if (timeout_ticks == 0 && timeout_ms > 0) timeout_ticks = 1;
-    while (res == 0) {
-        if (attempts < 100) {
-            attempts++;
+
+    int spin_count = 0;
+
+    while (1) {
+        res = func(arg);
+        if (res != 0) break;
+
+        if (spin_count < 1000) {
+            spin_count++;
             hal_cpu_relax();
-            res = func(arg);
-            if (res != 0) break;
             continue;
         }
+
         if (timeout_ms != 0) {
-            uint64_t current = ticks;
-            uint64_t elapsed = (current >= start_tick) ? (current - start_tick) : (0xFFFFFFFFFFFFFFFF - start_tick + current);
+            uint64_t elapsed = ticks - start_tick; 
+            
             if (elapsed >= timeout_ticks) {
                 if (out_result) *out_result = 0;
                 return 0;
             }
         }
-        sleep(10);
-        res = func(arg);
+		
+		yield();
     }
+
     if (out_result) *out_result = res;
     return 1;
 }
