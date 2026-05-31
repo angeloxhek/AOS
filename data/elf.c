@@ -221,7 +221,7 @@ int startup_info_args_copy(startup_info_t* k_info, startup_info_t* child_info, v
 }
 
 startup_info_t* prepare_child_startup_info(process_t* proc, startup_info_t* user_info_ptr) {
-    if (!hal_is_valid_user_pointer(user_info_ptr)) return 0; // Изменено на HAL
+    if (!hal_is_valid_user_pointer(user_info_ptr)) return 0;
 
     startup_info_t* k_info = (startup_info_t*)kernel_malloc(sizeof(startup_info_t));
     if (!k_info) return 0;

@@ -105,8 +105,8 @@ int driver_main(void* reserved1, void* reserved2) {
 	int res;
 	
 	int drvfd = vfs_open("/boot/Configs/drivers.conf", VFS_FREAD);
+	printf("INITDRIVER: vfs_open code = %d\n", drvfd);
 	if (drvfd < 0) {
-		printf("INITDRIVER: vfs_open code = %d\n", drvfd);
 		return -1;
 	}
 	
@@ -127,14 +127,23 @@ int driver_main(void* reserved1, void* reserved2) {
 		return -1;
 	}
 	
+	printf("Config file stat:\n");
 	hexdump((uint8_t*)drvstat, sizeof(vfs_stat_info_t));
 	
 	uint64_t size = drvstat->size_bytes;
 	free(drvstat);
-	if (size == 0 || size == -1) { vfs_close(drvfd); return -1; }
+	if (size == 0 || size == -1) {
+		vfs_close(drvfd);
+		printf("INITDRIVER: config size = %d\n", size);
+		return -1;
+	}
 	
 	char* drvdata = (char*)calloc(size, sizeof(char));
-	if (!drvdata) { vfs_close(drvfd); return STAT_OOM; }
+	if (!drvdata) {
+		vfs_close(drvfd);
+		printf("INITDRIVER: OOM\n");
+		return STAT_OOM;
+	}
 	uint64_t total_read = 0;
 	while (total_read < size) {
 		res = vfs_read(drvfd, (void*)(drvdata + total_read), (int)(size - total_read));
@@ -143,9 +152,16 @@ int driver_main(void* reserved1, void* reserved2) {
 	}
 	vfs_close(drvfd);
 	
-	if (total_read != size) { free(drvdata); return -1; }
+	if (total_read != size) {
+		free(drvdata);
+		printf("INITDRIVER: total_read != size => %d != %d\n", total_read, size);
+		return -1;
+	}
 	
 	drvdata[size] = '\0';
+	
+	printf("Config file data:\n");
+	hexdump((uint8_t*)drvdata, size);
 	
 	parse_drivers_conf(drvdata);
 	

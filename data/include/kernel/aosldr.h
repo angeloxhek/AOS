@@ -29,35 +29,10 @@ typedef struct {
     char padding[12];
 } __attribute__((packed)) tar_header_t;
 
-typedef struct {
-	uint64_t    id;
-    uint16_t    io_base;
-    uint8_t     drive_select;
-} ide_device_t;
-
-typedef struct {
-	uint64_t id;
-    uint64_t partition_lba;
-    uint64_t fat_lba;
-    uint64_t data_lba;
-	uint64_t sector_count;
-    ide_device_t device; 
-    uint32_t root_cluster;
-    uint32_t sec_per_clus;
-    uint8_t  active;
-} volume_t;
-
 typedef struct st_flags {
 	uint32_t system_flags; // CAN_REGISTER_KERNEL_DRIVERS, CAN_PRINT, KERNEL_PANIC
 	uint16_t cpu_flags; // FSGSBASE
 } st_flags_t;
-
-typedef enum {
-    THREAD_READY,
-    THREAD_RUNNING,
-    THREAD_BLOCKED,
-    THREAD_ZOMBIE
-} thread_state_t;
 
 typedef struct msg_node_t {
     message_t msg;
@@ -66,10 +41,9 @@ typedef struct msg_node_t {
 
 typedef struct process_t {
 	char              name[32];
-    uint32_t          id;
+    apid_t             id;
 	uint32_t          sleep_ticks;
     uint64_t*         page_directory;
-    uint64_t          entry_point;
     uint64_t          rsp;
     uint64_t          rbp;
 	uint64_t          tls_image_vaddr;
@@ -78,6 +52,7 @@ typedef struct process_t {
     uint64_t          tls_align;
 	uint64_t          heap_limit;
 	uint64_t          next_shm_vaddr;
+	uint64_t          peb_phys_page;
 	auth_id_t         user;
     struct process_t* next;
 	msg_node_t*       msg_queue_head;
@@ -91,10 +66,11 @@ typedef struct thread_t {
     uint64_t         stack_base;
     uint64_t         cr3;
 	uint64_t         fs_base;
+	uint64_t         tcb_phys_page;
+    uint64_t         tcb_page_offset;
 	uint64_t         wake_up_time;
 	struct thread_t* next;
 	struct thread_t* next_zombie;
-	struct thread_t* next_waiter;
 	process_t*       owner;
 	thread_state_t   state;
 	int              exit_code;
@@ -176,6 +152,7 @@ void kernel_memcpy(void* dest, const void* src, uint64_t n);
 void kernel_to_upper(char* s);
 int kernel_strcmp(const char* s1, const char* s2);
 char *kernel_strcpy(char *dest, const char *src);
+char *kernel_strncpy(char *dest, const char *src, uint64_t n);
 uint64_t kernel_strnlen(const char* s, uint64_t maxlen);
 #define kernel_strlen(s) kernel_strnlen(s, UINT64_MAX)
 
@@ -236,9 +213,9 @@ thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t
 thread_t* create_kernel_thread(void (*entry)(void));
 int kill_thread(thread_t* target, int exit_code);
 thread_t* get_thread_by_id(uint64_t tid);
-process_t* get_process_by_id(uint32_t pid);
-uint64_t get_thread_list(uint32_t target_pid, uint64_t* user_buffer, uint64_t* max_elements);
-uint64_t get_proc_list(uint32_t* user_buffer, uint64_t* max_elements);
+process_t* get_process_by_id(apid_t pid);
+uint64_t get_thread_list(apid_t target_pid, uint64_t* user_buffer, uint64_t* max_elements);
+uint64_t get_proc_list(apid_t* user_buffer, uint64_t* max_elements);
 void schedule(void);
 void yield(void);
 
@@ -248,9 +225,9 @@ void yield(void);
 // -------------------------
 
 int64_t register_driver(driver_type_t type, const char* user_name, uint32_t perms, uint16_t* allowed_ports, process_t* process);
-uint32_t get_driver_pid(driver_type_t type);
-driver_info_t* get_driver_by_pid(uint32_t pid);
-uint32_t get_driver_pid_by_name(const char* name);
+apid_t get_driver_pid(driver_type_t type);
+driver_info_t* get_driver_by_pid(apid_t pid);
+apid_t get_driver_pid_by_name(const char* name);
 int get_driver_pid_sleep_wrapper(void* arg);
 
 
@@ -296,12 +273,12 @@ void get_time_info(time_info_t* out);
 //           IPC
 // -------------------------
 
-int64_t ipc_forward(uint64_t dest_tid, message_t* user_msg);
+int64_t ipc_forward(apid_t dest_tid, message_t* user_msg);
 int64_t ipc_requeue(message_t* user_msg);
-int64_t ipc_send(uint64_t dest_pid, message_t* msg);
+int64_t ipc_send(apid_t dest_pid, message_t* msg);
 int64_t ipc_try_receive(message_t* out_msg);
 int64_t ipc_receive(message_t* out_msg);
-int64_t ipc_receive_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
+int64_t ipc_receive_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
 
 // -------------------------
 //       Shared Memory
@@ -312,7 +289,7 @@ shm_object_t* shm_find_by_id(uint64_t id);
 void shm_add(shm_object_t* obj);
 void shm_remove(shm_object_t* obj);
 uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr);
-int shm_allow(uint64_t shm_id, uint64_t target_pid);
+int shm_allow(uint64_t shm_id, apid_t target_pid);
 uint64_t shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
 

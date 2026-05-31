@@ -16,7 +16,7 @@ ABUILD_DIR = $(CURDIR)/build
 BUILD_DIR = $(ABUILD_DIR)/$(ARCH)
 TEMP_DIR = $(CURDIR)/temp
 DISK_DIR = $(BUILD_DIR)/volume
-DRIVERS_DIR = $(DISK_DIR)/DRIVERS
+DRIVERS_DIR = $(DISK_DIR)/drivers
 
 include data/arch/$(ARCH)/arch.mk
 

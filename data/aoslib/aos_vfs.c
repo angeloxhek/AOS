@@ -1,6 +1,6 @@
 #include "../include/aoslib.h"
 
-static uint64_t vfs_driver_pid = 0;
+static apid_t vfs_driver_pid = 0;
 
 #define ensure_vfs_init() { if (vfs_driver_pid == 0) vfs_driver_pid = get_driver_pid(DT_VFS); }
 
@@ -36,6 +36,9 @@ int vfs_open(const char* path, uint32_t flags) {
 	
     message_t req;
     message_t resp;
+	
+	memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_OPEN;
@@ -57,6 +60,9 @@ int vfs_openat(int dir_fd, const char* name, uint32_t flags) {
     
     message_t req;
     message_t resp;
+	
+	memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_OPENAT;
@@ -80,6 +86,9 @@ int vfs_close(int fd) {
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_CLOSE;
     req.param2 = fd;
+	
+	memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 
     if (vfs_rpc_call(&req, &resp) == 0) {
         return 0;
@@ -101,7 +110,9 @@ int vfs_read(int fd, void* buf, int count) {
 
     message_t req;
     message_t resp;
+	
     memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 	
 	req.subtype = MSG_SUBTYPE_PING;
     req.param1 = VFS_CMD_READ;
@@ -140,7 +151,9 @@ int vfs_write(int fd, const void* buf, int count) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    
+	memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_PING;
     req.param1 = VFS_CMD_WRITE;
@@ -173,7 +186,9 @@ int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    
+	memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_PING;
     req.param1 = VFS_CMD_LIST;
@@ -205,7 +220,9 @@ int vfs_flock(int fd, vfs_lock_type_t lock_type) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    
+	memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_FLOCK;
@@ -226,7 +243,9 @@ int64_t vfs_seek(int fd, int64_t offset, vfs_seek_t whence) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    
+	memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_SEEK;
@@ -255,7 +274,9 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
 
     message_t req;
     message_t resp;
-    memset(&req, 0, sizeof(message_t));
+    
+	memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_STAT;

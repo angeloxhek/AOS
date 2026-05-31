@@ -9,7 +9,6 @@ void init_scheduler() {
     kernel_process.id = 0;
     kernel_memcpy(kernel_process.name, "KERNEL", 6);
     kernel_process.page_directory = (uint64_t*)hal_get_current_address_space();
-    kernel_process.entry_point = (uint64_t)kernel_main;
     
     thread_t* kthread = (thread_t*)kernel_malloc(sizeof(thread_t));
     if (!kthread) kernel_error(0x5, 0, 0, 0, 0);
@@ -87,14 +86,14 @@ thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t
     tcb->tcb_self     = (void*)fs_base;
     tcb->tid          = t->tid;
     tcb->pid          = t->owner->id;
-    tcb->thread_errno = 0;
-    tcb->pending_msgs = 0;
-    tcb->local_heap   = (void*)0;
     tcb->stack_canary = hal_get_random_seed() ^ 0x595e9fbd94fda766ULL ^ (uint64_t)t->tid;
 
     hal_set_current_address_space(old_space);
     
     t->fs_base = fs_base;
+	uint64_t tcb_virt_page = fs_base & ~4095ULL;
+    t->tcb_page_offset     = fs_base & 4095ULL;
+    t->tcb_phys_page = hal_get_phys(cr3_phys, tcb_virt_page);
 
     hal_setup_user_thread(t, entry_point, user_stack, arg1, arg2);
     
@@ -184,7 +183,7 @@ thread_t* get_thread_by_id(uint64_t tid) {
     return 0;
 }
 
-process_t* get_process_by_id(uint32_t pid) {
+process_t* get_process_by_id(apid_t pid) {
     thread_t* t = ready_queue;
     if (!t) return 0;
     do {
@@ -194,7 +193,7 @@ process_t* get_process_by_id(uint32_t pid) {
     return 0;
 }
 
-uint64_t get_thread_list(uint32_t target_pid, uint64_t* user_buffer, uint64_t* max_elements) {
+uint64_t get_thread_list(apid_t target_pid, uint64_t* user_buffer, uint64_t* max_elements) {
 	if (!user_buffer || !max_elements) return 0;
 	uint64_t count = 0;
 	uint64_t mx = *max_elements;
@@ -202,7 +201,7 @@ uint64_t get_thread_list(uint32_t target_pid, uint64_t* user_buffer, uint64_t* m
 	*max_elements = 0;
 	if (t) {
 		do {
-			if (count < mx && (target_pid == (uint32_t)-1 || t->owner->id == target_pid)) {
+			if (count < mx && (target_pid == (apid_t)-1 || t->owner->id == target_pid)) {
 				user_buffer[count++] = t->tid;
 			}
 			t = t->next;
@@ -212,7 +211,7 @@ uint64_t get_thread_list(uint32_t target_pid, uint64_t* user_buffer, uint64_t* m
 	return count;
 }
 
-uint64_t get_proc_list(uint32_t* user_buffer, uint64_t* max_elements) {
+uint64_t get_proc_list(apid_t* user_buffer, uint64_t* max_elements) {
 	if (!user_buffer || !max_elements) return 0;
 	uint64_t count = 0;
 	thread_t* t = ready_queue;
@@ -220,7 +219,7 @@ uint64_t get_proc_list(uint32_t* user_buffer, uint64_t* max_elements) {
 	*max_elements = 0;
 	if (t) {
 		do {
-			uint32_t pid = t->owner->id;
+			apid_t pid = t->owner->id;
 			int is_duplicate = 0;
 			for (uint64_t i = 0; i < count; i++) {
 				if (user_buffer[i] == pid) {

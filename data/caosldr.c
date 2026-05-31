@@ -191,6 +191,20 @@ char *kernel_strcpy(char *dest, const char *src) {
     return start;
 }
 
+char *kernel_strncpy(char *dest, const char *src, uint64_t n) {
+    char *start = dest;
+    while (n > 0 && *src != '\0') {
+        *dest++ = *src++;
+        n--;
+    }
+    while (n > 0) {
+        *dest++ = '\0';
+        n--;
+    }
+    return start;
+}
+
+
 uint64_t kernel_strnlen(const char* s, uint64_t maxlen) {
     uint64_t len = 0;
     while (len < maxlen && s[len] != '\0') {
@@ -361,9 +375,9 @@ process_t* create_process(const char* name) {
     if (!new_proc) return 0;
     kernel_memset(new_proc, 0, sizeof(process_t));
 
-    static uint32_t next_pid = 1;
+    static apid_t next_pid = 1;
     new_proc->id = next_pid++;
-    if (name) kernel_memcpy(new_proc->name, name, 31);
+    if (name) kernel_strncpy(new_proc->name, name, 31);
     new_proc->state = THREAD_READY;
 
     new_proc->page_directory = hal_create_address_space();
@@ -373,6 +387,21 @@ process_t* create_process(const char* name) {
     }
 
     new_proc->next_shm_vaddr = 0x600000000000ULL;
+	
+	new_proc->peb_phys_page = pmm_alloc_block();
+
+	hal_map_page_in_space((uint64_t)new_proc->page_directory, PEB_VIRT_ADDR, new_proc->peb_phys_page, 0x5);
+
+	void* kvirt = temp_map(new_proc->peb_phys_page);
+	kernel_memset(kvirt, 0, 4096);
+
+	aos_peb_t* peb = (aos_peb_t*)kvirt;
+	peb->pid = new_proc->id;
+	peb->pending_msgs = 0;
+	get_time_info(&peb->startup_time);
+	if (name) kernel_strncpy(peb->process_name, name, 31);
+
+	temp_unmap(kvirt);
 
     return new_proc;
 }
@@ -426,7 +455,7 @@ int64_t register_driver(driver_type_t type, const char* user_name, uint32_t perm
     return 0;
 }
 
-uint32_t get_driver_pid(driver_type_t type) {
+apid_t get_driver_pid(driver_type_t type) {
     driver_info_t* cur = drivers_list_head;
     while (cur) {
         if (cur->type == type) {
@@ -437,7 +466,7 @@ uint32_t get_driver_pid(driver_type_t type) {
     return 0;
 }
 
-driver_info_t* get_driver_by_pid(uint32_t pid) {
+driver_info_t* get_driver_by_pid(apid_t pid) {
     driver_info_t* cur = drivers_list_head;
     while (cur) {
         if (cur->pid == pid) {
@@ -448,7 +477,7 @@ driver_info_t* get_driver_by_pid(uint32_t pid) {
     return 0;
 }
 
-uint32_t get_driver_pid_by_name(const char* name) {
+apid_t get_driver_pid_by_name(const char* name) {
     driver_info_t* cur = drivers_list_head;
     while (cur) {
         if (kernel_strcmp(cur->name, name) == 0) {
@@ -582,7 +611,7 @@ void kernel_main(boot_info_t* boot_info) {
     elf_load_result_t* driver = (elf_load_result_t*)kernel_malloc(sizeof(elf_load_result_t));
     uint8_t* file_buf;
 	uint64_t file_size;
-    uint32_t pid = 0;
+    apid_t pid = 0;
     driver_type_t dtype;
 
      // --- AUTH Driver ---

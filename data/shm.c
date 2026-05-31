@@ -93,7 +93,7 @@ oom_cleanup:
     return 0;
 }
 
-int shm_allow(uint64_t shm_id, uint64_t target_pid) {
+int shm_allow(uint64_t shm_id, apid_t target_pid) {
     shm_object_t* obj = shm_find_by_id(shm_id);
     if (!obj || obj->owner_pid != current_thread->owner->id) return SYS_RES_NO_PERM;
 

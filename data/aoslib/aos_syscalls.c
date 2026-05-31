@@ -35,16 +35,16 @@ int64_t ipc_tryrecv(message_t* out_msg) {
     return syscall(SYS_IPC_TRYRECV, (uint64_t)out_msg, 0, 0, 0, 0);
 }
 
-int64_t ipc_send(uint64_t dest_pid, message_t* msg) {
-    return syscall(SYS_IPC_SEND, dest_pid, (uint64_t)msg, 0, 0, 0);
+int64_t ipc_send(apid_t dest_pid, message_t* msg) {
+    return syscall(SYS_IPC_SEND, (uint64_t)dest_pid, (uint64_t)msg, 0, 0, 0);
 }
 
-uint32_t get_driver_pid(driver_type_t type) {
-    return (uint32_t)syscall(SYS_GET_DRIVER_PID, (uint64_t)type, 0, 0, 0, 0);
+apid_t get_driver_pid(driver_type_t type) {
+    return (apid_t)syscall(SYS_GET_DRIVER_PID, (uint64_t)type, 0, 0, 0, 0);
 }
 
-uint32_t get_driver_pid_name(const char* name) {
-    return (uint64_t)syscall(SYS_GET_DRIVER_PID_BY_NAME, (uint64_t)name, 0, 0, 0, 0);
+apid_t get_driver_pid_name(const char* name) {
+    return (apid_t)syscall(SYS_GET_DRIVER_PID_BY_NAME, (uint64_t)name, 0, 0, 0, 0);
 }
 
 int get_driver_pid_sleep_wrapper(void* arg) {
@@ -70,9 +70,9 @@ typedef struct msg_node {
     struct msg_node* next;
 } msg_node_t;
 
-static __thread msg_node_t* pending_head = NULL;
-static __thread msg_node_t* pending_tail = NULL;
-static __thread uint64_t ipc_cursor = 0;
+static msg_node_t* pending_head = NULL;
+static msg_node_t* pending_tail = NULL;
+static uint64_t ipc_cursor = 0;
 
 static void queue_message(message_t msg) {
     msg_node_t* node = (msg_node_t*)malloc(sizeof(msg_node_t));
@@ -98,7 +98,7 @@ uint64_t get_ipc_count(void) {
         count++;
         curr = curr->next;
     }
-    return count + AOS_GET_TCB()->pending_msgs;
+    return count + AOS_GET_PEB()->pending_msgs;
 }
 
 
@@ -121,7 +121,7 @@ void ipc_recv(message_t* out_msg) {
     __ipc_recv(out_msg);
 }
 
-void ipc_recv_ex(uint64_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
+void ipc_recv_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
     msg_node_t *curr = pending_head;
     msg_node_t *prev = NULL;
 
@@ -202,7 +202,7 @@ uint8_t get_scancode() {
     return (uint8_t)(response.param1 & 0xFF);
 }
 
-int get_proc_info(uint32_t pid, proc_info_user_t* out_info) {
+int get_proc_info(apid_t pid, proc_info_user_t* out_info) {
     return syscall(SYS_GET_PROC_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
 }
 
@@ -210,11 +210,11 @@ int get_thread_info(uint64_t tid, thread_info_user_t* out_info) {
     return syscall(SYS_GET_THREAD_INFO, tid, (uint64_t)out_info, 0, 0, 0);
 }
 
-int get_pid_list(uint32_t* buff, uint64_t* count) {
+int get_pid_list(apid_t* buff, uint64_t* count) {
     return syscall(SYS_GET_PID_LIST, (uint64_t)buff, (uint64_t)count, 0, 0, 0);
 }
 
-int get_tid_list(uint32_t pid, uint64_t* buff, uint64_t* count) {
+int get_tid_list(apid_t pid, uint64_t* buff, uint64_t* count) {
     return syscall(SYS_GET_TID_LIST, (uint64_t)pid, (uint64_t)buff, (uint64_t)count, 0, 0);
 }
 
@@ -222,8 +222,8 @@ uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr) {
     return syscall(SYS_SHM_ALLOC, size_bytes, (uint64_t)out_vaddr, 0, 0, 0);
 }
 
-int shm_allow(uint64_t shm_id, uint64_t target_pid) {
-    return (int)syscall(SYS_SHM_ALLOW, shm_id, target_pid, 0, 0, 0);
+int shm_allow(uint64_t shm_id, apid_t target_pid) {
+    return (int)syscall(SYS_SHM_ALLOW, shm_id, (uint64_t)target_pid, 0, 0, 0);
 }
 
 void* shm_map(uint64_t shm_id) {

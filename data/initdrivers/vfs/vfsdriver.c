@@ -982,7 +982,7 @@ void handle_vfs_request(message_t* in) {
             break;
         }
     }
-    
+	
     ipc_send(in->sender_pid, &out);
 }
 

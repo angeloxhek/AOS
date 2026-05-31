@@ -138,7 +138,7 @@ void generic_syscall_handler(syscall_args_t* args) {
         }
 
         case SYS_GET_PROC_INFO: {
-            uint32_t target_pid = (uint32_t)args->arg1;
+            apid_t target_pid = (apid_t)args->arg1;
             proc_info_user_t* user_ptr = (proc_info_user_t*)args->arg2;
 
             if (!hal_is_valid_user_pointer(user_ptr)) {
@@ -235,7 +235,7 @@ void generic_syscall_handler(syscall_args_t* args) {
         }
 
         case SYS_SHM_ALLOW:
-            args->ret = shm_allow(args->arg1, args->arg2);
+            args->ret = shm_allow(args->arg1, (apid_t)args->arg2);
             break;
 
         case SYS_SHM_MAP:
@@ -252,7 +252,7 @@ void generic_syscall_handler(syscall_args_t* args) {
             break;
         
         case SYS_GET_PID_LIST: {
-            uint32_t* user_buffer = (uint32_t*)args->arg1;
+            apid_t* user_buffer = (apid_t*)args->arg1;
             uint64_t* max_elements = (uint64_t*)args->arg2;
 
             if (!hal_is_valid_user_pointer(user_buffer) || !hal_is_valid_user_pointer(max_elements)) {
@@ -265,7 +265,7 @@ void generic_syscall_handler(syscall_args_t* args) {
         }
 
         case SYS_GET_TID_LIST: {
-            uint32_t target_pid = (uint32_t)args->arg1;
+            apid_t target_pid = (apid_t)args->arg1;
             uint64_t* user_buffer = (uint64_t*)args->arg2;
             uint64_t* max_elements = (uint64_t*)args->arg3;
 

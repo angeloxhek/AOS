@@ -104,6 +104,8 @@ extern "C" {
 #define STAT_NO_ENTRY              -257
 #define STAT_OOM                   -258
 
+typedef uint32_t apid_t;
+
 #define VFS_FREAD   (1 << 0)
 #define VFS_FWRITE  (1 << 1)
 #define VFS_FRW     (VFS_FREAD | VFS_FWRITE)
@@ -248,7 +250,7 @@ typedef enum {
 } msg_subtype_t;
 
 typedef struct message_t {
-    uint64_t sender_pid;
+    apid_t   sender_pid;
     uint32_t type;
 	uint32_t subtype;
     uint64_t param1;
@@ -314,8 +316,15 @@ typedef struct {
     uint8_t  bootable;
 } partition_info_t;
 
+typedef enum {
+    THREAD_READY,
+    THREAD_RUNNING,
+    THREAD_BLOCKED,
+    THREAD_ZOMBIE
+} thread_state_t;
+
 typedef struct {
-    uint32_t pid;
+    apid_t   pid;
     char     name[32];
     uint8_t  state;
     uint64_t heap_limit;
@@ -326,7 +335,7 @@ typedef struct {
 typedef struct {
     uint64_t tid;
     uint32_t parent_pid;
-    uint8_t  state;
+    thread_state_t  state;
     int      waiting_for_msg; 
     uint64_t wake_up_time;
 } thread_info_user_t;
@@ -347,13 +356,19 @@ typedef struct {
 typedef struct {
     void*       tcb_self;
     uint64_t    tid;
-    uint64_t    pid;
-    int32_t     thread_errno; // Reserved
-    uint32_t    pending_msgs;
-    void*       local_heap;   // Reserved
+    apid_t      pid;
+    uint64_t    reserved1[2];
     uint64_t    stack_canary;
-	time_info_t startup_time;
 } aos_tcb_t;
+
+#define PEB_VIRT_ADDR 0x00007FFFFE000000
+
+typedef struct {
+    apid_t pid;
+    volatile uint64_t pending_msgs; 
+    time_info_t startup_time;
+    char process_name[32];
+} aos_peb_t;
 
 typedef enum : uint8_t {
 	STARTUP_MAIN = 1,
@@ -411,6 +426,7 @@ typedef struct aos_driver_info_t {
     };
 
 #define AOS_GET_TCB() ((aos_tcb_t __seg_fs *)0)
+#define AOS_GET_PEB() ((aos_peb_t*)PEB_VIRT_ADDR)
 
 #define AOS_HANDLE_SUBTYPE_CHECK(st) do { \
 _Static_assert(__builtin_types_compatible_p(typeof(*(in)), message_t), "AOS_HANDLE_SUBTYPE_CHECK: 'in' must be message_t*"); \
@@ -460,16 +476,16 @@ void sysprint(const char* str);
 
 int64_t __ipc_recv(message_t* out_msg);
 int64_t ipc_tryrecv(message_t* out_msg);
-int64_t ipc_send(uint64_t dest_pid, message_t* msg);
+int64_t ipc_send(apid_t dest_pid, message_t* msg);
 uint64_t get_ipc_count(void);
 void ipc_recv(message_t* out_msg);
-void ipc_recv_ex(uint64_t tid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
+void ipc_recv_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
 void ipc_seek(int64_t offset, seek_whence_t whence);
 int ipc_get_at(uint64_t index, message_t* out);
 
-uint32_t get_driver_pid(driver_type_t type);
+apid_t get_driver_pid(driver_type_t type);
 int get_driver_pid_sleep_wrapper(void* arg);
-uint32_t get_driver_pid_name(const char* name);
+apid_t get_driver_pid_name(const char* name);
 driver_type_t dt_from_str(const char* str);
 
 uint8_t get_scancode();
@@ -477,13 +493,13 @@ int get_sysinfo(system_info_t* info);
 uint64_t get_system_ticks(void);
 void* syscall_sbrk(int64_t increment);
 
-int get_proc_info(uint32_t pid, proc_info_user_t* out_info);
+int get_proc_info(apid_t pid, proc_info_user_t* out_info);
 int get_thread_info(uint64_t tid, thread_info_user_t* out_info);
-int get_pid_list(uint32_t* buff, uint64_t* count);
-int get_tid_list(uint32_t pid, uint64_t* buff, uint64_t* count);
+int get_pid_list(apid_t* buff, uint64_t* count);
+int get_tid_list(apid_t pid, uint64_t* buff, uint64_t* count);
 
 uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr);
-int shm_allow(uint64_t shm_id, uint64_t target_pid);
+int shm_allow(uint64_t shm_id, apid_t target_pid);
 void* shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
 
