@@ -16,7 +16,8 @@ typedef enum {
 
 /* Видео (FrameBuffer) */
 typedef struct {
-    uint64_t framebuffer_addr;
+	uint64_t framebuffer_addr;
+    uint64_t framebuffer_addr_virt;
     uint32_t width;
     uint32_t height;
     uint32_t pitch;
@@ -27,7 +28,7 @@ typedef struct {
     uint8_t  green_mask_shift;
     uint8_t  blue_mask_size;
     uint8_t  blue_mask_shift;
-} __attribute__((packed)) boot_video_t; // Размер: 30 байт
+} __attribute__((packed)) boot_video_t; // Размер: 38 байт
 
 /* Контейнер карты памяти */
 typedef struct {
@@ -70,18 +71,18 @@ typedef struct {
     uint64_t initrd_size;     // Оффсет 24. Размер в байтах
 
     // [32] Общие данные
-    boot_video_t video;       // Оффсет 32, Размер 30
-    boot_mmap_t  mmap;        // Оффсет 62, Размер 24
-    uint64_t acpi_rsdp;       // Оффсет 86. Адрес структуры ACPI
-    uint64_t smbios_entry;    // Оффсет 94. Адрес структуры SMBIOS
-    uint64_t reserved2;       // Оффсет 102.
-    uint32_t flags;           // Оффсет 110. Флаги
+    boot_video_t video;       // Оффсет 32, Размер 38
+    boot_mmap_t  mmap;        // Оффсет 70, Размер 24
+    uint64_t acpi_rsdp;       // Оффсет 94
+    uint64_t smbios_entry;    // Оффсет 102
+    uint64_t reserved2;       // Оффсет 110
+    uint32_t flags;           // Оффсет 118
 
-    // [114] Специфичные данные (Union)
+    // [122] Специфичные данные (Union)
     union {
         mbr_info_t  mbr;
         uefi_info_t uefi;
-    } specific;               // Оффсет 114
+    } specific;               // Оффсет 122
 
 } __attribute__((packed)) boot_info_t;
 

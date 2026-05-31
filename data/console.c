@@ -5,15 +5,17 @@
 // -------------------------
 
 void put_pixel(uint32_t x, uint32_t y, uint32_t color) {
+	uint64_t vaddr = video->framebuffer_addr_virt;
     if (x >= video->width || y >= video->height) return;
     uint64_t offset = (y * video->pitch) + (x * (video->bpp / 8));
-    uint32_t* pixel = (uint32_t*)(video->framebuffer_addr + offset);
+    uint32_t* pixel = (uint32_t*)(vaddr + offset);
     *pixel = color;
 }
 
 void _kclear() {
+	uint64_t vaddr = video->framebuffer_addr_virt;
     for (uint32_t y = 0; y < video->height; y++) {
-        uint32_t* row = (uint32_t*)(video->framebuffer_addr + y * video->pitch);
+        uint32_t* row = (uint32_t*)(vaddr + y * video->pitch);
         for (uint32_t x = 0; x < video->width; x++) {
              row[x] = bg_color;
         }
@@ -34,10 +36,11 @@ void kclear() {
 }
 
 void kprint_scroll() {
+	uint64_t vaddr = video->framebuffer_addr_virt;
     if (!(state.system_flags & CAN_PRINT)) return;
     uint32_t font_h = 16;
     uint64_t bytes_to_move = (uint64_t)video->pitch * (video->height - font_h);
-    uint8_t* fb = (uint8_t*)video->framebuffer_addr;
+    uint8_t* fb = (uint8_t*)vaddr;
     kernel_memcpy(fb, fb + (font_h * video->pitch), bytes_to_move);
     uint8_t* bottom_part = fb + bytes_to_move;
     uint64_t bottom_size = (uint64_t)font_h * video->pitch;
@@ -203,6 +206,11 @@ uint64_t octal_to_int(const char* str) {
 
 __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4) {
     hal_disable_interrupts();
+	
+	state.system_flags |= CAN_PRINT;
+    bg_color = 0x000000AA;
+    _kclear();
+    cursor_x = 0; cursor_y = 0;
     
     _kprint_error("KERNEL STOP: 0x");
     char buff[17];

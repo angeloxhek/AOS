@@ -61,7 +61,7 @@ entry:
 	
 	mov edi, BOOT_INFO_ADDR
     xor eax, eax
-    mov ecx, 35             ; Очищаем 35 dword-ов = 140 байт (структура стала больше)
+    mov ecx, 40             ; 40 dword-ов = 160 байт
     rep stosd
 	mov edi, BOOT_INFO_ADDR
 	
@@ -82,40 +82,40 @@ entry:
     ; [32] Video (Common)
 	call V2P16(init_vbe)
 
-    ; [62] MMap (Common)
-    mov dword [edi + 62], 0x2004 ; mmap.map_addr low
-    mov dword [edi + 66], 0      ; mmap.map_addr high
+    ; [70] MMap (Common)
+    mov dword [edi + 70], 0x2004 ; mmap.map_addr low
+    mov dword [edi + 74], 0      ; mmap.map_addr high
     
     xor eax, eax
     mov ax, [0x2000]             
     imul eax, 24                 
-    mov dword [edi + 70], eax    ; mmap.map_size low
-    mov dword [edi + 74], 0      ; mmap.map_size high
+    mov dword [edi + 78], eax    ; mmap.map_size low
+    mov dword [edi + 82], 0      ; mmap.map_size high
     
-    mov dword [edi + 78], 24     ; mmap.desc_size
-    mov dword [edi + 82], 0      ; mmap.desc_version
+    mov dword [edi + 86], 24     ; mmap.desc_size
+    mov dword [edi + 90], 0      ; mmap.desc_version
 
-    ; [86] ACPI RSDP (Common)
+    ; [94] ACPI RSDP (Common)
     mov eax, dword [0x3000]      
-    mov dword [edi + 86], eax    ; acpi_rsdp low
-    mov dword [edi + 90], 0      ; acpi_rsdp high
-	
-	test eax, eax
+    mov dword [edi + 94], eax    ; acpi_rsdp low
+    mov dword [edi + 98], 0      ; acpi_rsdp high
+    
+    test eax, eax
     jz .no_acpi
-    or dword [edi + 110], BOOT_FLAG_ACPI
+    or dword [edi + 118], BOOT_FLAG_ACPI
 .no_acpi:
 
-    ; [94] SMBIOS Entry (Common)
+    ; [102] SMBIOS Entry (Common)
     mov eax, dword [0x4000]      
-    mov dword [edi + 94], eax    ; smbios_entry low
-    mov dword [edi + 98], 0      ; smbios_entry high
-	
-	test eax, eax
+    mov dword [edi + 102], eax   ; smbios_entry low
+    mov dword [edi + 106], 0     ; smbios_entry high
+    
+    test eax, eax
     jz .no_smbios
-    or dword [edi + 110], BOOT_FLAG_SMBIOS
+    or dword [edi + 118], BOOT_FLAG_SMBIOS
 .no_smbios:
 
-    ; [114] Specific (MBR)
+    ; [122] Specific (MBR)
     mov al, [cs:V2P16(boot_drive)]
     
     in al, 0x92
@@ -264,19 +264,11 @@ init_vbe:
     cmp ax, 0x004F
     jne .vbe_fail
 	
-	or dword [BOOT_INFO_ADDR + 110], BOOT_FLAG_VIDEO
+    or dword [BOOT_INFO_ADDR + 118], BOOT_FLAG_VIDEO
 
-    ; boot_video_t:
-    ; +0  addr (8)
-    ; +8  width (4)
-    ; +12 height (4)
-    ; +16 pitch (4)
-    ; +20 bpp (4)
-    ; +24 masks...
-    
     mov bx, BOOT_INFO_ADDR + 32
     
-    ; Framebuffer Phys Address (offset 40 in ModeInfo)
+    ; Framebuffer Phys Address 
     mov eax, [di + 40]
     mov [bx + 0], eax  ; Low 32
     mov dword [bx + 4], 0      ; High 32 (VBE < 4GB)
@@ -284,25 +276,22 @@ init_vbe:
     ; Width / Height
     xor eax, eax
     mov ax, [di + 18]
-    mov [bx + 8], eax  ; width
+    mov [bx + 16], eax ; width 
     mov ax, [di + 20]
-    mov [bx + 12], eax ; height
+    mov [bx + 20], eax ; height
 
-    ; Pitch (Bytes Per ScanLine) - offset 16
+    ; Pitch (Bytes Per ScanLine)
     mov ax, [di + 16]
-    mov [bx + 16], eax ; pitch
+    mov [bx + 24], eax ; pitch
 
-    ; BPP - offset 25
+    ; BPP
     xor eax, eax
     mov al, [di + 25]
-    mov [bx + 20], eax ; bpp
+    mov [bx + 28], eax ; bpp
 
-    ; Masks (Red, Green, Blue) - offset 31..36 in ModeInfo
-    ; boot_video_t: r_size, r_pos, g_size, g_pos, b_size, b_pos
-    ; ModeInfo:     r_size(31), r_pos(32), ...
-    
+    ; Masks (Red, Green, Blue)
     lea si, [di + 31]
-    lea di, [bx + 24]
+    lea di, [bx + 32]  ; masks
     mov cx, 6
     rep movsb
 
@@ -385,8 +374,8 @@ init_32bit:
     loop .video_loop
 
     mov esi, BOOT_INFO_ADDR + 32
-    mov dword [esi], 0xC0000000     
-    mov dword [esi+4], 0xFFFFFFFF   
+    mov dword [esi + 8], 0xC0000000     ; framebuffer_addr_virt Low
+    mov dword [esi + 12], 0xFFFFFFFF    ; framebuffer_addr_virt High  
 
 .skip_video_map:
     
@@ -680,9 +669,9 @@ gdt32_descriptor:
 
 align 16
 gdt64_start:
-    dq 0 ; Null
-    dq 0x00209A0000000000 ; 0x08: Code 64-bit
-    dq 0x0000920000000000 ; 0x10: Data 64-bit
+    dq 0
+    dq 0x00209A0000000000 ; Code 64-bit
+    dq 0x0000920000000000 ; Data 64-bit
 gdt64_end:
 
 gdt64_ptr32:

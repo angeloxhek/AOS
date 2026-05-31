@@ -14,6 +14,10 @@ $(TEMP_DIR)/VFSDRIVER.ELF: $(VFSDRIVER_OBJS)
 	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
 	$(Q)$(LD) $(LDFLAGS) -N -Map $(TEMP_DIR)/vfsdriver.map -T $(CURDIR)/data/driver.ld $^ -o $@
 	
+$(DISK_DIR)/INITRD.TAR: $(TEMP_DIR)/INITDRIVER.ELF $(TEMP_DIR)/AUTHDRIVER.ELF $(TEMP_DIR)/VFSDRIVER.ELF
+	$(ECHO) "${PURPLE}[   TAR   ]${NC} $@\n"
+	$(Q)$(TAR) -cf $@ -C $(TEMP_DIR) INITDRIVER.ELF AUTHDRIVER.ELF VFSDRIVER.ELF
+	
 $(TEMP_DIR)/%.o: $(CURDIR)/data/initdrivers/%.c
 	@$(MKDIR) -p $(dir $@)
 	$(ECHO) "${CYAN}[   CC    ]${NC} $<\n"

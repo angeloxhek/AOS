@@ -3,52 +3,6 @@
 
 AOS_DECLARE_DRIVER(DT_INIT, 0, 0);
 
-void hexdump(const uint8_t* buffer, uint64_t size) {
-    if (!buffer || size == 0) {
-        printf("hexdump: Invalid buffer or size 0\n");
-        return;
-    }
-
-    // Проходим по буферу блоками по 16 байт
-    for (uint64_t i = 0; i < size; i += 16) {
-        // 1. Выводим смещение (offset) от начала буфера
-        printf("%08X  ", (unsigned int)i);
-
-        // 2. Выводим шестнадцатеричные значения (HEX)
-        for (uint64_t j = 0; j < 16; j++) {
-            if (i + j < size) {
-                printf("%02X ", buffer[i + j]);
-            } else {
-                printf("   "); // Пустое место, если файл закончился
-            }
-
-            // Добавляем дополнительный пробел в середине (между 8 и 9 байтом)
-            if (j == 7) {
-                printf(" ");
-            }
-        }
-
-        printf(" |");
-
-        // 3. Выводим читаемые ASCII-символы
-        for (uint64_t j = 0; j < 16; j++) {
-            if (i + j < size) {
-                uint8_t c = buffer[i + j];
-                // Читаемыми считаются символы от 32 (пробел) до 126 (~)
-                if (c >= 32 && c <= 126) {
-                    printf("%c", c);
-                } else {
-                    printf("."); // Нечитаемые заменяем точкой
-                }
-            } else {
-                printf(" "); // Пустое место
-            }
-        }
-
-        printf("|\n");
-    }
-}
-
 int spawn_driver(driver_type_t type, const char* name, const char* path) {
 	startup_info_t info;
 	memset(&info, 0, sizeof(startup_info_t));
@@ -74,6 +28,12 @@ void parse_drivers_conf(char* buffer) {
         char *path = strtok(NULL, "=");
 
         if (key && path) {
+			int path_len = strlen(path);
+            while (path_len > 0 && (path[path_len - 1] == '\r' || path[path_len - 1] == ' ')) {
+                path[path_len - 1] = '\0';
+                path_len--;
+            }
+			
             driver_type_t type = DT_USER;
             char *name = NULL;
 
@@ -105,8 +65,8 @@ int driver_main(void* reserved1, void* reserved2) {
 	int res;
 	
 	int drvfd = vfs_open("/boot/Configs/drivers.conf", VFS_FREAD);
-	printf("INITDRIVER: vfs_open code = %d\n", drvfd);
 	if (drvfd < 0) {
+		printf("INITDRIVER: vfs_open code = %d\n", drvfd);
 		return -1;
 	}
 	
@@ -127,9 +87,6 @@ int driver_main(void* reserved1, void* reserved2) {
 		return -1;
 	}
 	
-	printf("Config file stat:\n");
-	hexdump((uint8_t*)drvstat, sizeof(vfs_stat_info_t));
-	
 	uint64_t size = drvstat->size_bytes;
 	free(drvstat);
 	if (size == 0 || size == -1) {
@@ -138,7 +95,7 @@ int driver_main(void* reserved1, void* reserved2) {
 		return -1;
 	}
 	
-	char* drvdata = (char*)calloc(size, sizeof(char));
+	char* drvdata = (char*)calloc(size+1, sizeof(char));
 	if (!drvdata) {
 		vfs_close(drvfd);
 		printf("INITDRIVER: OOM\n");
@@ -159,9 +116,6 @@ int driver_main(void* reserved1, void* reserved2) {
 	}
 	
 	drvdata[size] = '\0';
-	
-	printf("Config file data:\n");
-	hexdump((uint8_t*)drvdata, size);
 	
 	parse_drivers_conf(drvdata);
 	

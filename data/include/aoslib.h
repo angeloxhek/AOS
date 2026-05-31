@@ -44,9 +44,9 @@ extern "C" {
 #define SYS_GET_DRIVER_PID_BY_NAME    7
 #define SYS_GET_SYSTEM_INFO           8
 #define SYS_SBRK                      9
-#define SYS_RESERVED2                10
-#define SYS_RESERVED3                11
-#define SYS_RESERVED4                12
+#define SYS_EDIT_SYSTEM_FLAGS        10 // Driver only
+#define SYS_MAP_PHYS                 11 // Driver only
+#define SYS_GET_SPEC_INFO            12 // Driver only
 #define SYS_RESERVED5                13
 #define SYS_RESERVED6                14
 #define SYS_RESERVED7                15
@@ -399,12 +399,29 @@ typedef struct {
     uint64_t arg_val;
 } spawn_args_t;
 
+typedef struct {
+    uint64_t framebuffer_addr;
+    uint32_t width;
+    uint32_t height;
+    uint32_t pitch;
+    uint32_t bpp;
+    uint8_t  red_mask_size;
+    uint8_t  red_mask_shift;
+    uint8_t  green_mask_size;
+    uint8_t  green_mask_shift;
+    uint8_t  blue_mask_size;
+    uint8_t  blue_mask_shift;
+} __attribute__((packed)) sys_video_t;
+
 #define AOS_DRIVER_MAGIC 0x44525652 // "DRVR"
 #define DRIVER_NAME_MAX 32
 
-#define DRV_PERM_IO_PORTS      (1 << 0)
-#define DRV_PERM_PHYS_MAP      (1 << 1)
-#define DRV_PERM_IRQ_LISTEN    (1 << 2)
+#define DRV_PERM_IO_PORTS          (1 << 0)
+#define DRV_PERM_PHYS_MAP          (1 << 1)
+#define DRV_PERM_EDIT_SYSTEM_FLAGS (1 << 2)
+#define DRV_PERM_GET_SPEC_INFO     (1 << 3)
+
+#define SPEC_INFO_VIDEO 1
 
 typedef struct aos_driver_info_t {
     uint32_t magic;
@@ -515,6 +532,10 @@ int sysexecex(spawn_args_t* args);
 
 void syssleep(uint64_t ms);
 int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result);
+
+int sysedit_sys_flags(uint32_t flags);
+int sysmap_phys(uint64_t phys_addr, uint64_t size_bytes, uint64_t* out_vaddr);
+int sysget_spec_info(uint64_t info_id, void* out_buffer);
 #endif
 
 #ifdef AOSLIB_STRING

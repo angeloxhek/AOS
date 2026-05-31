@@ -420,6 +420,107 @@ void generic_syscall_handler(syscall_args_t* args) {
 			args->ret = SYS_RES_OK;
 			break;
 		}
+		
+		case SYS_EDIT_SYSTEM_FLAGS: {
+			uint32_t flags = (uint32_t)args->arg1;
+			
+			driver_info_t* drv = get_driver_by_pid(current_thread->owner->id);
+			if (!drv) {
+				args->ret = SYS_RES_INVALID;
+                break;
+			}
+			
+			if (!(drv->driver_perms & DRV_PERM_EDIT_SYSTEM_FLAGS)) {
+				args->ret = SYS_RES_NO_PERM;
+                break;
+			}
+			
+			state.system_flags = flags;
+			
+			args->ret = SYS_RES_OK;
+            break;
+		}
+		
+		case SYS_MAP_PHYS: {
+            uint64_t phys_addr = args->arg1;
+            uint64_t size_bytes = args->arg2;
+			uint64_t* out_vaddr = (uint64_t*)args->arg3;
+			
+			if (!hal_is_valid_user_pointer(out_vaddr)) {
+                args->ret = SYS_RES_INVALID;
+                break;
+            }
+			
+			driver_info_t* drv = get_driver_by_pid(current_thread->owner->id);
+			if (!drv) {
+				args->ret = SYS_RES_INVALID;
+                break;
+			}
+			
+			if (!(drv->driver_perms & DRV_PERM_PHYS_MAP)) {
+				args->ret = SYS_RES_NO_PERM;
+                break;
+			}
+            
+            uint64_t virt_addr = 0x00007E0000000000; 
+            uint64_t pages = (size_bytes + 4095) / 4096;
+            
+            uint64_t phys_aligned = phys_addr & ~4095ULL;
+            
+            for (uint64_t i = 0; i < pages; i++) {
+                hal_map_page_in_space((uint64_t)current_thread->owner->page_directory, 
+                                      virt_addr + (i * 4096), 
+                                      phys_aligned + (i * 4096), 
+                                      0x7);
+            }
+            *out_vaddr = virt_addr;
+			
+			args->ret = SYS_RES_OK;
+            break;
+        }
+		
+		case SYS_GET_SPEC_INFO: {
+            uint64_t info_id = args->arg1;
+            void* out_buffer = (void*)args->arg2;
+            
+            if (!hal_is_valid_user_pointer(out_buffer)) {
+                args->ret = SYS_RES_INVALID;
+                break;
+            }
+			
+			driver_info_t* drv = get_driver_by_pid(current_thread->owner->id);
+			if (!drv) {
+				args->ret = SYS_RES_INVALID;
+                break;
+			}
+			
+			if (!(drv->driver_perms & DRV_PERM_GET_SPEC_INFO)) {
+				args->ret = SYS_RES_NO_PERM;
+                break;
+			}
+            
+            if (info_id == SPEC_INFO_VIDEO) {
+                sys_video_t* uinfo = (sys_video_t*)out_buffer;
+                
+                uinfo->framebuffer_addr = video->framebuffer_addr;
+                uinfo->width = video->width;
+                uinfo->height = video->height;
+                uinfo->pitch = video->pitch;
+                uinfo->bpp = video->bpp;
+                uinfo->red_mask_size = video->red_mask_size;
+                uinfo->red_mask_shift = video->red_mask_shift;
+                uinfo->green_mask_size = video->green_mask_size;
+                uinfo->green_mask_shift = video->green_mask_shift;
+                uinfo->blue_mask_size = video->blue_mask_size;
+                uinfo->blue_mask_shift = video->blue_mask_shift;
+                
+                args->ret = SYS_RES_OK;
+            } 
+            else {
+                args->ret = SYS_RES_NOTFOUND;
+            }
+            break;
+        }
 
         default: {
             kprint("Unknown Syscall invoked!\n");

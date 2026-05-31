@@ -94,10 +94,6 @@ $(DISK_DIR)/AOSLDR.BIN: $(KERNEL_OBJS)
 
 include data/initdrivers/make.mk
 	
-$(DISK_DIR)/INITRD.TAR: $(TEMP_DIR)/INITDRIVER.ELF $(TEMP_DIR)/AUTHDRIVER.ELF $(TEMP_DIR)/VFSDRIVER.ELF
-	$(ECHO) "${PURPLE}[   TAR   ]${NC} $@\n"
-	$(Q)$(TAR) -cf $@ -C $(TEMP_DIR) INITDRIVER.ELF AUTHDRIVER.ELF VFSDRIVER.ELF
-	
 libs: $(BUILD_DIR)/libs/libaos.a $(BUILD_DIR)/libs/libaoslin.a $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/libc_start.o
 
 $(BUILD_DIR)/libs/libaos.a: $(AOSLIB_OBJS)
@@ -107,8 +103,8 @@ $(BUILD_DIR)/libs/libaos.a: $(AOSLIB_OBJS)
 $(BUILD_DIR)/libs/libaoslin.a: $(AOSLIBLIN_OBJS)
 	$(ECHO) "${LCYAN}[   AR    ]${NC} $@\n"
 	$(Q)$(AR) rcs $@ $^
-
-drivers: 
+	
+include data/drivers/make.mk
 	
 configs:
 	$(ECHO) "${BROWN}[   CP    ]${NC} ${CURDIR}/configs ${GREEN}->${NC} ${DISK_DIR}/configs\n"
