@@ -112,30 +112,48 @@ thread_t* create_kernel_thread(void (*entry)(void)) {
 }
 
 void schedule() {
-    thread_t* t = ready_queue;
-    do {
-        if (t->state == THREAD_BLOCKED && t->wake_up_time > 0) {
-            if (ticks >= t->wake_up_time) {
-                t->state = THREAD_READY;
-                t->wake_up_time = 0;
+    if (ready_queue) {
+        thread_t* t = ready_queue;
+        do {
+            if (t->state == THREAD_BLOCKED && t->wake_up_time > 0) {
+                if (ticks >= t->wake_up_time) {
+                    t->state = THREAD_READY;
+                    t->wake_up_time = 0;
+                }
             }
-        }
-        t = t->next;
-    } while (t != ready_queue);
+            t = t->next;
+        } while (t != ready_queue);
+    }
 
     thread_t* prev = current_thread;
-    thread_t* next = current_thread->next;
-    
-    while (next->state > 1 && next != prev) {
-        next = next->next;
+    thread_t* next = 0;
+
+    if (ready_queue) {
+        thread_t* start_node = (current_thread == idle_thread_ptr) ? ready_queue : current_thread->next;
+        thread_t* temp = start_node;
+        
+        do {
+            if (temp->state == THREAD_READY || temp->state == THREAD_RUNNING) {
+                next = temp;
+                break;
+            }
+            temp = temp->next;
+        } while (temp != start_node);
     }
-    if (next->state > 1) {
-        next = get_thread_by_id(1);
+
+    if (!next) {
+        next = idle_thread_ptr;
     }
-    if (next == prev) return;
+
+    if (next == prev) {
+        return;
+    }
     
     current_thread = next;
-    if (prev->state == THREAD_RUNNING) prev->state = THREAD_READY;
+    
+    if (prev->state == THREAD_RUNNING) {
+        prev->state = THREAD_READY;
+    }
     next->state = THREAD_RUNNING;
     
     hal_switch_task(prev, next);
@@ -148,24 +166,25 @@ void yield(void) {
 }
 
 int kill_thread(thread_t* target, int exit_code) {
-    if (target->tid == 1) return SYS_RES_NO_PERM;
+    if (target->tid == 1) return SYS_RES_NO_PERM; // Защищаем Idle Thread
     uint64_t irq = hal_irq_save();
     
     target->state = THREAD_ZOMBIE;
     target->exit_code = exit_code;
-    thread_t* prev = target;
-    while (prev->next != target) {
-        prev = prev->next;
-        if (prev == target) break;
+
+    if (target->next == target) {
+        if (ready_queue == target) ready_queue = 0;
+    } else {
+        thread_t* prev = target;
+        while (prev->next != target) {
+            prev = prev->next;
+        }
+        prev->next = target->next; // Вырезаем target
+        if (ready_queue == target) {
+            ready_queue = target->next; // Сдвигаем head, если убили первый элемент
+        }
     }
-    if (prev == target) {
-        hal_irq_restore(irq);
-        return SYS_RES_NO_PERM;
-    }
-    prev->next = target->next;
-    if (ready_queue == target) {
-        ready_queue = target->next;
-    }
+
     target->next_zombie = zombies_list;
     zombies_list = target;
     

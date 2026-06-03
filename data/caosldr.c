@@ -41,6 +41,7 @@ thread_t* current_thread;
 thread_t* ready_queue;
 uint64_t thread_count = 0;
 thread_t* zombies_list = 0;
+thread_t* idle_thread_ptr = 0;
 
 spinlock_t kprint_lock = 0;
 spinlock_t heap_lock = 0;
@@ -49,7 +50,7 @@ volatile uint64_t ticks = 0;
 uint64_t boot_time = 0;
 
 driver_info_t* drivers_list_head;
-uint64_t keyboard_driver_pid = 0;
+apid_t input_driver_pid = 0;
 
 shm_object_t* shm_global_list = 0;
 uint64_t next_shm_id = 1;
@@ -225,17 +226,17 @@ void kernel_on_timer_tick(void) {
     }
 }
 
-void kernel_on_keyboard_irq(uint8_t scancode) {
-    if (keyboard_driver_pid != 0) {
-        message_t msg;
-        msg.sender_pid = 0;
-        msg.type = MSG_TYPE_KEYBOARD;
-        msg.subtype = MSG_SUBTYPE_SEND;
-        msg.param1 = scancode;
-        msg.param2 = 0;
-        msg.param3 = 0;
-        ipc_send(keyboard_driver_pid, &msg);
-    }
+void kernel_on_ps2_irq(int irq_number) {
+    if (input_driver_pid == 0) input_driver_pid = get_driver_pid(DT_INPUT);
+    if (input_driver_pid == 0) return;
+	message_t msg;
+	kernel_memset(&msg, 0, sizeof(message_t));
+	msg.type = MSG_TYPE_HARDWARE; 
+	msg.subtype = MSG_SUBTYPE_SEND;
+	msg.param1 = HW_EVT_IRQ;
+	msg.param2 = irq_number;
+	
+	ipc_send(input_driver_pid, &msg);
 }
 
 void kernel_handle_user_exception(uint64_t int_no, uint64_t instruction_pointer) {
@@ -603,7 +604,17 @@ void kernel_main(boot_info_t* boot_info) {
     _kprint("Threads are set! We're safe\n");
     
     hal_enable_interrupts();
-    create_kernel_thread(idle_thread);
+	serial_init();
+    thread_t* t = create_kernel_thread(idle_thread);
+	idle_thread_ptr = t;
+
+	if (ready_queue == t) {
+		ready_queue = t->next;
+	}
+	
+	thread_t* prev = t;
+	while (prev->next != t && prev->next != NULL) prev = prev->next;
+	if (prev != t) prev->next = t->next;
 
     kprint("Load drivers...\n");
     

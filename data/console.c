@@ -94,6 +94,7 @@ void kprint_char(char c, uint32_t color) {
 }
 
 void _kprint(const char* str) {
+	serial_print(str);
     if (!(state.system_flags & CAN_PRINT)) return;
     for (int i = 0; str[i] != 0; i++) {
         kprint_char(str[i], 0x0000FFFF);
@@ -110,6 +111,7 @@ void kprint(const char* str) {
 }
 
 void _kprint_error(const char* str) {
+	serial_print(str);
     if (!(state.system_flags & CAN_PRINT)) return;
     for (int i = 0; str[i] != 0; i++) {
         kprint_char(str[i], 0x00FF0000);

@@ -4,7 +4,8 @@
 #if !defined(AOSKERNEL) && !defined(AOSLIB_START_ONLY) && \
     !defined(AOSLIB_SYSCALLS_ONLY) && !defined(AOSLIB_VFS_ONLY) && \
     !defined(AOSLIB_STRING_ONLY) && !defined(AOSLIB_IO_ONLY) && \
-    !defined(AOSLIB_AUTH_ONLY) && !defined(AOSLIB_HAL_ONLY)
+    !defined(AOSLIB_AUTH_ONLY) && !defined(AOSLIB_HAL_ONLY) && \
+	!defined(AOSLIB_VIDEODRIVER_ONLY)
     #define AOSLIB_START
     #define AOSLIB_SYSCALLS
     #define AOSLIB_VFS
@@ -12,6 +13,8 @@
     #define AOSLIB_IO
     #define AOSLIB_AUTH
     #define AOSLIB_HAL
+	#define AOSLIB_VIDEODRIVER
+	#define AOSLIB_INPUT
 #else
     #if defined(AOSLIB_START_ONLY)
         #define AOSLIB_START
@@ -34,6 +37,12 @@
     #if defined(AOSLIB_HAL_ONLY)
         #define AOSLIB_HAL
     #endif
+	#if defined(AOSLIB_VIDEODRIVER_ONLY)
+        #define AOSLIB_VIDEODRIVER
+    #endif
+	#if defined(AOSLIB_INPUT_ONLY)
+        #define AOSLIB_INPUT
+    #endif
 #endif
 
 #include "aos/types.h"
@@ -44,5 +53,7 @@
 #include "aos/process.h"
 #include "aos/syscalls.h"
 #include "aos/string.h"
+#include "aos/videodriver.h"
+#include "aos/input.h"
 
 #endif // AOSLIB_H

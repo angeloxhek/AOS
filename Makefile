@@ -47,8 +47,8 @@ KERNEL_CFLAGS = $(COMMON_CFLAGS) -g3 -O0 $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS) $(
 
 USER_COMMON_CFLAGS = $(COMMON_CFLAGS) -fno-asynchronous-unwind-tables $(ARCH_CFLAGS) $(ARCH_USER_CFLAGS)
 LIB_CFLAGS = $(USER_COMMON_CFLAGS) -nostdinc
-DRV_CFLAGS = $(USER_COMMON_CFLAGS) $(AOSLIB_CFLAGS)
-USR_CFLAGS = $(USER_COMMON_CFLAGS) $(AOSLIB_CFLAGS)
+DRV_CFLAGS = $(USER_COMMON_CFLAGS) $(AOSLIB_CFLAGS) -nostdinc
+USR_CFLAGS = $(USER_COMMON_CFLAGS) $(AOSLIB_CFLAGS) -nostdinc
 
 LDFLAGS = --no-warn-rwx-segments $(ARCH_LDFLAGS)
 
@@ -62,6 +62,7 @@ KERNEL_OBJS = $(COMMON_OBJS) $(ARCH_OBJS)
 			  
 AOSLIB_OBJS = $(TEMP_DIR)/aos_syscalls.o $(TEMP_DIR)/aos_vfs.o $(TEMP_DIR)/aos_sync.o \
 			  $(TEMP_DIR)/aos_utils.o $(TEMP_DIR)/aos_stdio.o $(TEMP_DIR)/aos_auth.o \
+			  $(TEMP_DIR)/aos_video.o $(TEMP_DIR)/aos_input.o \
 			  $(TEMP_DIR)/libc_stdlib.o $(TEMP_DIR)/libc_ctype.o $(TEMP_DIR)/libc_stdio.o \
 			  $(TEMP_DIR)/libc_string.o $(TEMP_DIR)/libc_strings.o $(AOSLIB_ARCH_OBJS)
 

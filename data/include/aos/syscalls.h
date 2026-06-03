@@ -39,13 +39,18 @@ extern "C" {
 
 typedef enum {
     MSG_TYPE_NONE = 0, MSG_TYPE_AUTH, MSG_TYPE_VFS,
-    MSG_TYPE_KEYBOARD, MSG_TYPE_DATA
+    MSG_TYPE_VIDEO, MSG_TYPE_HARDWARE, MSG_TYPE_INPUT,
+	MSG_TYPE_DATA
 } msg_type_t;
 
 typedef enum {
     MSG_SUBTYPE_NONE = 0, MSG_SUBTYPE_QUERY, MSG_SUBTYPE_SEND,
     MSG_SUBTYPE_RESPONSE, MSG_SUBTYPE_PING, MSG_SUBTYPE_PONG
 } msg_subtype_t;
+
+typedef enum {
+    HW_EVT_IRQ = 1 
+} hardware_cmd_t;
 
 typedef struct message_t {
     apid_t   sender_pid;

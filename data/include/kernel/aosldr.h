@@ -8,6 +8,13 @@
 #include "hal.h"
 
 #define KBD_BUFFER_SIZE 256
+#define PAGE_SIZE      4096
+#define BLOCK_SIZE     4096
+#define TEMP_PAGE_VIRT 0xFFFFFFFFFFE00000
+#define TEMP_PAGES_COUNT 256
+#define KERNEL_STACK_SIZE 16384
+#define TIMER_FREQ 1000
+#define KERNEL_BASE    0xFFFFFFFF80000000
 
 typedef struct {
     char name[100];
@@ -270,6 +277,15 @@ void get_time_info(time_info_t* out);
 
 
 // -------------------------
+//    Hardware Callbacks
+// -------------------------
+
+void kernel_on_timer_tick(void);
+void kernel_on_ps2_irq(int irq_number);
+void kernel_handle_user_exception(uint64_t int_no, uint64_t instruction_pointer);
+
+
+// -------------------------
 //           IPC
 // -------------------------
 
@@ -292,6 +308,16 @@ uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr);
 int shm_allow(uint64_t shm_id, apid_t target_pid);
 uint64_t shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
+
+
+// -------------------------
+//           COM
+// -------------------------
+
+void serial_init();
+int serial_is_transmit_empty();
+void serial_putchar(char a);
+void serial_print(const char* str);
 
 
 // -------------------------

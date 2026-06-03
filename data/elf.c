@@ -293,8 +293,6 @@ int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg
             info_addr = prepare_child_startup_info_kernel(res->proc, info);
         }
     }
-    
-    thread_t* thread = create_user_thread(res->entry_point, user_rsp, (uint64_t)res->proc->page_directory, res->proc, (uint64_t)info_addr, arg2);
 	
 	if (res->is_driver) {
 		uint16_t temp_ports[ALLOWED_PORTS_MAX];
@@ -310,8 +308,11 @@ int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg
             drv_name,
             res->driver_info->requested_perms, 
             temp_ports,
-			thread->owner
+			res->proc
         );
     }
+    
+    create_user_thread(res->entry_point, user_rsp, (uint64_t)res->proc->page_directory, res->proc, (uint64_t)info_addr, arg2);
+	
     return 0;
 }

@@ -13,7 +13,8 @@ typedef enum {
     DT_VFS,
     DT_INIT,
     DT_VIDEO,
-    DT_KEYBOARD,
+    DT_WND,
+    DT_INPUT,
     DT_USER = 100
 } driver_type_t;
 

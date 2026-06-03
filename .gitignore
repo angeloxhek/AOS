@@ -60,5 +60,5 @@ temp/
 *.bin
 *.vhd
 *.ip
-qemu.log
+*.log
 *.bat

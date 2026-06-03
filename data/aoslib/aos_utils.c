@@ -150,8 +150,9 @@ int kstrtobool(const char *s, bool *res) {
 }
 
 driver_type_t dt_from_str(const char* str) {
+	if (strcmp(str, "DT_WND") == 0) return DT_WND;
     if (strcmp(str, "DT_VIDEO") == 0) return DT_VIDEO;
-    if (strcmp(str, "DT_KEYBOARD") == 0) return DT_KEYBOARD;
+    if (strcmp(str, "DT_INPUT") == 0) return DT_INPUT;
     if (strcmp(str, "DT_VFS") == 0) return DT_VFS;
     if (strcmp(str, "DT_AUTH") == 0) return DT_AUTH;
     if (strcmp(str, "DT_INIT") == 0) return DT_INIT;

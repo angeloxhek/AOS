@@ -181,27 +181,6 @@ int ipc_get_at(uint64_t index, message_t* out) {
     return -1;
 }
 
-uint64_t __kbd_driver_pid_cache = 0;
-
-uint8_t get_scancode() {
-    if (__kbd_driver_pid_cache == 0) {
-        __kbd_driver_pid_cache = get_driver_pid(DT_KEYBOARD);
-        if (__kbd_driver_pid_cache == 0) return 0;
-    }
-    message_t msg;
-    msg.type = MSG_TYPE_KEYBOARD;
-    msg.subtype = MSG_SUBTYPE_QUERY;
-    msg.param1 = 0;
-    int res = ipc_send(__kbd_driver_pid_cache, &msg);
-    if (res < 0) {
-        __kbd_driver_pid_cache = 0;
-        return 0;
-    }
-    message_t response;
-    ipc_recv_ex(__kbd_driver_pid_cache, MSG_TYPE_KEYBOARD, MSG_SUBTYPE_RESPONSE, &response);
-    return (uint8_t)(response.param1 & 0xFF);
-}
-
 int get_proc_info(apid_t pid, proc_info_user_t* out_info) {
     return syscall(SYS_GET_PROC_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
 }

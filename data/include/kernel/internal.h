@@ -5,14 +5,6 @@
 #include "aoslib.h"
 #include "hal.h"
 
-#define PAGE_SIZE      4096
-#define BLOCK_SIZE     4096
-#define TEMP_PAGE_VIRT 0xFFFFFFFFFFE00000
-#define TEMP_PAGES_COUNT 256
-#define KERNEL_STACK_SIZE 16384
-#define TIMER_FREQ 1000
-#define KERNEL_BASE    0xFFFFFFFF80000000
-
 extern uint64_t* bitmap;
 extern uint64_t max_blocks;
 extern uint64_t used_blocks;
@@ -31,6 +23,7 @@ extern uint64_t thread_count;
 extern process_t kernel_process;
 extern uint8_t kernel_stack[KERNEL_STACK_SIZE];
 extern thread_t* zombies_list;
+extern thread_t* idle_thread_ptr;
 
 extern driver_info_t* drivers_list_head;
 extern uint64_t keyboard_driver_tid;

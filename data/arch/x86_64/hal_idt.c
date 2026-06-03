@@ -12,7 +12,7 @@ struct idt_entry idt[256];
 struct idt_ptr   idtp;
 
 extern void kernel_on_timer_tick(void);
-extern void kernel_on_keyboard_irq(uint8_t scancode);
+extern void kernel_on_ps2_irq(int irq_number);
 extern void kernel_handle_user_exception(uint64_t int_no, uint64_t rip);
 extern void kernel_error(uint64_t code, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4);
 
@@ -94,15 +94,11 @@ void isr_handler(registers_t *r) {
         kernel_handle_user_exception(r->int_no, r->rip);
         return;
         
-    } else if (r->int_no == 33) {
-        uint8_t scancode = hal_inb(0x60);
-        kernel_on_keyboard_irq(scancode);
-        hal_outb(0x20, 0x20); // EOI
-        
+    } else if (r->int_no == 33 || r->int_no == 44) {
+        kernel_on_ps2_irq(r->int_no);
     } else if (r->int_no == 32) {
         hal_outb(0x20, 0x20); // EOI
         kernel_on_timer_tick();
-        
     } else if (r->int_no >= 32) {
         if (r->int_no >= 40) hal_outb(0xA0, 0x20);
         hal_outb(0x20, 0x20);

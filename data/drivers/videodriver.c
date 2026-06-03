@@ -6,54 +6,170 @@ AOS_DECLARE_DRIVER(DT_VIDEO, DRV_PERM_PHYS_MAP | DRV_PERM_EDIT_SYSTEM_FLAGS | DR
 uint32_t* framebuffer = 0;
 sys_video_t vinfo;
 
+void* wm_backbuffer = 0;
+uint64_t wm_backbuffer_shm_id = 0;
+
 uint32_t make_color(uint8_t r, uint8_t g, uint8_t b) {
     uint32_t color = 0;
-    
     color |= ((uint32_t)r << vinfo.red_mask_shift);
     color |= ((uint32_t)g << vinfo.green_mask_shift);
     color |= ((uint32_t)b << vinfo.blue_mask_shift);
-    
     return color;
 }
 
-void put_pixel(uint32_t x, uint32_t y, uint8_t r, uint8_t g, uint8_t b) {
+void fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color) {
     if (x >= vinfo.width || y >= vinfo.height) return;
-    
-    uint64_t offset = (y * vinfo.pitch) + (x * (vinfo.bpp / 8));
-    uint8_t* pixel_addr = (uint8_t*)framebuffer + offset;
-    
-    uint32_t final_color = make_color(r, g, b);
+    if (x + w > vinfo.width) w = vinfo.width - x;
+    if (y + h > vinfo.height) h = vinfo.height - y;
+
+    uint8_t bytes_per_pixel = vinfo.bpp / 8;
 
     if (vinfo.bpp == 32) {
-        *(uint32_t*)pixel_addr = final_color;
-    } else if (vinfo.bpp == 24) {
-        pixel_addr[0] = (final_color) & 0xFF;
-        pixel_addr[1] = (final_color >> 8) & 0xFF;
-        pixel_addr[2] = (final_color >> 16) & 0xFF;
-    }
-}
-
-void clear_screen(uint8_t r, uint8_t g, uint8_t b) {
-    uint32_t final_color = make_color(r, g, b);
-    
-    if (vinfo.bpp == 32) {
-        for (uint32_t y = 0; y < vinfo.height; y++) {
-            uint32_t* row = (uint32_t*)((uint8_t*)framebuffer + (y * vinfo.pitch));
-            for (uint32_t x = 0; x < vinfo.width; x++) {
-                row[x] = final_color;
+        for (uint32_t cy = y; cy < y + h; cy++) {
+            uint32_t* row = (uint32_t*)((uint8_t*)framebuffer + (cy * vinfo.pitch));
+            for (uint32_t cx = x; cx < x + w; cx++) {
+                row[cx] = color;
             }
         }
     } else {
-        for (uint32_t y = 0; y < vinfo.height; y++) {
-            for (uint32_t x = 0; x < vinfo.width; x++) {
-                put_pixel(x, y, r, g, b);
+        for (uint32_t cy = y; cy < y + h; cy++) {
+            uint8_t* row = (uint8_t*)framebuffer + (cy * vinfo.pitch);
+            for (uint32_t cx = x; cx < x + w; cx++) {
+                uint32_t offset = cx * bytes_per_pixel;
+                row[offset] = color & 0xFF;
+                row[offset+1] = (color >> 8) & 0xFF;
+                row[offset+2] = (color >> 16) & 0xFF;
             }
         }
     }
 }
 
-void handle_message(message_t* in) {
-	
+void blit_buffer(uint32_t x, uint32_t y, uint32_t w, uint32_t h, void* buffer) {
+    if (!buffer || x >= vinfo.width || y >= vinfo.height) return;
+    
+    if (x + w > vinfo.width) w = vinfo.width - x;
+    if (y + h > vinfo.height) h = vinfo.height - y;
+
+    uint8_t bytes_per_pixel = vinfo.bpp / 8;
+    uint8_t* src = (uint8_t*)buffer;
+    uint32_t src_pitch = w * bytes_per_pixel;
+
+    for (uint32_t cy = 0; cy < h; cy++) {
+        uint64_t dest_offset = ((y + cy) * vinfo.pitch) + (x * bytes_per_pixel);
+        uint8_t* dest = (uint8_t*)framebuffer + dest_offset;
+        
+        memcpy(dest, src + (cy * src_pitch), src_pitch);
+    }
+}
+
+void handle_video_request(message_t* in) {
+    message_t out;
+    memset(&out, 0, sizeof(message_t));
+    out.type = MSG_TYPE_VIDEO;
+    out.subtype = MSG_SUBTYPE_RESPONSE;
+
+    switch (in->param1) {
+        
+        case VIDEO_CMD_BLIT: {
+            uint32_t x = in->param2 >> 16;
+            uint32_t y = in->param2 & 0xFFFF;
+            uint32_t w = in->param3 >> 16;
+            uint32_t h = in->param3 & 0xFFFF;
+            
+            uint64_t shm_id = *(uint64_t*)(in->data);
+            
+            void* pixels = shm_map(shm_id);
+            if (pixels) {
+                blit_buffer(x, y, w, h, pixels);
+                out.param1 = VIDEO_ERR_OK;
+            } else {
+                out.param1 = VIDEO_ERR_UNKNOWN;
+            }
+            
+            shm_free(shm_id);
+            break;
+        }
+
+        case VIDEO_CMD_FILL_RECT: {
+            uint32_t x = in->param2 >> 16;
+            uint32_t y = in->param2 & 0xFFFF;
+            uint32_t w = in->param3 >> 16;
+            uint32_t h = in->param3 & 0xFFFF;
+            
+            uint32_t color = *(uint32_t*)(in->data);
+            
+            fill_rect(x, y, w, h, color);
+            out.param1 = VIDEO_ERR_OK;
+            break;
+        }
+		
+		case VIDEO_CMD_SET_BACKBUFFER: {
+            uint64_t shm_id = *(uint64_t*)(in->data);
+            
+            if (wm_backbuffer_shm_id != 0) {
+                shm_free(wm_backbuffer_shm_id);
+            }
+            
+            wm_backbuffer = shm_map(shm_id);
+            if (wm_backbuffer) {
+                wm_backbuffer_shm_id = shm_id;
+                out.param1 = VIDEO_ERR_OK;
+            } else {
+                wm_backbuffer_shm_id = 0;
+                out.param1 = VIDEO_ERR_UNKNOWN;
+            }
+            break;
+        }
+
+        case VIDEO_CMD_FLUSH_RECTS: {
+            if (!wm_backbuffer) {
+                out.param1 = -1;
+                break;
+            }
+
+            uint64_t rect_count = (uint64_t)in->param2;
+            uint64_t shm_id = *(uint64_t*)(in->data);
+            
+            video_rect_t* rects = (video_rect_t*)shm_map(shm_id);
+            if (!rects) {
+                out.param1 = -1;
+                break;
+            }
+
+            uint8_t bytes_per_pixel = vinfo.bpp / 8;
+
+            for (uint64_t i = 0; i < rect_count; i++) {
+                uint32_t x = rects[i].x;
+                uint32_t y = rects[i].y;
+                uint32_t w = rects[i].w;
+                uint32_t h = rects[i].h;
+
+                if (x >= vinfo.width || y >= vinfo.height) continue;
+                if (x + w > vinfo.width) w = vinfo.width - x;
+                if (y + h > vinfo.height) h = vinfo.height - y;
+
+                for (uint32_t cy = 0; cy < h; cy++) {
+                    uint64_t offset = ((y + cy) * vinfo.pitch) + (x * bytes_per_pixel);
+                    
+                    uint8_t* dest = (uint8_t*)framebuffer + offset;
+                    uint8_t* src  = (uint8_t*)wm_backbuffer + offset;
+                    
+                    memcpy(dest, src, w * bytes_per_pixel);
+                }
+            }
+
+            shm_free(shm_id);
+            out.param1 = 0;
+            break;
+        }
+
+        default: {
+            out.param1 = VIDEO_ERR_NOCOMM;
+            break;
+        }
+    }
+    
+    ipc_send(in->sender_pid, &out);
 }
 
 int driver_main(void* reserved1, void* reserved2) {
@@ -77,33 +193,24 @@ int driver_main(void* reserved1, void* reserved2) {
     
     framebuffer = (uint32_t*)mapped_vaddr;
 
-	system_info_t info;
-	get_sysinfo(&info);
-	uint32_t sysflags = info.flags;
-	
-	sysflags &= ~CAN_PRINT;
+    system_info_t info;
+    get_sysinfo(&info);
+    uint32_t sysflags = info.flags;
+    
+    sysflags &= ~CAN_PRINT;
 
     sysedit_sys_flags(sysflags);
 
-    clear_screen(40, 40, 40); 
-
-    for (int y = vinfo.height/2 - 100; y < vinfo.height/2 + 100; y++) {
-        for (int x = vinfo.width/2 - 100; x < vinfo.width/2 + 100; x++) {
-            put_pixel(x, y, 255, 0, 0);
-        }
-    }
-
-    for (int y = vinfo.height/2 - 50; y < vinfo.height/2 + 50; y++) {
-        for (int x = vinfo.width/2 + 150; x < vinfo.width/2 + 250; x++) {
-            put_pixel(x, y, 0, 0, 255);
-        }
-    }
+    uint32_t bg_color = make_color(0, 0, 0);
+    fill_rect(0, 0, vinfo.width, vinfo.height, bg_color);
+    
+    printf("VideoDriver: Ready and waiting for commands...\n");
 
     message_t msg;
     while(1) {
-        ipc_recv_ex(0, MSG_TYPE_NONE, MSG_SUBTYPE_NONE, &msg);
+        ipc_recv_ex(0, MSG_TYPE_VIDEO, MSG_SUBTYPE_NONE, &msg);
         
-        handle_message(&msg);
+        handle_video_request(&msg);
     }
 
     return 0;

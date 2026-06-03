@@ -52,7 +52,7 @@ void parse_drivers_conf(char* buffer) {
             }
 
 			int res = spawn_driver(type, name, path);
-            printf("Registering [type=%d, name=%s, path=%s]: code=%d\n", type, name ? name : "system", path, res);
+            printf("INITDRIVER: Registering [type=%d, name=%s, path=%s]: code=%d\n", type, name ? name : "system", path, res);
             
         }
 
