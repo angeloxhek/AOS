@@ -99,7 +99,8 @@ int driver_main(void* reserved1, void* reserved2) {
     message_t sub_msg;
     memset(&sub_msg, 0, sizeof(message_t));
     sub_msg.type = MSG_TYPE_INPUT;
-    sub_msg.subtype = INPUT_CMD_SUBSCRIBE;
+    sub_msg.subtype = MSG_SUBTYPE_QUERY;
+	sub_msg.param1 = INPUT_CMD_SUBSCRIBE;
     ipc_send(input_pid, &sub_msg);
     
     printf("WindowManager: Subscribed to Input events.\n");
@@ -121,58 +122,59 @@ int driver_main(void* reserved1, void* reserved2) {
         // Процессор засыпает здесь (0% CPU), пока не придет сообщение!
         ipc_recv(&msg);
 
-        if (msg.type == MSG_TYPE_INPUT && msg.subtype == INPUT_EVENT_MOUSE) {
-            // ВАЖНО: Приводим к int16_t, чтобы отрицательные числа (движение влево/вверх) 
-            // правильно распаковались и восстановили свой знак.
-            int16_t dx = (int16_t)(msg.param1 & 0xFFFF);
-            int16_t dy = (int16_t)((msg.param1 >> 16) & 0xFFFF);
-            // uint8_t buttons = msg.param2; // Левая/Правая кнопка (понадобится позже)
+        if (msg.type == MSG_TYPE_INPUT) {
+			if (msg.param1 == INPUT_EVENT_MOUSE) {
+				// ВАЖНО: Приводим к int16_t, чтобы отрицательные числа (движение влево/вверх) 
+				// правильно распаковались и восстановили свой знак.
+				int16_t dx = (int16_t)(msg.param2 & 0xFFFF);
+				int16_t dy = (int16_t)((msg.param2 >> 16) & 0xFFFF);
+				// uint8_t buttons = msg.param3; // Левая/Правая кнопка (понадобится позже)
 
-            // Если мышь не сдвинулась (просто клик), ничего не перерисовываем
-            if (dx == 0 && dy == 0) continue;
+				// Если мышь не сдвинулась (просто клик), ничего не перерисовываем
+				if (dx == 0 && dy == 0) continue;
 
-            int old_x = mouse_x;
-            int old_y = mouse_y;
+				int old_x = mouse_x;
+				int old_y = mouse_y;
 
-            // Обновляем координаты
-            mouse_x += dx;
-            mouse_y += dy;
+				// Обновляем координаты
+				mouse_x += dx;
+				mouse_y += dy;
 
-            // Отсечение (чтобы курсор не улетел за пределы экрана)
-            if (mouse_x < 0) mouse_x = 0;
-            if (mouse_y < 0) mouse_y = 0;
-            if (mouse_x > vinfo.width - mouse_w) mouse_x = vinfo.width - mouse_w;
-            if (mouse_y > vinfo.height - mouse_h) mouse_y = vinfo.height - mouse_h;
+				// Отсечение (чтобы курсор не улетел за пределы экрана)
+				if (mouse_x < 0) mouse_x = 0;
+				if (mouse_y < 0) mouse_y = 0;
+				if (mouse_x > vinfo.width - mouse_w) mouse_x = vinfo.width - mouse_w;
+				if (mouse_y > vinfo.height - mouse_h) mouse_y = vinfo.height - mouse_h;
 
-            // --- ОТРИСОВКА (Damage Tracking) ---
-            
-            // 1. ЗАЧИЩАЕМ старое место (рисуем фон и кусок окна поверх старой мыши)
-            draw_rect(old_x, old_y, mouse_w, mouse_h, make_color(0, 64, 128)); // Фон
-            draw_desktop_ui(old_x, old_y, mouse_w, mouse_h); // Окна восстанавливаем
+				// --- ОТРИСОВКА (Damage Tracking) ---
+				
+				// 1. ЗАЧИЩАЕМ старое место (рисуем фон и кусок окна поверх старой мыши)
+				draw_rect(old_x, old_y, mouse_w, mouse_h, make_color(0, 64, 128)); // Фон
+				draw_desktop_ui(old_x, old_y, mouse_w, mouse_h); // Окна восстанавливаем
 
-            // 2. РИСУЕМ курсор на новом месте
-            draw_rect(mouse_x, mouse_y, mouse_w, mouse_h, cursor_color);
+				// 2. РИСУЕМ курсор на новом месте
+				draw_rect(mouse_x, mouse_y, mouse_w, mouse_h, cursor_color);
 
-            // 3. ОТПРАВЛЯЕМ "DAMAGE" (изменения) в видеодрайвер
-            video_rect_t damage[2];
-            
-            damage[0].x = old_x; 
-            damage[0].y = old_y;
-            damage[0].w = mouse_w; 
-            damage[0].h = mouse_h;
+				// 3. ОТПРАВЛЯЕМ "DAMAGE" (изменения) в видеодрайвер
+				video_rect_t damage[2];
+				
+				damage[0].x = old_x; 
+				damage[0].y = old_y;
+				damage[0].w = mouse_w; 
+				damage[0].h = mouse_h;
 
-            damage[1].x = mouse_x; 
-            damage[1].y = mouse_y;
-            damage[1].w = mouse_w; 
-            damage[1].h = mouse_h;
+				damage[1].x = mouse_x; 
+				damage[1].y = mouse_y;
+				damage[1].w = mouse_w; 
+				damage[1].h = mouse_h;
 
-            // Вызываем нашу крутую библиотеку! Драйвер перерисует только эти две зоны.
-            video_flush_rects(damage, 2);
-        }
-        else if (msg.type == MSG_TYPE_INPUT && msg.subtype == INPUT_EVENT_KEY) {
-            uint8_t scancode = msg.param1;
-            printf("WindowManager: Key pressed: 0x%X\n", scancode);
-            // Здесь в будущем будем обрабатывать клавиатуру (Alt+Tab, ввод текста)
+				// Вызываем нашу крутую библиотеку! Драйвер перерисует только эти две зоны.
+				video_flush_rects(damage, 2);
+			}
+			else if (msg.param1 == INPUT_EVENT_KEY) {
+				uint8_t scancode = msg.param2;
+				// Здесь в будущем будем обрабатывать клавиатуру (Alt+Tab, ввод текста)
+			}
         }
     }
 

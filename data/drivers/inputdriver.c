@@ -90,7 +90,7 @@ void handle_mouse_byte(uint8_t byte) {
             if (flags & 0x20) delta_y |= 0xFFFFFF00; 
             delta_y = -delta_y;
             uint8_t buttons = flags & 0x07;
-
+			
             message_t msg;
             memset(&msg, 0, sizeof(message_t));
             
