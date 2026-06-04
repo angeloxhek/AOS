@@ -568,7 +568,7 @@ void kernel_main(boot_info_t* boot_info) {
     font = &fontvgasys;
     video = &boot_info->video;
     _kclear();
-    _kprint("AOSLDR, hello from long mode...\n");
+    _kprint("AOSLDR, hello from kernel...\n");
 
     char buff[32];
     kernel_memset(buff, 0, 32);

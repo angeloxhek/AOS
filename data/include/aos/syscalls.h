@@ -76,11 +76,13 @@ int64_t syscall(uint64_t nr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64
 void sysprint(const char* str);
 
 int64_t __ipc_recv(message_t* out_msg);
-int64_t ipc_tryrecv(message_t* out_msg);
+int64_t __ipc_tryrecv(message_t* out_msg);
 int64_t ipc_send(apid_t dest_pid, message_t* msg);
 uint64_t get_ipc_count(void);
 void ipc_recv(message_t* out_msg);
+int64_t ipc_tryrecv(message_t* out_msg);
 void ipc_recv_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
+int ipc_tryrecv_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
 void ipc_seek(int64_t offset, seek_whence_t whence);
 int ipc_get_at(uint64_t index, message_t* out);
 

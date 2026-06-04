@@ -1,13 +1,21 @@
 #include <stdint.h>
 #include <aoslib.h>
 
-AOS_DECLARE_DRIVER(DT_VIDEO, DRV_PERM_PHYS_MAP | DRV_PERM_EDIT_SYSTEM_FLAGS | DRV_PERM_GET_SPEC_INFO, 0);
+#define VBE_DISPI_IOPORT_INDEX 0x01CE
+#define VBE_DISPI_IOPORT_DATA  0x01CF
+#define VBE_DISPI_INDEX_ID     0
+#define VBE_DISPI_INDEX_Y_OFFSET 9
+
+AOS_DECLARE_DRIVER(DT_VIDEO, DRV_PERM_IO_PORTS | DRV_PERM_PHYS_MAP | DRV_PERM_EDIT_SYSTEM_FLAGS | DRV_PERM_GET_SPEC_INFO, 0xFFFF);
 
 uint32_t* framebuffer = 0;
 sys_video_t vinfo;
 
 void* wm_backbuffer = 0;
 uint64_t wm_backbuffer_shm_id = 0;
+
+int is_bga_available = 0;
+int current_page = 0;
 
 uint32_t make_color(uint8_t r, uint8_t g, uint8_t b) {
     uint32_t color = 0;
@@ -138,23 +146,36 @@ void handle_video_request(message_t* in) {
 
             uint8_t bytes_per_pixel = vinfo.bpp / 8;
 
-            for (uint64_t i = 0; i < rect_count; i++) {
-                uint32_t x = rects[i].x;
-                uint32_t y = rects[i].y;
-                uint32_t w = rects[i].w;
-                uint32_t h = rects[i].h;
+            if (is_bga_available) {
+                uint32_t hidden_y = (current_page == 0) ? vinfo.height : 0;
+                uint64_t vram_offset = hidden_y * vinfo.pitch;
+                uint8_t* hidden_vram = (uint8_t*)framebuffer + vram_offset;
 
-                if (x >= vinfo.width || y >= vinfo.height) continue;
-                if (x + w > vinfo.width) w = vinfo.width - x;
-                if (y + h > vinfo.height) h = vinfo.height - y;
+                hal_memcpy_toio(hidden_vram, wm_backbuffer, vinfo.height * vinfo.pitch);
 
-                for (uint32_t cy = 0; cy < h; cy++) {
-                    uint64_t offset = ((y + cy) * vinfo.pitch) + (x * bytes_per_pixel);
-                    
-                    uint8_t* dest = (uint8_t*)framebuffer + offset;
-                    uint8_t* src  = (uint8_t*)wm_backbuffer + offset;
-                    
-                    memcpy(dest, src, w * bytes_per_pixel);
+                hal_outw(VBE_DISPI_IOPORT_INDEX, VBE_DISPI_INDEX_Y_OFFSET);
+                hal_outw(VBE_DISPI_IOPORT_DATA, hidden_y);
+                
+                current_page = (current_page == 0) ? 1 : 0;
+            } else {
+                for (uint64_t i = 0; i < rect_count; i++) {
+                    uint32_t x = rects[i].x;
+                    uint32_t y = rects[i].y;
+                    uint32_t w = rects[i].w;
+                    uint32_t h = rects[i].h;
+
+                    if (x >= vinfo.width || y >= vinfo.height) continue;
+                    if (x + w > vinfo.width) w = vinfo.width - x;
+                    if (y + h > vinfo.height) h = vinfo.height - y;
+
+                    for (uint32_t cy = 0; cy < h; cy++) {
+                        uint64_t offset = ((y + cy) * vinfo.pitch) + (x * bytes_per_pixel);
+                        
+                        uint8_t* dest = (uint8_t*)framebuffer + offset;
+                        uint8_t* src  = (uint8_t*)wm_backbuffer + offset;
+                        
+                        hal_memcpy_toio(dest, src, w * bytes_per_pixel);
+                    }
                 }
             }
 
@@ -184,8 +205,31 @@ int driver_main(void* reserved1, void* reserved2) {
            vinfo.width, vinfo.height, vinfo.bpp, (uint64_t)vinfo.framebuffer_addr);
 
     uint64_t size_bytes = vinfo.height * vinfo.pitch;
-    uint64_t mapped_vaddr = 0;
+
+    hal_outw(VBE_DISPI_IOPORT_INDEX, VBE_DISPI_INDEX_ID);
+    uint16_t bga_id = hal_inw(VBE_DISPI_IOPORT_DATA);
     
+    if (bga_id >= 0xB0C0 && bga_id <= 0xB0C5) {
+        printf("VideoDriver: BGA hardware detected! Page Flipping ENABLED.\n");
+        is_bga_available = 1;
+
+        hal_outw(VBE_DISPI_IOPORT_INDEX, 4); // VBE_DISPI_INDEX_ENABLE
+        hal_outw(VBE_DISPI_IOPORT_DATA, 0); 
+        
+        hal_outw(VBE_DISPI_IOPORT_INDEX, 7); // VBE_DISPI_INDEX_VIRT_HEIGHT
+        hal_outw(VBE_DISPI_IOPORT_DATA, vinfo.height * 2);
+
+        // 0x01 = Enable, 0x40 = LFB
+        hal_outw(VBE_DISPI_IOPORT_INDEX, 4); 
+        hal_outw(VBE_DISPI_IOPORT_DATA, 0x01 | 0x40); 
+
+        size_bytes *= 2; 
+    } else {
+        printf("VideoDriver: Real hardware detected. Using software rendering.\n");
+        is_bga_available = 0;
+    }
+
+    uint64_t mapped_vaddr = 0;
     if (sysmap_phys(vinfo.framebuffer_addr, size_bytes, &mapped_vaddr) != SYS_RES_OK) {
         printf("VideoDriver: Failed to map framebuffer! Check permissions.\n");
         return -1;

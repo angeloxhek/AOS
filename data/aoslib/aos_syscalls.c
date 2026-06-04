@@ -31,7 +31,7 @@ int64_t __ipc_recv(message_t* out_msg) {
     return syscall(SYS_IPC_RECV, (uint64_t)out_msg, 0, 0, 0, 0);
 }
 
-int64_t ipc_tryrecv(message_t* out_msg) {
+int64_t __ipc_tryrecv(message_t* out_msg) {
     return syscall(SYS_IPC_TRYRECV, (uint64_t)out_msg, 0, 0, 0, 0);
 }
 
@@ -104,7 +104,7 @@ uint64_t get_ipc_count(void) {
 
 void ipc_sync(void) {
     message_t msg;
-    while (ipc_tryrecv(&msg) == SYS_RES_OK) {
+    while (__ipc_tryrecv(&msg) == SYS_RES_OK) {
         queue_message(msg);
     }
 }
@@ -119,6 +119,18 @@ void ipc_recv(message_t* out_msg) {
         return;
     }
     __ipc_recv(out_msg);
+}
+
+int64_t ipc_tryrecv(message_t* out_msg) {
+    if (pending_head) {
+        *out_msg = pending_head->msg;
+        msg_node_t* temp = pending_head;
+        pending_head = pending_head->next;
+        if (!pending_head) pending_tail = NULL;
+        free(temp);
+        return SYS_RES_OK;
+    }
+    return __ipc_tryrecv(out_msg);
 }
 
 void ipc_recv_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
@@ -154,10 +166,43 @@ void ipc_recv_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* 
             
             *out_msg = temp_msg;
             return;
-        } else {
-            queue_message(temp_msg);
         }
+        
+		queue_message(temp_msg);
     }
+}
+
+int ipc_tryrecv_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
+    msg_node_t *curr = pending_head;
+    msg_node_t *prev = NULL;
+    while (curr) {
+        if ((pid == 0 || curr->msg.sender_pid == pid) &&
+            (type == MSG_TYPE_NONE || curr->msg.type == type) &&
+            (subtype == MSG_SUBTYPE_NONE || curr->msg.subtype == subtype)) {
+            *out_msg = curr->msg;
+            if (prev) prev->next = curr->next;
+            else pending_head = curr->next;
+            if (curr == pending_tail) pending_tail = prev;
+            free(curr);
+            return 0;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+
+    message_t temp_msg;
+    while (__ipc_tryrecv(&temp_msg) == SYS_RES_OK) {
+        if ((pid == 0 || temp_msg.sender_pid == pid) && 
+            (type == MSG_TYPE_NONE || temp_msg.type == type) && 
+            (subtype == MSG_SUBTYPE_NONE || temp_msg.subtype == subtype)) {
+            
+            *out_msg = temp_msg;
+            return 0;
+        }
+        queue_message(temp_msg);
+    }
+    
+    return -1;
 }
 
 void ipc_seek(int64_t offset, seek_whence_t whence) {
