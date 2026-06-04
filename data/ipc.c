@@ -23,17 +23,19 @@ int64_t ipc_forward(apid_t dest_pid, message_t* user_msg) {
     else target->msg_queue_head = node;
     target->msg_queue_tail = node;
     
-	thread_t* th = current_thread;
-    do {
-        if (th->owner != 0 && th->owner->id == dest_pid) {
-            if (th->state == THREAD_BLOCKED && th->waiting_for_msg) {
-                th->state = THREAD_READY;
-                th->waiting_for_msg = 0;
-                break;
+	if (ready_queue) {
+        thread_t* th = ready_queue;
+        do {
+            if (th->owner != 0 && th->owner->id == dest_pid) {
+                if (th->state == THREAD_BLOCKED && th->waiting_for_msg) {
+                    th->state = THREAD_READY;
+                    th->waiting_for_msg = 0;
+                    break; 
+                }
             }
-        }
-        th = th->next;
-    } while (th != current_thread);
+            th = th->next;
+        } while (th && th != ready_queue);
+    }
 
     if (target->peb_phys_page != 0) {
         void* kvirt = temp_map(target->peb_phys_page);

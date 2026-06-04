@@ -236,7 +236,8 @@ void kernel_on_ps2_irq(int irq_number) {
 	msg.param1 = HW_EVT_IRQ;
 	msg.param2 = irq_number;
 	
-	ipc_send(input_driver_pid, &msg);
+	msg.sender_pid = 0;
+	ipc_forward(input_driver_pid, &msg);
 }
 
 void kernel_handle_user_exception(uint64_t int_no, uint64_t instruction_pointer) {
@@ -615,6 +616,8 @@ void kernel_main(boot_info_t* boot_info) {
 	thread_t* prev = t;
 	while (prev->next != t && prev->next != NULL) prev = prev->next;
 	if (prev != t) prev->next = t->next;
+	
+	t->next = 0; 
 
     kprint("Load drivers...\n");
     

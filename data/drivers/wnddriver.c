@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <aoslib.h>
 
+AOS_DECLARE_DRIVER(DT_WND, DRV_PERM_GET_SPEC_INFO, 0);
+
 sys_video_t vinfo;
 uint32_t* backbuffer = 0;
 

@@ -129,16 +129,25 @@ void schedule() {
     thread_t* next = 0;
 
     if (ready_queue) {
-        thread_t* start_node = (current_thread == idle_thread_ptr) ? ready_queue : current_thread->next;
-        thread_t* temp = start_node;
         
-        do {
-            if (temp->state == THREAD_READY || temp->state == THREAD_RUNNING) {
-                next = temp;
-                break;
+        thread_t* start_node = ready_queue;
+        
+        if (prev->state != THREAD_ZOMBIE && prev != idle_thread_ptr) {
+            if (prev->next != 0) {
+                start_node = prev->next;
             }
-            temp = temp->next;
-        } while (temp != start_node);
+        }
+
+        thread_t* temp = start_node;
+        if (temp) {
+            do {
+                if (temp->state == THREAD_READY || temp->state == THREAD_RUNNING) {
+                    next = temp;
+                    break;
+                }
+                temp = temp->next;
+            } while (temp != start_node);
+        }
     }
 
     if (!next) {
@@ -166,7 +175,7 @@ void yield(void) {
 }
 
 int kill_thread(thread_t* target, int exit_code) {
-    if (target->tid == 1) return SYS_RES_NO_PERM; // Защищаем Idle Thread
+    if (target->tid == 1) return SYS_RES_NO_PERM;
     uint64_t irq = hal_irq_save();
     
     target->state = THREAD_ZOMBIE;
@@ -179,12 +188,13 @@ int kill_thread(thread_t* target, int exit_code) {
         while (prev->next != target) {
             prev = prev->next;
         }
-        prev->next = target->next; // Вырезаем target
+        prev->next = target->next;
         if (ready_queue == target) {
-            ready_queue = target->next; // Сдвигаем head, если убили первый элемент
+            ready_queue = target->next;
         }
     }
-
+	
+	target->next = 0; 
     target->next_zombie = zombies_list;
     zombies_list = target;
     

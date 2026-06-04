@@ -58,8 +58,11 @@ void hal_interrupts_init(void) {
     __asm__ __volatile__("lidt (%0)" : : "r" (&idtp));
     pic_remap();
 	
-	hal_outb(0x21, 0xFC);
-	hal_outb(0xA1, 0xFF); 
+	// Master: 1111 1000 (разрешаем биты 0, 1, 2)
+	hal_outb(0x21, 0xF8); 
+
+	// Slave: 1110 1111 (разрешаем бит 4)
+	hal_outb(0xA1, 0xEF); 
 }
 
 void hal_timer_init(uint32_t frequency) {
@@ -94,13 +97,21 @@ void isr_handler(registers_t *r) {
         kernel_handle_user_exception(r->int_no, r->rip);
         return;
         
-    } else if (r->int_no == 33 || r->int_no == 44) {
-        kernel_on_ps2_irq(r->int_no);
-    } else if (r->int_no == 32) {
-        hal_outb(0x20, 0x20); // EOI
-        kernel_on_timer_tick();
-    } else if (r->int_no >= 32) {
-        if (r->int_no >= 40) hal_outb(0xA0, 0x20);
+    } else if (r->int_no >= 32 && r->int_no <= 47) {
+        
+        if (r->int_no >= 40) {
+            hal_outb(0xA0, 0x20);
+        }
         hal_outb(0x20, 0x20);
+
+        if (r->int_no == 32) {
+            kernel_on_timer_tick();
+        } 
+        else if (r->int_no == 33) {
+            kernel_on_ps2_irq(1);
+        } 
+        else if (r->int_no == 44) {
+            kernel_on_ps2_irq(12);
+        }
     }
 }

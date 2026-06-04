@@ -97,12 +97,15 @@ void _kprint(const char* str) {
 	serial_print(str);
     if (!(state.system_flags & CAN_PRINT)) return;
     for (int i = 0; str[i] != 0; i++) {
-        kprint_char(str[i], 0x0000FFFF);
+        kprint_char(str[i], 0x0000DDDD);
     }
 }
 
 void kprint(const char* str) {
-    if (!(state.system_flags & CAN_PRINT)) return;
+    if (!(state.system_flags & CAN_PRINT)) {
+		serial_print(str);
+		return;
+	}
     uint64_t irq_state = spinlock_irq_save();
     spinlock_acquire(&kprint_lock);
     _kprint(str);
@@ -114,12 +117,15 @@ void _kprint_error(const char* str) {
 	serial_print(str);
     if (!(state.system_flags & CAN_PRINT)) return;
     for (int i = 0; str[i] != 0; i++) {
-        kprint_char(str[i], 0x00FF0000);
+        kprint_char(str[i], 0x00DD0000);
     }
 }
 
 void kprint_error(const char* str) {
-    if (!(state.system_flags & CAN_PRINT)) return;
+    if (!(state.system_flags & CAN_PRINT)) {
+		serial_print(str);
+		return;
+	}
     uint64_t irq_state = spinlock_irq_save();
     spinlock_acquire(&kprint_lock);
     _kprint_error(str);
@@ -210,7 +216,7 @@ __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64
     hal_disable_interrupts();
 	
 	state.system_flags |= CAN_PRINT;
-    bg_color = 0x000000AA;
+    bg_color = 0x00000088;
     _kclear();
     cursor_x = 0; cursor_y = 0;
     
