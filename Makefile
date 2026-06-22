@@ -17,6 +17,8 @@ BUILD_DIR = $(ABUILD_DIR)/$(ARCH)
 TEMP_DIR = $(CURDIR)/temp
 DISK_DIR = $(BUILD_DIR)/volume
 DRIVERS_DIR = $(DISK_DIR)/drivers
+BIN_DIR = $(DISK_DIR)/bin
+LINUX_DIR = $(DISK_DIR)/linux
 
 include data/arch/$(ARCH)/arch.mk
 
@@ -62,7 +64,7 @@ KERNEL_OBJS = $(COMMON_OBJS) $(ARCH_OBJS)
 			  
 AOSLIB_OBJS = $(TEMP_DIR)/aos_syscalls.o $(TEMP_DIR)/aos_vfs.o $(TEMP_DIR)/aos_sync.o \
 			  $(TEMP_DIR)/aos_utils.o $(TEMP_DIR)/aos_stdio.o $(TEMP_DIR)/aos_auth.o \
-			  $(TEMP_DIR)/aos_video.o $(TEMP_DIR)/aos_input.o \
+			  $(TEMP_DIR)/aos_video.o $(TEMP_DIR)/aos_input.o $(TEMP_DIR)/aos_window.o \
 			  $(TEMP_DIR)/libc_stdlib.o $(TEMP_DIR)/libc_ctype.o $(TEMP_DIR)/libc_stdio.o \
 			  $(TEMP_DIR)/libc_string.o $(TEMP_DIR)/libc_strings.o $(AOSLIB_ARCH_OBJS)
 
@@ -84,6 +86,10 @@ prepare:
 	$(Q)$(MKDIR) -p $(BUILD_DIR)/libs
 	$(ECHO) "${RED}[  MKDIR  ]${NC} ${TEMP_DIR}\n"
 	$(Q)$(MKDIR) -p $(TEMP_DIR)
+	$(ECHO) "${RED}[  MKDIR  ]${NC} ${BIN_DIR}\n"
+	$(Q)$(MKDIR) -p $(BIN_DIR)
+	$(ECHO) "${RED}[  MKDIR  ]${NC} ${LINUX_DIR}\n"
+	$(Q)$(MKDIR) -p $(LINUX_DIR)
 	
 kernel: $(DISK_DIR)/AOSLDR.BIN $(DISK_DIR)/INITRD.TAR
 
@@ -111,15 +117,15 @@ configs:
 	$(ECHO) "${BROWN}[   CP    ]${NC} ${CURDIR}/configs ${GREEN}->${NC} ${DISK_DIR}/configs\n"
 	$(Q)$(CP) -r $(CURDIR)/configs $(DISK_DIR)
 
-userspace: $(DISK_DIR)/tree.elf
+userspace: $(BIN_DIR)/tree.elf
 
-$(DISK_DIR)/tree.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/tree.o $(BUILD_DIR)/libs/libaos.a
+$(BIN_DIR)/tree.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/tree.o $(BUILD_DIR)/libs/libaos.a
 	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
 	$(Q)$(LD) $(LDFLAGS) -N -T $(CURDIR)/data/driver.ld $^ -o $@
 	
-userlinux: $(DISK_DIR)/tree_linux.elf
+userlinux: $(LINUX_DIR)/tree
 
-$(DISK_DIR)/tree_linux.elf:
+$(LINUX_DIR)/tree:
 	$(ECHO) "${GRAY}[  MAKE   ]${NC} ${CYAN}${CURDIR}/userlinux/tree${NC} clean\n"
 	$(Q)$(MAKE) -s -C $(CURDIR)/userlinux/tree clean
 	$(ECHO) "${GRAY}[  MAKE   ]${NC} ${CYAN}${CURDIR}/userlinux/tree${NC}\n"

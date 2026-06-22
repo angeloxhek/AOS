@@ -66,7 +66,7 @@ void blit_buffer(uint32_t x, uint32_t y, uint32_t w, uint32_t h, void* buffer) {
         uint64_t dest_offset = ((y + cy) * vinfo.pitch) + (x * bytes_per_pixel);
         uint8_t* dest = (uint8_t*)framebuffer + dest_offset;
         
-        memcpy(dest, src + (cy * src_pitch), src_pitch);
+        hal_memcpy_toio(dest, src + (cy * src_pitch), src_pitch);
     }
 }
 

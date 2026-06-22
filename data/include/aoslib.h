@@ -15,6 +15,7 @@
     #define AOSLIB_HAL
 	#define AOSLIB_VIDEODRIVER
 	#define AOSLIB_INPUT
+	#define AOSLIB_WINDOW
 #else
     #if defined(AOSLIB_START_ONLY)
         #define AOSLIB_START
@@ -43,6 +44,9 @@
 	#if defined(AOSLIB_INPUT_ONLY)
         #define AOSLIB_INPUT
     #endif
+	#if defined(AOSLIB_WINDOW_ONLY)
+        #define AOSLIB_WINDOW
+    #endif
 #endif
 
 #include "aos/types.h"
@@ -55,5 +59,6 @@
 #include "aos/string.h"
 #include "aos/videodriver.h"
 #include "aos/input.h"
+#include "aos/window.h"
 
 #endif // AOSLIB_H

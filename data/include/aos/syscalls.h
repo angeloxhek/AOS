@@ -40,6 +40,7 @@ extern "C" {
 typedef enum {
     MSG_TYPE_NONE = 0, MSG_TYPE_AUTH, MSG_TYPE_VFS,
     MSG_TYPE_VIDEO, MSG_TYPE_HARDWARE, MSG_TYPE_INPUT,
+    MSG_TYPE_WND,
 	MSG_TYPE_DATA
 } msg_type_t;
 
