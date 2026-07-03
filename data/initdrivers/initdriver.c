@@ -211,7 +211,7 @@ char* read_entire_file(const char* path) {
 
 int driver_main(void* reserved1, void* reserved2) {	
 	printf("AOS, Initdriver is here...\n");
-	char* drv_data = read_entire_file("/boot/сonfigs/drivers.conf");
+	char* drv_data = read_entire_file("/boot/configs/drivers.conf");
     if (drv_data) {
         printf("INITDRIVER: drivers.conf loaded\n");
         parse_drivers_conf(drv_data);
@@ -220,7 +220,7 @@ int driver_main(void* reserved1, void* reserved2) {
         printf("INITDRIVER: Failed to load drivers.conf!\n");
     }
 
-    char* apps_data = read_entire_file("/boot/сonfigs/apps.conf");
+    char* apps_data = read_entire_file("/boot/configs/apps.conf");
     if (apps_data) {
         printf("INITDRIVER: apps.conf loaded\n");
         parse_apps_conf(apps_data);

@@ -65,6 +65,7 @@ KERNEL_OBJS = $(COMMON_OBJS) $(ARCH_OBJS)
 AOSLIB_OBJS = $(TEMP_DIR)/aos_syscalls.o $(TEMP_DIR)/aos_vfs.o $(TEMP_DIR)/aos_sync.o \
 			  $(TEMP_DIR)/aos_utils.o $(TEMP_DIR)/aos_stdio.o $(TEMP_DIR)/aos_auth.o \
 			  $(TEMP_DIR)/aos_video.o $(TEMP_DIR)/aos_input.o $(TEMP_DIR)/aos_window.o \
+			  $(TEMP_DIR)/aos_ui.o \
 			  $(TEMP_DIR)/libc_stdlib.o $(TEMP_DIR)/libc_ctype.o $(TEMP_DIR)/libc_stdio.o \
 			  $(TEMP_DIR)/libc_string.o $(TEMP_DIR)/libc_strings.o $(AOSLIB_ARCH_OBJS)
 
@@ -117,9 +118,13 @@ configs:
 	$(ECHO) "${BROWN}[   CP    ]${NC} ${CURDIR}/configs ${GREEN}->${NC} ${DISK_DIR}/configs\n"
 	$(Q)$(CP) -r $(CURDIR)/configs $(DISK_DIR)
 
-userspace: $(BIN_DIR)/tree.elf
+userspace: $(BIN_DIR)/tree.elf $(BIN_DIR)/desktop.elf
 
 $(BIN_DIR)/tree.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/tree.o $(BUILD_DIR)/libs/libaos.a
+	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
+	$(Q)$(LD) $(LDFLAGS) -N -T $(CURDIR)/data/driver.ld $^ -o $@
+
+$(BIN_DIR)/desktop.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/desktop.o $(BUILD_DIR)/libs/libaos.a
 	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
 	$(Q)$(LD) $(LDFLAGS) -N -T $(CURDIR)/data/driver.ld $^ -o $@
 	

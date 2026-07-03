@@ -1,4 +1,4 @@
-#include "../include/aoslib.h"
+#include <aoslib.h>
 
 static inline void print_indent(int level) {
     for (int i = 0; i < level; i++) {
