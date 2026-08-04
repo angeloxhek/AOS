@@ -4,7 +4,7 @@ static apid_t wnd_driver_pid = 0;
 
 #define ensure_wnd_init() { if (wnd_driver_pid == 0) wnd_driver_pid = get_driver_pid(DT_WND); }
 
-window_t* window_create(int w, int h, uint32_t flags) {
+window_t* window_create(int x, int y, int w, int h, uint32_t flags) {
     ensure_wnd_init();
     if (wnd_driver_pid == 0) return 0;
 
@@ -24,9 +24,14 @@ window_t* window_create(int w, int h, uint32_t flags) {
     req.type = MSG_TYPE_WND;
     req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = WND_CMD_CREATE;
-    req.param2 = (w << 16) | (h & 0xFFFF);
-    req.param3 = flags;
-    *(uint64_t*)(req.data) = win->shm_id;
+    
+    wnd_create_req_t* _req = (wnd_create_req_t*)req.data;
+    _req->x = x;
+    _req->y = y;
+    _req->width = w;
+    _req->height = h;
+    _req->flags = flags;
+    _req->shm_id = win->shm_id;
 
     ipc_send(wnd_driver_pid, &req);
     ipc_recv_ex(wnd_driver_pid, MSG_TYPE_WND, MSG_SUBTYPE_RESPONSE, &resp);

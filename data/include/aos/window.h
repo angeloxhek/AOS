@@ -36,8 +36,17 @@ typedef struct {
     uint16_t height;
 } screen_info_t;
 
+typedef struct {
+    int32_t x;
+    int32_t y;
+    uint32_t width;
+    uint32_t height;
+    uint32_t flags;
+    uint64_t shm_id;
+} __attribute__((packed)) wnd_create_req_t;
+
 #ifdef AOSLIB_WINDOW
-window_t* window_create(int w, int h, uint32_t flags);
+window_t* window_create(int x, int y, int w, int h, uint32_t flags);
 void window_flush(window_t* win);
 int get_screen_info(screen_info_t* info);
 #endif

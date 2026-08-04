@@ -206,12 +206,18 @@ int driver_main(void* reserved1, void* reserved2) {
             }
             else if (msg.type == MSG_TYPE_WND) {
                 if (msg.subtype == MSG_SUBTYPE_QUERY && msg.param1 == WND_CMD_CREATE) {
-                    int w = msg.param2 >> 16;
-                    int h = msg.param2 & 0xFFFF;
-                    uint32_t flags = msg.param3;
-                    uint64_t shm_id = *(uint64_t*)(msg.data);
+                    
+                    wnd_create_req_t* req = (wnd_create_req_t*)msg.data;
 
-                    syswindow_t* new_win = create_window(msg.sender_pid, 100, 100, w, h, shm_id, flags);
+                    syswindow_t* new_win = create_window(
+                        msg.sender_pid, 
+                        req->x, 
+                        req->y, 
+                        req->width, 
+                        req->height, 
+                        req->shm_id, 
+                        req->flags
+                    );
                     
                     message_t resp;
                     memset(&resp, 0, sizeof(message_t));

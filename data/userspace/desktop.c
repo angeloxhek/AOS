@@ -10,7 +10,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    window_t* win = window_create(s_info.width, s_info.height, WND_FLAG_BACKGROUND);
+    window_t* win = window_create(0, 0, s_info.width, s_info.height, WND_FLAG_BACKGROUND);
     if (!win) {
         printf("Desktop: Failed to create window!\n");
         return -1;
