@@ -245,6 +245,10 @@ void generic_syscall_handler(syscall_args_t* args) {
         case SYS_SHM_FREE:
             args->ret = shm_free(args->arg1);
             break;
+
+	case SYS_SHM_GET_SIZE:
+            args->ret = shm_get_size(args->arg1);
+            break;
         
         case SYS_YIELD:
             schedule();

@@ -36,6 +36,7 @@ extern "C" {
 #define SYS_SPAWN                    27
 #define SYS_FORK                     28
 #define SYS_EXEC                     29
+#define SYS_SHM_GET_SIZE             30
 
 typedef enum {
     MSG_TYPE_NONE = 0, MSG_TYPE_AUTH, MSG_TYPE_VFS,
@@ -101,6 +102,7 @@ uint64_t shm_alloc(uint64_t size_bytes, void** out_vaddr);
 int shm_allow(uint64_t shm_id, apid_t target_pid);
 void* shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
+uint64_t shm_get_size(uint64_t shm_id);
 
 int sysedit_sys_flags(uint32_t flags);
 int sysmap_phys(uint64_t phys_addr, uint64_t size_bytes, uint64_t* out_vaddr);

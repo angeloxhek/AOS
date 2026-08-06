@@ -112,6 +112,7 @@ typedef struct shm_object {
     uint64_t  owner_vaddr;
     uint64_t* phys_pages;
     uint64_t  page_count;
+    uint64_t  size;
     shm_allow_node_t* allow_list;
     shm_map_node_t*   map_list;
     struct shm_object* next;
@@ -304,6 +305,7 @@ uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr);
 int shm_allow(uint64_t shm_id, apid_t target_pid);
 uint64_t shm_map(uint64_t shm_id);
 int shm_free(uint64_t shm_id);
+uint64_t shm_get_size(uint64_t shm_id);
 
 
 // -------------------------

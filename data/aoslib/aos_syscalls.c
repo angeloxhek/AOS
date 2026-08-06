@@ -258,6 +258,10 @@ int shm_free(uint64_t shm_id) {
     return (int)syscall(SYS_SHM_FREE, shm_id, 0, 0, 0, 0);
 }
 
+uint64_t shm_get_size(uint64_t shm_id) {
+    return (uint64_t)syscall(SYS_SHM_GET_SIZE, shm_id, 0, 0, 0, 0);
+}
+
 void thread_yield(void) {
 	syscall(SYS_YIELD, 0, 0, 0, 0, 0);
 }

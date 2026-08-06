@@ -55,6 +55,7 @@ uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr) {
     obj->id = next_shm_id++;
     obj->owner_pid = current_thread->owner->id;
     obj->page_count = page_count;
+	obj->size = size_bytes;
 
     obj->phys_pages = (uint64_t*)kernel_malloc(page_count * sizeof(uint64_t));
     if (!obj->phys_pages) { kernel_free(obj); return 0; }
@@ -183,4 +184,23 @@ int shm_free(uint64_t shm_id) {
     kernel_free(obj);
 
     return 0;
+}
+
+uint64_t shm_get_size(uint64_t shm_id) {
+    shm_object_t* obj = shm_find_by_id(shm_id);
+    if (!obj) return 0;
+
+    int has_access = (obj->owner_pid == current_thread->owner->id);
+    shm_allow_node_t* an = obj->allow_list;
+    while (an && !has_access) {
+        if (an->pid == current_thread->owner->id) {
+            has_access = 1; 
+            break;
+        }
+        an = an->next;
+    }
+    
+    if (!has_access) return 0;
+
+    return obj->size; 
 }
