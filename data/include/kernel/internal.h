@@ -26,7 +26,6 @@ extern thread_t* zombies_list;
 extern thread_t* idle_thread_ptr;
 
 extern driver_info_t* drivers_list_head;
-extern uint64_t keyboard_driver_tid;
 
 extern shm_object_t* shm_global_list;
 extern uint64_t next_shm_id;

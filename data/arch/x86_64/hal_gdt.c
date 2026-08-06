@@ -113,8 +113,8 @@ void hal_cpu_init(void) {
     kernel_tcb.canary = hal_get_random_seed() ^ 0xDEADBEEFCAFEBABEULL;
 }
 
-void hal_set_io_permissions(uint32_t pid) {
-	driver_info_t* drv = get_driver_by_pid(pid);
+void hal_set_io_permissions(process_t* process) {
+	driver_info_t* drv = get_driver_by_pid(process->id);
     if (!drv || !(drv->driver_perms & DRV_PERM_IO_PORTS)) {
         kernel_memset(tss.io_bitmap, 0xFF, sizeof(tss.io_bitmap));
         return;

@@ -244,6 +244,7 @@ __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64
     _kprint_error("\nThe system has been halted!");
     
     hal_halt();
+    __builtin_unreachable();
 }
 
 __attribute__((noreturn)) void __stack_chk_fail(void) {

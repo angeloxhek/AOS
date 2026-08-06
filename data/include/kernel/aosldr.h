@@ -7,7 +7,6 @@
 #include "aoslib.h"
 #include "hal.h"
 
-#define KBD_BUFFER_SIZE 256
 #define PAGE_SIZE      4096
 #define BLOCK_SIZE     4096
 #define TEMP_PAGE_VIRT 0xFFFFFFFFFFE00000
@@ -49,10 +48,7 @@ typedef struct msg_node_t {
 typedef struct process_t {
 	char              name[32];
     apid_t             id;
-	uint32_t          sleep_ticks;
     uint64_t*         page_directory;
-    uint64_t          rsp;
-    uint64_t          rbp;
 	uint64_t          tls_image_vaddr;
     uint64_t          tls_file_size;
     uint64_t          tls_mem_size;
@@ -91,7 +87,7 @@ typedef volatile int spinlock_t;
 
 typedef struct driver_info_t {
 	process_t* process;
-	uint32_t pid;
+	apid_t pid;
 	driver_type_t type;
 	char name[DRIVER_NAME_MAX];
 	uint32_t driver_perms;
@@ -100,20 +96,20 @@ typedef struct driver_info_t {
 } driver_info_t;
 
 typedef struct shm_allow_node {
-    uint64_t pid;
+    apid_t pid;
     struct shm_allow_node* next;
 } shm_allow_node_t;
 
 typedef struct shm_map_node {
-    uint64_t pid;
+    apid_t pid;
     uint64_t vaddr;
     struct shm_map_node* next;
 } shm_map_node_t;
 
 typedef struct shm_object {
-    uint64_t id;
-    uint64_t owner_pid;
-    uint64_t owner_vaddr;
+    uint64_t  id;
+    apid_t    owner_pid;
+    uint64_t  owner_vaddr;
     uint64_t* phys_pages;
     uint64_t  page_count;
     shm_allow_node_t* allow_list;
@@ -341,6 +337,6 @@ void reset_state();
 //      MAIN THREADS
 // ------------------------
 void kernel_main(boot_info_t* boot_info);
-void idle_thread();
+__attribute__((noreturn)) void idle_thread();
 
 #endif

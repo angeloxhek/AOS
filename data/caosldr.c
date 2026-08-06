@@ -685,11 +685,13 @@ void kernel_main(boot_info_t* boot_info) {
     
     kill_thread(current_thread, 0);
     schedule();
+	__builtin_unreachable();
 }
 
-void idle_thread() {
+__attribute__((noreturn)) void idle_thread() {
     while(1) {
         hal_enable_interrupts();
         hal_cpu_relax();
     }
+	__builtin_unreachable();
 }
