@@ -209,8 +209,60 @@ char* read_entire_file(const char* path) {
     return data;
 }
 
+uint8_t* read_entire_binary(const char* path, uint64_t* out_size) {
+    int fd = vfs_open(path, VFS_FREAD);
+    if (fd < 0) return NULL;
+
+    vfs_stat_info_t stat;
+    if (vfs_stat(fd, &stat) != 0 || stat.size_bytes <= 0) {
+        vfs_close(fd);
+        return NULL;
+    }
+
+    uint64_t size = stat.size_bytes;
+    uint8_t* data = (uint8_t*)calloc(size, 1);
+    if (!data) { vfs_close(fd); return NULL; }
+
+    uint64_t total_read = 0;
+    while (total_read < size) {
+        int res = vfs_read(fd, data + total_read, size - total_read);
+        if (res <= 0) break;
+        total_read += res;
+    }
+    vfs_close(fd);
+
+    if (total_read != size) { free(data); return NULL; }
+    
+    *out_size = size;
+    return data;
+}
+
 int driver_main(void* reserved1, void* reserved2) {	
 	printf("AOS, Initdriver is here...\n");
+	
+	uint64_t auth_len = 0;
+    uint8_t* authbase = read_entire_binary("/boot/configs/authbase.ahbs", &auth_len);
+    
+    if (authbase_load(authbase, auth_len)) {
+		printf("INITDRIVER: authbase failed/missing. Use 'localroot' / 'aoslocal'\n");
+    }
+	
+	if (authbase) free(authbase);
+	
+	auth_idex_t* temp_root = (auth_idex_t*)malloc(sizeof(auth_idex_t));
+	memset(temp_root, 0, sizeof(auth_idex_t));
+	temp_root->pgroup = PGROUP_ROOT;
+	temp_root->auth_type = ATYPE_ROOT;
+	temp_root->perms = APERM_ROOT;
+	temp_root->flags = AFLAG_LOCAL;
+	strlcpy(temp_root->name, "localroot", sizeof(temp_root->name));
+	strlcpy(temp_root->pass, "aoslocal", sizeof(temp_root->pass));
+	
+	if (auth_add_user(temp_root)) {
+		printf("INITDRIVER: Failed to create localroot!\n");
+	}
+	free(temp_root);
+	
 	char* drv_data = read_entire_file("/boot/configs/drivers.conf");
     if (drv_data) {
         printf("INITDRIVER: drivers.conf loaded\n");

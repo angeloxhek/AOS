@@ -239,3 +239,51 @@ int auth_get_members(auth_id_t in, uint32_t index, auth_members_t* out) {
     shm_free(shm_id);
     return -1;
 }
+
+int authbase_load(uint8_t* buf, uint64_t len) {
+    if (!buf || !len) return -1;	
+    message_t req;
+    message_t resp;
+	
+	void* shm_vaddr = 0;
+    uint64_t shm_id = shm_alloc(len, &shm_vaddr);
+    if (!shm_id) return -1;
+	
+	shm_allow(shm_id, auth_driver_pid);
+
+	req.subtype = MSG_SUBTYPE_QUERY;
+    req.param1 = AUTH_CMD_LOAD;
+	memcpy(shm_vaddr, buf, len);
+	*(uint64_t*)(req.data) = shm_id;
+
+    if (auth_rpc_call(&req, &resp) == 0) {
+		shm_free(shm_id);
+        return (int)resp.param1;
+    }
+    shm_free(shm_id);
+    return -1;
+}
+
+int authbase_save(uint8_t* buf, uint64_t len) {
+    if (!buf || !len) return -1;	
+    message_t req;
+    message_t resp;
+	
+	void* shm_vaddr = 0;
+    uint64_t shm_id = shm_alloc(len, &shm_vaddr);
+    if (!shm_id) return -1;
+	
+	shm_allow(shm_id, auth_driver_pid);
+
+	req.subtype = MSG_SUBTYPE_QUERY;
+    req.param1 = AUTH_CMD_SAVE;
+	*(uint64_t*)(req.data) = shm_id;
+
+    if (auth_rpc_call(&req, &resp) == 0) {
+		memcpy(buf, shm_vaddr, len);
+		shm_free(shm_id);
+        return (int)resp.param1;
+    }
+    shm_free(shm_id);
+    return -1;
+}

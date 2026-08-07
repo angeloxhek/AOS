@@ -1,7 +1,35 @@
 #include <stdint.h>
 #include <aoslib.h>
 
+#define AUTHBASE_VERSION 1
+#define AUTHBASE_KEY     "A5U3T9H3B2A0S3E6"
+
 AOS_DECLARE_DRIVER(DT_AUTH, 0, 0);
+
+typedef struct {
+	uint8_t magic[4]; // AHBS
+	uint32_t version;
+	uint8_t key[16]; // AUTHBASE_KEY
+	uint64_t reserved; // flags
+	uint64_t users_offset;
+	uint64_t groups_offset;
+} authbase_header_t;
+
+typedef struct authbase_idex_node_t {
+	auth_idex_t data;
+	uint64_t next;
+} authbase_idex_node_t;
+
+typedef struct authbase_members_node_t {
+	auth_members_t data;
+	uint64_t next;
+} authbase_members_node_t;
+
+typedef struct authbase_grpex_node_t {
+	auth_grpex_t grp;
+	uint64_t members;
+	uint64_t next;
+} authbase_grpex_node_t;
 
 typedef struct auth_idex_node_t {
 	auth_idex_t data;
@@ -70,20 +98,20 @@ void del_id(free_range_t** list, uint32_t id) {
         prev->end = curr->end;
         prev->next = curr->next;
         free(curr);
-    } 
+    }
     else if (can_merge_prev) {
         prev->end++;
-    } 
+    }
     else if (can_merge_next) {
         curr->start--;
-    } 
+    }
     else {
         free_range_t* new_node = (free_range_t*)malloc(sizeof(free_range_t));
         if (!new_node) return;
         new_node->start = id;
         new_node->end = id;
         new_node->next = curr;
-        
+
         if (prev) prev->next = new_node;
         else *list = new_node;
     }
@@ -125,13 +153,13 @@ int init_auth() {
 	memset(ufreelist, 0, sizeof(free_range_t));
 	ufreelist->start = 1;
 	ufreelist->end = UINT32_MAX;
-	
+
 	gfreelist = (free_range_t*)malloc(sizeof(free_range_t));
 	if (!gfreelist) return -1;
 	memset(gfreelist, 0, sizeof(free_range_t));
 	gfreelist->start = 0;
 	gfreelist->end = UINT32_MAX;
-	
+
 	idlist = (auth_idex_node_t*)malloc(sizeof(auth_idex_node_t));
 	if (!idlist) {
 		free(ufreelist);
@@ -149,10 +177,11 @@ int init_auth() {
 	idlist->data.id.user.uid = uid;
 	idlist->data.pgroup = PGROUP_SUPER;
 	idlist->data.auth_type = ATYPE_SUPER;
-	idlist->data.perms = (uint32_t)-1;
+	idlist->data.perms = APERM_SUPER;
+	idlist->data.flags = AFLAG_LOCAL;
 	strlcpy(idlist->data.name, "kernel", sizeof(idlist->data.name));
 	strlcpy(idlist->data.pass, "x", sizeof(idlist->data.pass));
-	
+
 	grplist = (auth_grpex_node_t*)malloc(sizeof(auth_grpex_node_t));
 	if (!grplist) {
 		free(ufreelist);
@@ -172,9 +201,10 @@ int init_auth() {
 	grplist->grp.deny_perms = 0;
 	grplist->grp.allow_perms = 0;
 	grplist->grp.auth_type = ATYPE_DEFAULT;
+	grplist->grp.flags = AFLAG_LOCAL;
 	strlcpy(grplist->grp.name, "default", sizeof(grplist->grp.name));
 	strlcpy(grplist->grp.pass, "x", sizeof(grplist->grp.pass));
-	
+
 	return 0;
 }
 
@@ -376,7 +406,7 @@ int add_member(auth_id_t group, auth_id_t user) {
     while (curr) {
         if (curr->data.freemask != 0) {
             int idx = __builtin_ctz(curr->data.freemask);
-            
+
             curr->data.data[idx].user.uid = user.user.uid;
             curr->data.freemask &= ~(1U << idx);
             curr->data.count++;
@@ -390,9 +420,9 @@ int add_member(auth_id_t group, auth_id_t user) {
     if (!new_node) return -1;
 
     memset(new_node, 0, sizeof(auth_members_node_t));
-    
-    new_node->data.freemask = 0xFFFFFFFF; 
-    
+
+    new_node->data.freemask = 0xFFFFFFFF;
+
     new_node->data.data[0].user.uid = user.user.uid;
     new_node->data.freemask &= ~(1U << 0);
     new_node->data.count = 1;
@@ -437,6 +467,162 @@ int del_member(auth_id_t group, auth_id_t user) {
     }
 
     return -1;
+}
+
+int authbase_save(uint8_t* buf, uint64_t len) {
+    if (!buf || len < sizeof(authbase_header_t)) return -1;
+    memset(buf, 0, len);
+    
+    authbase_header_t* header = (authbase_header_t*)buf;
+    memcpy(header->magic, "AHBS", 4);
+    header->version = AUTHBASE_VERSION;
+    memcpy(header->key, AUTHBASE_KEY, 16);
+    
+    header->users_offset = 0;
+    header->groups_offset = 0;
+    
+    uint64_t offset = sizeof(authbase_header_t);
+    
+    uint64_t prev_user_offset = 0;
+    auth_idex_node_t* curid = idlist;
+    
+    while (curid != NULL) {
+        if (curid->data.flags & AFLAG_LOCAL) { 
+            curid = curid->next; 
+            continue; 
+        }
+        
+        if (header->users_offset == 0) header->users_offset = offset;
+        
+        if (offset + sizeof(authbase_idex_node_t) > len) return -1;
+        authbase_idex_node_t* idex = (authbase_idex_node_t*)(buf + offset);
+        
+        if (prev_user_offset != 0) {
+            authbase_idex_node_t* prev_idex = (authbase_idex_node_t*)(buf + prev_user_offset);
+            prev_idex->next = offset;
+        }
+        
+        memcpy(&idex->data, &curid->data, sizeof(auth_idex_t));
+        
+        prev_user_offset = offset;
+        offset += sizeof(authbase_idex_node_t);
+        curid = curid->next;
+    }
+    
+    uint64_t prev_group_offset = 0;
+    auth_grpex_node_t* curgrp = grplist;
+    
+    while (curgrp != NULL) {
+        if (curgrp->grp.flags & AFLAG_LOCAL) { 
+            curgrp = curgrp->next; 
+            continue; 
+        }
+        
+        uint64_t members_head_offset = 0;
+        uint64_t prev_mem_offset = 0;
+        auth_members_node_t* curmembers = curgrp->members;
+        
+        while (curmembers != NULL) {
+            if (offset + sizeof(authbase_members_node_t) > len) return -1;
+            authbase_members_node_t* memex = (authbase_members_node_t*)(buf + offset);
+            
+            if (members_head_offset == 0) members_head_offset = offset;
+            
+            if (prev_mem_offset != 0) {
+                authbase_members_node_t* p_mem = (authbase_members_node_t*)(buf + prev_mem_offset);
+                p_mem->next = offset;
+            }
+            
+            memcpy(&memex->data, &curmembers->data, sizeof(auth_members_t));
+            
+            prev_mem_offset = offset;
+            offset += sizeof(authbase_members_node_t);
+            curmembers = curmembers->next;
+        }
+        
+        if (offset + sizeof(authbase_grpex_node_t) > len) return -1;
+        authbase_grpex_node_t* grpex = (authbase_grpex_node_t*)(buf + offset);
+        
+        if (header->groups_offset == 0) header->groups_offset = offset;
+        
+        if (prev_group_offset != 0) {
+            authbase_grpex_node_t* p_grp = (authbase_grpex_node_t*)(buf + prev_group_offset);
+            p_grp->next = offset;
+        }
+        
+        grpex->members = members_head_offset;
+        memcpy(&grpex->grp, &curgrp->grp, sizeof(auth_grpex_t));
+        
+        prev_group_offset = offset;
+        offset += sizeof(authbase_grpex_node_t);
+        curgrp = curgrp->next;
+    }
+    
+    return 0;
+}
+
+int authbase_load(uint8_t* buf, uint64_t len) {
+    if (!buf || len < sizeof(authbase_header_t)) return -1;
+    
+    authbase_header_t* header = (authbase_header_t*)buf;
+    
+    if (memcmp(header->magic, "AHBS", 4) != 0) return -1;
+    if (header->version != AUTHBASE_VERSION) return -1;
+    if (memcmp(header->key, AUTHBASE_KEY, 16) != 0) return -1;
+
+	int has_root = -1;
+
+    uint64_t offset = header->users_offset;
+    while (offset != 0 && offset < len) {
+        authbase_idex_node_t* idex = (authbase_idex_node_t*)(buf + offset);
+        
+        if (!(idex->data.flags & AFLAG_LOCAL)) {
+            add_user(&idex->data, 1);
+            del_uid(idex->data.id.user.uid);
+			
+			if (idex->data.pgroup == PGROUP_ROOT) has_root = 0;
+        }
+        
+        offset = idex->next;
+    }
+
+    offset = header->groups_offset;
+    while (offset != 0 && offset < len) {
+        authbase_grpex_node_t* grpex = (authbase_grpex_node_t*)(buf + offset);
+        
+		if (grpex->grp.flags & AFLAG_LOCAL) { offset = grpex->next; continue; }
+		
+		add_group(&grpex->grp, 1);
+		del_gid(grpex->grp.id.user.gid);
+		
+		auth_grpex_node_t* ram_group = grplist; 
+		
+		uint64_t mem_offset = grpex->members;
+		auth_members_node_t* last_ram_mem = NULL;
+		
+		while (mem_offset != 0 && mem_offset < len) {
+			authbase_members_node_t* memex = (authbase_members_node_t*)(buf + mem_offset);
+			
+			auth_members_node_t* ram_mem = (auth_members_node_t*)malloc(sizeof(auth_members_node_t));
+			if (!ram_mem) return -1; 
+			
+			memcpy(&ram_mem->data, &memex->data, sizeof(auth_members_t));
+			ram_mem->next = NULL;
+			
+			if (last_ram_mem) {
+				last_ram_mem->next = ram_mem;
+			} else {
+				ram_group->members = ram_mem;
+			}
+			last_ram_mem = ram_mem;
+			
+			mem_offset = memex->next;
+		}
+        
+        offset = grpex->next;
+    }
+    
+    return has_root;
 }
 
 int can_create_user(auth_idex_t* parent, auth_grpex_t* group, auth_idex_t* child) {
@@ -504,50 +690,46 @@ void handle_message(message_t* in) {
 			out->param1 = res ? AUTH_ERR_NOTFOUND : AUTH_ERR_OK;
 			break;
 		}
-		
+
 		case AUTH_CMD_ADD_USER: {
 			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
-            auth_idex_t* new_user = (auth_idex_t*)shm_map(*(uint64_t*)(in->data));
+			auth_idex_t* new_user = (auth_idex_t*)shm_map(*(uint64_t*)(in->data));
 			if (!new_user) { out->param1 = AUTH_ERR_UNKNOWN; break; }
-			auth_idex_t* curr_user = (auth_idex_t*)malloc(sizeof(auth_idex_t));
-			auth_grpex_t* curr_group = (auth_grpex_t*)malloc(sizeof(auth_grpex_t));
-			if (!curr_user || !curr_group) {
-				out->param1 = AUTH_ERR_UNKNOWN;
-				break;
-			}
-			if (get_process_user(in->sender_pid, curr_user) || get_process_group(in->sender_pid, curr_group)) {
+
+			auth_idex_t curr_user;
+			auth_grpex_t curr_group;
+
+			if (get_process_user(in->sender_pid, &curr_user) || get_process_group(in->sender_pid, &curr_group)) {
 				out->param1 = AUTH_ERR_NOTFOUND;
+				shm_free(*(uint64_t*)(in->data));
 				break;
 			}
-			if (!can_create_user(curr_user, curr_group, new_user)) {
+			if (!can_create_user(&curr_user, &curr_group, new_user)) {
 				out->param1 = AUTH_ERR_DENIED;
+				shm_free(*(uint64_t*)(in->data));
 				break;
 			}
-            int res = add_user(new_user, 0);
+			int res = add_user(new_user, 0);
 			shm_free(*(uint64_t*)(in->data));
-            out->param1 = (!res) ? AUTH_ERR_OK : AUTH_ERR_USER;
-            break;
-        }
+			out->param1 = (!res) ? AUTH_ERR_OK : AUTH_ERR_USER;
+			break;
+		}
 		case AUTH_CMD_DEL_USER: {
 			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
 			auth_id_t user;
 			user.raw = in->param2;
-			auth_idex_t* curr_user = (auth_idex_t*)malloc(sizeof(auth_idex_t));
-			auth_grpex_t* curr_group = (auth_grpex_t*)malloc(sizeof(auth_grpex_t));
-			auth_idex_t* u = (auth_idex_t*)malloc(sizeof(auth_idex_t));
-			if (!curr_user || !curr_group || !u) {
-				out->param1 = AUTH_ERR_UNKNOWN;
-				break;
-			}
-			if (get_process_user(in->sender_pid, curr_user) || get_process_group(in->sender_pid, curr_group)) {
+			auth_idex_t curr_user;
+			auth_grpex_t curr_group;
+			auth_idex_t u;
+			if (get_process_user(in->sender_pid, &curr_user) || get_process_group(in->sender_pid, &curr_group)) {
 				out->param1 = AUTH_ERR_NOTFOUND;
 				break;
 			}
-			if (get_user(user, u)) {
+			if (get_user(user, &u)) {
 				out->param1 = AUTH_ERR_UNKNOWN;
 				break;
 			}
-			if (!can_delete_user(curr_user, curr_group, u)) {
+			if (!can_delete_user(&curr_user, &curr_group, &u)) {
 				out->param1 = AUTH_ERR_DENIED;
 				break;
 			}
@@ -579,23 +761,20 @@ void handle_message(message_t* in) {
 			out->param1 = res ? AUTH_ERR_NOTFOUND : AUTH_ERR_OK;
 			break;
 		}
-		
 		case AUTH_CMD_ADD_GROUP: {
 			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
             auth_grpex_t* new_group = (auth_grpex_t*)shm_map(*(uint64_t*)(in->data));
 			if (!new_group) { out->param1 = AUTH_ERR_UNKNOWN; break; }
-			auth_idex_t* curr_user = (auth_idex_t*)malloc(sizeof(auth_idex_t));
-			auth_grpex_t* curr_group = (auth_grpex_t*)malloc(sizeof(auth_grpex_t));
-			if (!curr_user || !curr_group) {
-				out->param1 = AUTH_ERR_UNKNOWN;
-				break;
-			}
-			if (get_process_user(in->sender_pid, curr_user) || get_process_group(in->sender_pid, curr_group)) {
+			auth_idex_t curr_user;
+			auth_grpex_t curr_group;
+			if (get_process_user(in->sender_pid, &curr_user) || get_process_group(in->sender_pid, &curr_group)) {
 				out->param1 = AUTH_ERR_NOTFOUND;
+				shm_free(*(uint64_t*)(in->data));
 				break;
 			}
-			if (!can_create_group(curr_user, curr_group, new_group)) {
+			if (!can_create_group(&curr_user, &curr_group, new_group)) {
 				out->param1 = AUTH_ERR_DENIED;
+				shm_free(*(uint64_t*)(in->data));
 				break;
 			}
             int res = add_group(new_group, 0);
@@ -607,22 +786,18 @@ void handle_message(message_t* in) {
 			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
 			auth_id_t group;
 			group.raw = in->param2;
-			auth_idex_t* curr_user = (auth_idex_t*)malloc(sizeof(auth_idex_t));
-			auth_grpex_t* curr_group = (auth_grpex_t*)malloc(sizeof(auth_grpex_t));
-			auth_grpex_t* g = (auth_grpex_t*)malloc(sizeof(auth_grpex_t));
-			if (!curr_user || !curr_group || !g) {
-				out->param1 = AUTH_ERR_UNKNOWN;
-				break;
-			}
-			if (get_process_user(in->sender_pid, curr_user) || get_process_group(in->sender_pid, curr_group)) {
+			auth_idex_t curr_user;
+			auth_grpex_t curr_group;
+			auth_grpex_t g;
+			if (get_process_user(in->sender_pid, &curr_user) || get_process_group(in->sender_pid, &curr_group)) {
 				out->param1 = AUTH_ERR_NOTFOUND;
 				break;
 			}
-			if (get_group(group, g)) {
+			if (get_group(group, &g)) {
 				out->param1 = AUTH_ERR_UNKNOWN;
 				break;
 			}
-			if (!can_delete_group(curr_user, curr_group, g)) {
+			if (!can_delete_group(&curr_user, &curr_group, &g)) {
 				out->param1 = AUTH_ERR_DENIED;
 				break;
 			}
@@ -632,19 +807,56 @@ void handle_message(message_t* in) {
 		}
 		case AUTH_CMD_GET_MEMBERS: {
 			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
-			
+
 			auth_id_t group;
 			group.raw = in->param2;
 			uint32_t chunk_idx = (uint32_t)in->param3;
-			
+
 			auth_members_t* buf = (auth_members_t*)shm_map(*(uint64_t*)(in->data));
 			if (!buf) { out->param1 = AUTH_ERR_UNKNOWN; break; }
-			
+
 			memset(buf, 0, sizeof(auth_members_t));
 			int res = get_group_members(group, chunk_idx, buf);
-			
+
 			shm_free(*(uint64_t*)(in->data));
 			out->param1 = res ? AUTH_ERR_NOTFOUND : AUTH_ERR_OK;
+			break;
+		}
+		case AUTH_CMD_SAVE: {
+			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
+			uint8_t* buf = (uint8_t*)shm_map(*(uint64_t*)(in->data));
+			uint64_t len = shm_get_size(*(uint64_t*)(in->data));
+			if (!buf || !len) {
+				shm_free(*(uint64_t*)(in->data));
+				out->param1 = AUTH_ERR_UNKNOWN;
+				break;
+			}
+			int res = authbase_save(buf, len);
+			shm_free(*(uint64_t*)(in->data));
+			out->param1 = res ? AUTH_ERR_UNKNOWN : AUTH_ERR_OK;
+			break;
+		}
+		case AUTH_CMD_LOAD: {
+			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
+			
+			if (in->sender_pid != get_driver_pid(DT_INIT)) {
+				out->param1 = AUTH_ERR_DENIED;
+				break;
+			}
+			
+			uint8_t* buf = (uint8_t*)shm_map(*(uint64_t*)(in->data));
+			uint64_t len = shm_get_size(*(uint64_t*)(in->data));
+            
+			if (!buf || !len) {
+				if (*(uint64_t*)(in->data)) shm_free(*(uint64_t*)(in->data));
+				out->param1 = AUTH_ERR_UNKNOWN;
+				break;
+			}
+            
+			int res = authbase_load(buf, len);
+            
+			shm_free(*(uint64_t*)(in->data));
+			out->param1 = res ? AUTH_ERR_UNKNOWN : AUTH_ERR_OK;
 			break;
 		}
 		default: {
@@ -658,11 +870,11 @@ void handle_message(message_t* in) {
 
 int driver_main(void* reserved1, void* reserved2) {
 	if (init_auth() != 0) return -1;
-    
+
     message_t msg;
     while(1) {
         ipc_recv_ex(0, MSG_TYPE_AUTH, MSG_SUBTYPE_NONE, &msg);
-        
+
         handle_message(&msg);
     }
 }

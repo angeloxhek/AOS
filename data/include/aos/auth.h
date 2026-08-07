@@ -25,6 +25,8 @@ typedef enum {
     AUTH_CMD_DEL_GROUP,
     AUTH_CMD_GET_GROUP_BY_NAME,
     AUTH_CMD_GET_MEMBERS,
+	AUTH_CMD_SAVE,
+	AUTH_CMD_LOAD,
 } auth_cmd_t;
 
 typedef enum : uint8_t {
@@ -54,6 +56,15 @@ typedef enum : uint8_t {
 #define APERM_MANAGE_GROUP (1 << 1)
 #define APERM_USE_GROUP    (1 << 2)
 
+#define APERM_SUPER        (APERM_MANAGE_USER | APERM_MANAGE_GROUP | APERM_USE_GROUP)
+#define APERM_ROOT         (APERM_MANAGE_USER | APERM_MANAGE_GROUP | APERM_USE_GROUP)
+#define APERM_ADMIN        (APERM_MANAGE_USER | APERM_USE_GROUP)
+#define APERM_USER         (APERM_USE_GROUP)
+#define APERM_TEMP         (APERM_NONE)
+
+#define AFLAG_NONE         (0 << 0)
+#define AFLAG_LOCAL        (1 << 0)
+
 typedef union {
     struct {
         uint32_t gid; // Dynamic group
@@ -67,6 +78,7 @@ typedef struct {
     auth_pgroup_t pgroup; // Static group
     uint8_t auth_type; // ATYPE_*
     uint64_t perms; // APERM_*
+	uint64_t flags; // AFLAG_*
     char name[64];
     char pass[64];
 } auth_idex_t;
@@ -74,8 +86,9 @@ typedef struct {
 typedef struct {
     auth_id_t id;
     uint8_t auth_type; // ATYPE_*
-    uint64_t deny_perms;
-    uint64_t allow_perms;
+    uint64_t deny_perms; // APERM_*
+    uint64_t allow_perms; // APERM_*
+	uint64_t flags; // AFLAG_*
     char name[64];
     char pass[64];
 } auth_grpex_t; // user perms = user.perms | group.allow_perms & ~group.deny_perms
@@ -100,6 +113,8 @@ int auth_get_group_by_name(const char* in, auth_grpex_t* out);
 int auth_add_group(auth_grpex_t* inout);
 int auth_del_group(auth_id_t in);
 int auth_get_members(auth_id_t in, uint32_t index, auth_members_t* out);
+int authbase_load(uint8_t* buf, uint64_t len);
+int authbase_save(uint8_t* buf, uint64_t len);
 
 #endif
 
