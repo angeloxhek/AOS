@@ -22,15 +22,14 @@ static int vfs_rpc_call(message_t* req, message_t* resp_out) {
         resp_out
     );
 
-    if (resp_out->param1 == VFS_ERR_OK) {
-        return 0;
-    }
-    
-    return -1;
+    return resp_out->param1;
 }
 
 int vfs_open(const char* path, uint32_t flags) {
     if (!path) return -1;
+	
+	ensure_vfs_init();
+	
 	int len = strlen(path);
     if (len >= 64) return -1;
 	
@@ -45,15 +44,17 @@ int vfs_open(const char* path, uint32_t flags) {
 	req.param2 = flags;
     memcpy(req.data, path, len + 1);
 
-    if (vfs_rpc_call(&req, &resp) == 0) {
-        return (int)resp.param2;
+    if (vfs_rpc_call(&req, &resp) == VFS_ERR_OK) {
+        return (int)resp.param2; // fd
     }
     
-    return -1;
+    return (int)resp.param1;
 }
 
 int vfs_openat(int dir_fd, const char* name, uint32_t flags) {
     if (dir_fd < 0 || !name) return -1;
+	
+	ensure_vfs_init();
     
     int len = strlen(name);
     if (len >= 64) return -1; 
@@ -70,31 +71,29 @@ int vfs_openat(int dir_fd, const char* name, uint32_t flags) {
     req.param3 = dir_fd;
     memcpy(req.data, name, len + 1);
 
-    if (vfs_rpc_call(&req, &resp) == 0) {
-        return (int)resp.param2;
+    if (vfs_rpc_call(&req, &resp) == VFS_ERR_OK) {
+        return (int)resp.param2; // fd
     }
     
-    return -1;
+    return (int)resp.param1;
 }
 
 int vfs_close(int fd) {
     if (fd < 0) return -1;
+	
+	ensure_vfs_init();
 
     message_t req;
     message_t resp;
+	
+	memset(&req, 0, sizeof(message_t));
+	memset(&resp, 0, sizeof(message_t));
 
 	req.subtype = MSG_SUBTYPE_QUERY;
     req.param1 = VFS_CMD_CLOSE;
     req.param2 = fd;
 	
-	memset(&req, 0, sizeof(message_t));
-	memset(&resp, 0, sizeof(message_t));
-
-    if (vfs_rpc_call(&req, &resp) == 0) {
-        return 0;
-    }
-    
-    return -1;
+    return vfs_rpc_call(&req, &resp);
 }
 
 int vfs_read(int fd, void* buf, int count) {
@@ -121,9 +120,9 @@ int vfs_read(int fd, void* buf, int count) {
     
     *(uint64_t*)(req.data) = shm_id;
 	
-    int bytes_read = -1;
+    int bytes_read = vfs_rpc_call(&req, &resp);
 
-    if (vfs_rpc_call(&req, &resp) == 0) {
+    if (bytes_read == VFS_ERR_OK) {
         bytes_read = (int)resp.param2;
         
         if (bytes_read > 0) {
@@ -161,9 +160,9 @@ int vfs_write(int fd, const void* buf, int count) {
     req.param3 = count;
     *(uint64_t*)(req.data) = shm_id;
 
-    int bytes_written = -1;
+    int bytes_written = vfs_rpc_call(&req, &resp);
 
-    if (vfs_rpc_call(&req, &resp) == 0) {
+    if (bytes_written == VFS_ERR_OK) {
         bytes_written = (int)resp.param2;
     }
     
@@ -198,14 +197,14 @@ int vfs_readdir(int fd, vfs_dirent_t* out_entries, int max_entries) {
 
     int entries_read = 0;
 
-    if (vfs_rpc_call(&req, &resp) == 0) {
+    if (vfs_rpc_call(&req, &resp) == VFS_ERR_OK) {
         entries_read = (int)resp.param2;
         
         if (entries_read > 0) {
             memcpy(out_entries, shm_vaddr, entries_read * sizeof(vfs_dirent_t));
         }
     } else {
-        entries_read = -1;
+        entries_read = (int)resp.param1;
     }
 
     shm_free(shm_id);
@@ -229,11 +228,7 @@ int vfs_flock(int fd, vfs_lock_type_t lock_type) {
     req.param2 = fd;
     req.param3 = lock_type;
 
-    if (vfs_rpc_call(&req, &resp) == 0) {
-        return 0;
-    }
-    
-    return -1;
+    return vfs_rpc_call(&req, &resp);
 }
 
 int64_t vfs_seek(int fd, int64_t offset, vfs_seek_t whence) {
@@ -254,11 +249,12 @@ int64_t vfs_seek(int fd, int64_t offset, vfs_seek_t whence) {
     
     *(int64_t*)(req.data) = offset;
 
-    if (vfs_rpc_call(&req, &resp) == 0) {
+	int res = vfs_rpc_call(&req, &resp);
+    if (res == VFS_ERR_OK) {
         return *(int64_t*)(resp.data);
     }
     
-    return -1;
+    return res;
 }
 
 int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
@@ -283,12 +279,11 @@ int vfs_stat(int fd, vfs_stat_info_t* out_stat) {
     req.param2 = fd;
     *(uint64_t*)(req.data) = shm_id;
 
-    int result = -1;
-    if (vfs_rpc_call(&req, &resp) == 0) {
+    int res = vfs_rpc_call(&req, &resp);
+    if (res == VFS_ERR_OK) {
         memcpy(out_stat, shm_vaddr, sizeof(vfs_stat_info_t));
-        result = 0;
     }
 
     shm_free(shm_id);
-    return result;
+    return res;
 }

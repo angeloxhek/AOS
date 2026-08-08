@@ -22,11 +22,7 @@ static int input_rpc_call(message_t* req, message_t* resp_out) {
         resp_out
     );
 
-    if (resp_out->param1 == VIDEO_ERR_OK) {
-        return 0;
-    }
-    
-    return -1;
+    return resp_out->param1;
 }
 
 int input_subscribe() {

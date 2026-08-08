@@ -38,7 +38,7 @@ int auth_get_user(auth_id_t in, auth_idex_t* out) {
 	*(uint64_t*)(req.data) = shm_id;
 
 	int res = auth_rpc_call(&req, &resp);
-    if (res == 0) {
+    if (res == AUTH_ERR_OK) {
 		memcpy(out, shm_vaddr, sizeof(auth_idex_t));
     }
     shm_free(shm_id);
@@ -89,7 +89,7 @@ int auth_add_user(auth_idex_t* inout) {
 	*(uint64_t*)(req.data) = shm_id;
 
 	int res = auth_rpc_call(&req, &resp);
-    if (res == 0) {
+    if (res == AUTH_ERR_OK) {
 		memcpy(inout, shm_vaddr, sizeof(auth_idex_t));
     }
     shm_free(shm_id);
@@ -127,7 +127,7 @@ int auth_get_group(auth_id_t in, auth_grpex_t* out) {
 	*(uint64_t*)(req.data) = shm_id;
 
 	int res = auth_rpc_call(&req, &resp);
-    if (res == 0) {
+    if (res == AUTH_ERR_OK) {
 		memcpy(out, shm_vaddr, sizeof(auth_grpex_t));
     }
     shm_free(shm_id);
@@ -178,7 +178,7 @@ int auth_add_group(auth_grpex_t* inout) {
 	*(uint64_t*)(req.data) = shm_id;
 
 	int res = auth_rpc_call(&req, &resp);
-    if (res == 0) {
+    if (res == AUTH_ERR_OK) {
 		memcpy(inout, shm_vaddr, sizeof(auth_grpex_t));
     }
     shm_free(shm_id);
@@ -217,7 +217,7 @@ int auth_get_members(auth_id_t in, uint32_t index, auth_members_t* out) {
 	*(uint64_t*)(req.data) = shm_id;
 
     int res = auth_rpc_call(&req, &resp);
-    if (res == 0) {
+    if (res == AUTH_ERR_OK) {
 		memcpy(out, shm_vaddr, sizeof(auth_members_t));
     }
     shm_free(shm_id);
@@ -263,7 +263,7 @@ int authbase_save(uint8_t* buf, uint64_t len) {
 	*(uint64_t*)(req.data) = shm_id;
 
     int res = auth_rpc_call(&req, &resp);
-    if (res == 0) {
+    if (res == AUTH_ERR_OK) {
 		memcpy(buf, shm_vaddr, len);
     }
     shm_free(shm_id);

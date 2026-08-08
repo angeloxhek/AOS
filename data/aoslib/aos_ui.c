@@ -27,24 +27,25 @@ void ui_fill_rect(ui_context_t* ctx, int x, int y, int w, int h, uint32_t color)
 }
 
 void ui_draw_gradient_v(ui_context_t* ctx, int x, int y, int w, int h, uint32_t color_top, uint32_t color_bottom) {
+    int orig_y = y;
+    int orig_h = h; 
+
     UI_CLIP(ctx, x, y, w, h);
 
     uint8_t a1 = (color_top >> 24) & 0xFF, r1 = (color_top >> 16) & 0xFF, g1 = (color_top >> 8) & 0xFF, b1 = color_top & 0xFF;
     uint8_t a2 = (color_bottom >> 24) & 0xFF, r2 = (color_bottom >> 16) & 0xFF, g2 = (color_bottom >> 8) & 0xFF, b2 = color_bottom & 0xFF;
 
     for (int cy = y; cy < y + h; cy++) {
-        // Вычисляем процент от 0 до 255 для текущей строки
-        int percent = ((cy - y) * 255) / h;
+        int percent = ((cy - orig_y) * 255) / orig_h;
         int inv = 255 - percent;
 
-        // Линейная интерполяция (Lerp) для каждого канала
         uint8_t a = (a1 * inv + a2 * percent) / 255;
         uint8_t r = (r1 * inv + r2 * percent) / 255;
         uint8_t g = (g1 * inv + g2 * percent) / 255;
         uint8_t b = (b1 * inv + b2 * percent) / 255;
 
         uint32_t final_color = (a << 24) | (r << 16) | (g << 8) | b;
-
+        
         uint32_t* row = ctx->buffer + (cy * ctx->width);
         for (int cx = x; cx < x + w; cx++) {
             row[cx] = final_color;
@@ -53,8 +54,6 @@ void ui_draw_gradient_v(ui_context_t* ctx, int x, int y, int w, int h, uint32_t 
 }
 
 void ui_draw_button(ui_context_t* ctx, int x, int y, int w, int h, uint32_t color, int is_pressed) {
-    UI_CLIP(ctx, x, y, w, h);
-
     ui_fill_rect(ctx, x, y, w, h, color);
 
     uint32_t highlight = 0xFFFFFFFF;
