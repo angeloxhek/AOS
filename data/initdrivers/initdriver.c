@@ -3,6 +3,8 @@
 
 AOS_DECLARE_DRIVER(DT_INIT, 0, 0);
 
+auth_id_t localroot;
+
 int spawn_driver(driver_type_t type, const char* name, const char* path) {
 	startup_info_t info;
 	memset(&info, 0, sizeof(startup_info_t));
@@ -244,24 +246,24 @@ int driver_main(void* reserved1, void* reserved2) {
     uint8_t* authbase = read_entire_binary("/boot/configs/authbase.ahbs", &auth_len);
     
     if (authbase_load(authbase, auth_len)) {
-		printf("INITDRIVER: authbase failed/missing. Use 'localroot' / 'aoslocal'\n");
+		printf("INITDRIVER: Authbase failed/missing. Use 'localroot' / 'aoslocal'\n");
     }
 	
 	if (authbase) free(authbase);
 	
-	auth_idex_t* temp_root = (auth_idex_t*)malloc(sizeof(auth_idex_t));
-	memset(temp_root, 0, sizeof(auth_idex_t));
-	temp_root->pgroup = PGROUP_ROOT;
-	temp_root->auth_type = ATYPE_ROOT;
-	temp_root->perms = APERM_ROOT;
-	temp_root->flags = AFLAG_LOCAL;
-	strlcpy(temp_root->name, "localroot", sizeof(temp_root->name));
-	strlcpy(temp_root->pass, "aoslocal", sizeof(temp_root->pass));
-	
-	if (auth_add_user(temp_root)) {
-		printf("INITDRIVER: Failed to create localroot!\n");
-	}
-	free(temp_root);
+	auth_idex_t* localrootex = (auth_idex_t*)malloc(sizeof(auth_idex_t));
+	if (!localrootex) {
+		printf("INITDRIVER: Failed to allocate memory!\n");
+	} else {
+		int get_res = auth_get_user_by_name("localroot", localrootex);
+        if (get_res != 0) {
+            printf("INITDRIVER: Failed to get localroot! Error code: %d\n", get_res);
+        } else {
+			printf("INITDRIVER: Got localroot successfully! UID: %d\n", localrootex->id.user.uid);
+            localroot.raw = localrootex->id.raw;
+        }
+        free(localrootex);
+    }
 	
 	char* drv_data = read_entire_file("/boot/configs/drivers.conf");
     if (drv_data) {

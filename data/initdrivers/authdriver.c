@@ -628,7 +628,7 @@ int authbase_load(uint8_t* buf, uint64_t len) {
 int can_create_user(auth_idex_t* parent, auth_grpex_t* group, auth_idex_t* child) {
 	uint64_t pperms = AUTH_GET_FULL_PERMS(parent, group);
 	if (parent->pgroup > child->pgroup) return 0;
-	if (parent->pgroup == child->pgroup && (pperms | child->perms) != pperms) return 0;
+	if ((pperms | child->perms) != pperms) return 0;
 	if (!(pperms & APERM_MANAGE_USER)) return 0;
 	if ((parent->auth_type | child->auth_type) != parent->auth_type) return 0;
 	if ((child->auth_type & ATYPE_CHANGE) && !(parent->auth_type & ATYPE_CHANGE)) return 0;
@@ -871,6 +871,23 @@ void handle_message(message_t* in) {
 int driver_main(void* reserved1, void* reserved2) {
 	if (init_auth() != 0) return -1;
 
+	auth_idex_t* temp_root = (auth_idex_t*)malloc(sizeof(auth_idex_t));
+	memset(temp_root, 0, sizeof(auth_idex_t));
+	temp_root->pgroup = PGROUP_ROOT;
+	temp_root->auth_type = ATYPE_ROOT;
+	temp_root->perms = APERM_ROOT;
+	temp_root->flags = AFLAG_LOCAL;
+	strlcpy(temp_root->name, "localroot", sizeof(temp_root->name));
+	strlcpy(temp_root->pass, "aoslocal", sizeof(temp_root->pass));
+	
+	int auth_res = add_user(temp_root, 0); 
+	
+	if (auth_res != 0) {
+        printf("AUTHDRIVER: Failed to create localroot! Error code: %d\n", auth_res);
+    } else {
+        printf("AUTHDRIVER: localroot created successfully. Raw auth_id_t=%llx (uid=%x; gid=%x)\n", temp_root->id.raw, temp_root->id.user.uid, temp_root->id.user.gid);
+    }
+	
     message_t msg;
     while(1) {
         ipc_recv_ex(0, MSG_TYPE_AUTH, MSG_SUBTYPE_NONE, &msg);

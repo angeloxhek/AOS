@@ -18,7 +18,6 @@ typedef enum {
 typedef struct {
     apid_t   pid;
     char     name[32];
-    uint8_t  state;
     uint64_t heap_limit;
     uint64_t threads_count;
     auth_id_t user;

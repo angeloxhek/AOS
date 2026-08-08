@@ -167,7 +167,6 @@ void generic_syscall_handler(syscall_args_t* args) {
             kernel_memset(&info, 0, sizeof(proc_info_user_t));
             info.pid = target_proc->id;
             kernel_memcpy(info.name, target_proc->name, 32);
-            info.state = target_proc->state;
             info.heap_limit = target_proc->heap_limit;
 			info.user.raw = target_proc->user.raw;
 
@@ -246,7 +245,7 @@ void generic_syscall_handler(syscall_args_t* args) {
             args->ret = shm_free(args->arg1);
             break;
 
-	case SYS_SHM_GET_SIZE:
+		case SYS_SHM_GET_SIZE:
             args->ret = shm_get_size(args->arg1);
             break;
         
@@ -523,6 +522,36 @@ void generic_syscall_handler(syscall_args_t* args) {
             else {
                 args->ret = SYS_RES_NOTFOUND;
             }
+            break;
+        }
+
+		case SYS_SET_PROCESS_AUTH: {
+            apid_t target_pid = (apid_t)args->arg1;
+            uint64_t new_auth_raw = args->arg2;
+            
+            process_t* caller = current_thread->owner;
+            
+            if (caller->id != get_driver_pid(DT_INIT) && 
+                caller->id != get_driver_pid(DT_AUTH)) {
+                args->ret = SYS_RES_NO_PERM;
+                break;
+            }
+            
+            if (target_pid == 0) target_pid = caller->id;
+            
+            process_t* target = get_process_by_id(target_pid);
+            if (!target) {
+                args->ret = SYS_RES_INVALID;
+                break;
+            }
+            
+            uint64_t irq = hal_irq_save();
+            
+            target->user.raw = new_auth_raw;
+            
+            hal_irq_restore(irq);
+            
+            args->ret = SYS_RES_OK;
             break;
         }
 

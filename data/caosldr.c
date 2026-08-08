@@ -380,7 +380,7 @@ process_t* create_process(const char* name) {
     static apid_t next_pid = 1;
     new_proc->id = next_pid++;
     if (name) kernel_strncpy(new_proc->name, name, 31);
-    new_proc->state = THREAD_READY;
+	new_proc->user.raw = current_thread->owner->user.raw;
 
     new_proc->page_directory = hal_create_address_space();
     if (!new_proc->page_directory) {

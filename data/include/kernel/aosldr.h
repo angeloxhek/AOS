@@ -60,7 +60,6 @@ typedef struct process_t {
     struct process_t* next;
 	msg_node_t*       msg_queue_head;
     msg_node_t*       msg_queue_tail;
-	uint8_t           state;
 } process_t;
 
 typedef struct thread_t {

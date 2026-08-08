@@ -37,6 +37,7 @@ extern "C" {
 #define SYS_FORK                     28
 #define SYS_EXEC                     29
 #define SYS_SHM_GET_SIZE             30
+#define SYS_SET_PROCESS_AUTH         31
 
 typedef enum {
     MSG_TYPE_NONE = 0, MSG_TYPE_AUTH, MSG_TYPE_VFS,
@@ -107,6 +108,8 @@ uint64_t shm_get_size(uint64_t shm_id);
 int sysedit_sys_flags(uint32_t flags);
 int sysmap_phys(uint64_t phys_addr, uint64_t size_bytes, uint64_t* out_vaddr);
 int sysget_spec_info(uint64_t info_id, void* out_buffer);
+
+int sys_set_process_auth(apid_t target_pid, auth_id_t user);
 
 #endif
 
