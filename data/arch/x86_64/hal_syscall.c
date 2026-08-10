@@ -26,8 +26,12 @@ void hal_syscall_init(void) {
 
 int hal_is_valid_user_pointer(const void* ptr) {
     uint64_t addr = (uint64_t)ptr;
-    if (addr >= 0x800000000000) return 0; // Kernel space x86
-    if (ptr == 0) return 0; // NULL
+    if (addr >= 0x800000000000) return 0;
+    if (addr == 0) return 0;
+    if (hal_get_phys(hal_get_current_address_space(), addr) == 0) {
+        return 0;
+    }
+    
     return 1;
 }
 

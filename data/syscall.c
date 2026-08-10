@@ -8,6 +8,9 @@ int copy_string_from_user(const char* user_src, char* kernel_dest, int max_len) 
     if (!hal_is_valid_user_pointer(user_src)) return 0;
     int i;
     for (i = 0; i < max_len; i++) {
+        if (i > 0 && ((uint64_t)(user_src + i) & 0xFFF) == 0) {
+            if (!hal_is_valid_user_pointer(user_src + i)) return 0;
+        }
         kernel_dest[i] = user_src[i];
         if (user_src[i] == 0) return i + 1;
     }
@@ -20,17 +23,48 @@ void generic_syscall_handler(syscall_args_t* args) {
     switch (syscall_nr) {
         case SYS_PRINT: {
             const char* user_msg = (const char*)args->arg1;
+            char safe_buf[256];
+            uint64_t offset = 0;
+            
             if (!hal_is_valid_user_pointer(user_msg)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
-            kprint(user_msg);
+
+            while (1) {
+                int i;
+                for (i = 0; i < sizeof(safe_buf) - 1; i++) {
+                    const char* curr_ptr = user_msg + offset + i;
+                    
+                    if (offset + i > 0 && ((uint64_t)curr_ptr & 0xFFF) == 0) {
+                        if (!hal_is_valid_user_pointer(curr_ptr)) {
+                            safe_buf[i] = '\0';
+                            kprint(safe_buf);
+                            goto print_done;
+                        }
+                    }
+                    
+                    char c = *curr_ptr;
+                    if (c == '\0') {
+                        safe_buf[i] = '\0';
+                        kprint(safe_buf);
+                        goto print_done;
+                    }
+                    safe_buf[i] = c;
+                }
+                
+                safe_buf[i] = '\0';
+                kprint(safe_buf);
+                offset += i;
+            }
+            
+        print_done:
             args->ret = SYS_RES_OK;
             break;
         }
         case SYS_EXIT: {
             int exit_code = (int)args->arg1;
-            uint64_t tid = args->arg2;
+            atid_t tid = (atid_t)args->arg2;
             thread_t* th;
             if (tid == 0) { th = current_thread; }
             else {
@@ -47,7 +81,8 @@ void generic_syscall_handler(syscall_args_t* args) {
         case SYS_IPC_SEND: {
             uint64_t dest = args->arg1;
             message_t* user_msg = (message_t*)args->arg2;
-            if (!hal_is_valid_user_pointer(user_msg)) {
+            if (!hal_is_valid_user_pointer(user_msg) || 
+                !hal_is_valid_user_pointer((uint8_t*)user_msg + sizeof(message_t) - 1)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
@@ -56,7 +91,8 @@ void generic_syscall_handler(syscall_args_t* args) {
         }
         case SYS_IPC_RECV: {
             message_t* user_msg_buffer = (message_t*)args->arg1;
-            if (!hal_is_valid_user_pointer(user_msg_buffer)) {
+            if (!hal_is_valid_user_pointer(user_msg_buffer) || 
+                !hal_is_valid_user_pointer((uint8_t*)user_msg_buffer + sizeof(message_t) - 1)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
@@ -65,7 +101,8 @@ void generic_syscall_handler(syscall_args_t* args) {
         }
         case SYS_IPC_TRYRECV: {
             message_t* user_msg_buffer = (message_t*)args->arg1;
-            if (!hal_is_valid_user_pointer(user_msg_buffer)) {
+            if (!hal_is_valid_user_pointer(user_msg_buffer) || 
+                !hal_is_valid_user_pointer((uint8_t*)user_msg_buffer + sizeof(message_t) - 1)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
@@ -169,6 +206,7 @@ void generic_syscall_handler(syscall_args_t* args) {
             kernel_memcpy(info.name, target_proc->name, 32);
             info.heap_limit = target_proc->heap_limit;
 			info.user.raw = target_proc->user.raw;
+			info.main_thread = target_proc->main_thread->tid;
 
             info.threads_count = 0;
             t = ready_queue;
@@ -185,7 +223,7 @@ void generic_syscall_handler(syscall_args_t* args) {
         }
 
         case SYS_GET_THREAD_INFO: {
-            uint64_t target_tid = args->arg1;
+            atid_t target_tid = (atid_t)args->arg1;
             thread_info_user_t* user_ptr = (thread_info_user_t*)args->arg2;
 
             if (!hal_is_valid_user_pointer(user_ptr)) {
@@ -269,7 +307,7 @@ void generic_syscall_handler(syscall_args_t* args) {
 
         case SYS_GET_TID_LIST: {
             apid_t target_pid = (apid_t)args->arg1;
-            uint64_t* user_buffer = (uint64_t*)args->arg2;
+            atid_t* user_buffer = (atid_t*)args->arg2;
             uint64_t* max_elements = (uint64_t*)args->arg3;
 
             if (!hal_is_valid_user_pointer(user_buffer) || !hal_is_valid_user_pointer(max_elements)) {
@@ -294,6 +332,7 @@ void generic_syscall_handler(syscall_args_t* args) {
         
         case SYS_SPAWN: {
             spawn_args_t* user_sargs = (spawn_args_t*)args->arg1;
+			apid_t* respid = (apid_t*)args->arg2;
             
             if (!hal_is_valid_user_pointer(user_sargs)) {
                 args->ret = SYS_RES_INVALID;
@@ -325,6 +364,9 @@ void generic_syscall_handler(syscall_args_t* args) {
                 break;
             }
             args->ret = SYS_RES_OK;
+			if (hal_is_valid_user_pointer(respid)) {
+                *respid = elf.proc->id;
+			}
             break;
         }
         
@@ -338,7 +380,7 @@ void generic_syscall_handler(syscall_args_t* args) {
 
             hal_copy_address_space(parent->page_directory, child->page_directory);
 
-            thread_t* child_thread = create_thread_core((uint64_t)child->page_directory, child);
+            thread_t* child_thread = create_thread_core((uint64_t)child->page_directory, child, THREAD_BLOCKED);
             
             hal_prepare_fork_context(current_thread, child_thread);
             
@@ -554,7 +596,13 @@ void generic_syscall_handler(syscall_args_t* args) {
             args->ret = SYS_RES_OK;
             break;
         }
-
+		/*case SYS_SET_THREAD_STATE: {
+			
+            uint64_t irq = hal_irq_save();
+			args->ret = SYS_RES_OK;
+            hal_irq_restore(irq);
+            break;
+        }*/
         default: {
             kprint("Unknown Syscall invoked!\n");
             args->ret = SYS_RES_INVALID;

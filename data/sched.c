@@ -28,7 +28,7 @@ void init_scheduler() {
     ready_queue = kthread;
 }
 
-thread_t* create_thread_core(uint64_t root_phys, process_t* owner) {
+thread_t* create_thread_core(uint64_t root_phys, process_t* owner, thread_state_t state) {
     thread_t* t = (thread_t*)kernel_malloc(sizeof(thread_t));
     if (!t) return 0;
     kernel_memset(t, 0, sizeof(thread_t));
@@ -44,7 +44,7 @@ thread_t* create_thread_core(uint64_t root_phys, process_t* owner) {
     t->rsp = (uint64_t)stack + KERNEL_STACK_SIZE; 
     t->cr3 = root_phys;
     
-    t->state = THREAD_READY;
+    t->state = state;
     t->tid = thread_count;
     thread_count++;
     t->owner = owner;
@@ -59,9 +59,9 @@ thread_t* create_thread_core(uint64_t root_phys, process_t* owner) {
     return t;
 }
 
-thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, uint64_t arg1, uint64_t arg2) {
+thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, thread_state_t state, uint64_t arg1, uint64_t arg2) {
     uint64_t irq = hal_irq_save();
-    thread_t* t = create_thread_core(cr3_phys, proc);
+    thread_t* t = create_thread_core(cr3_phys, proc, state);
 
     uint64_t tcb_size = 0x30;
     uint64_t total_tls_size = proc->tls_mem_size + tcb_size;
@@ -103,9 +103,9 @@ thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t
 	return t;
 }
 
-thread_t* create_kernel_thread(void (*entry)(void)) {
+thread_t* create_kernel_thread(void (*entry)(void), thread_state_t state) {
     uint64_t irq = hal_irq_save();
-    thread_t* t = create_thread_core(hal_get_current_address_space(), &kernel_process);
+    thread_t* t = create_thread_core(hal_get_current_address_space(), &kernel_process, state);
     
     hal_setup_kernel_thread(t, (uint64_t)entry);
     
@@ -204,7 +204,7 @@ int kill_thread(thread_t* target, int exit_code) {
     return SYS_RES_OK;
 }
 
-thread_t* get_thread_by_id(uint64_t tid) {
+thread_t* get_thread_by_id(atid_t tid) {
     thread_t* t = ready_queue;
     if (!t) return 0;
     do {
@@ -224,7 +224,7 @@ process_t* get_process_by_id(apid_t pid) {
     return 0;
 }
 
-uint64_t get_thread_list(apid_t target_pid, uint64_t* user_buffer, uint64_t* max_elements) {
+uint64_t get_thread_list(apid_t target_pid, atid_t* user_buffer, uint64_t* max_elements) {
 	if (!user_buffer || !max_elements) return 0;
 	uint64_t count = 0;
 	uint64_t mx = *max_elements;
@@ -232,7 +232,7 @@ uint64_t get_thread_list(apid_t target_pid, uint64_t* user_buffer, uint64_t* max
 	*max_elements = 0;
 	if (t) {
 		do {
-			if (count < mx && (target_pid == (apid_t)-1 || t->owner->id == target_pid)) {
+			if (count < mx && (target_pid == 0 || t->owner->id == target_pid)) {
 				user_buffer[count++] = t->tid;
 			}
 			t = t->next;
@@ -268,7 +268,7 @@ uint64_t get_proc_list(apid_t* user_buffer, uint64_t* max_elements) {
 	return count;
 }
 
-int get_driver_pid_sleep_wrapper(void* arg) {
+uint64_t get_driver_pid_sleep_wrapper(void* arg) {
     return get_driver_pid(*(driver_type_t*)arg);
 }
 
@@ -284,8 +284,8 @@ void sleep(uint64_t ms) {
     hal_irq_restore(irq);
 }
 
-int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result) {
-    int res = func(arg);
+int sleep_while_zero(uint64_t (*func)(void*), void* arg, uint64_t timeout_ms, uint64_t* out_result) {
+    uint64_t res = func(arg);
     if (res != 0) {
         if (out_result) *out_result = res;
         return 1;

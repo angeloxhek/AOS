@@ -1,6 +1,6 @@
 #include "../include/aoslib.h"
 
-static uint64_t auth_driver_pid = 0;
+static apid_t auth_driver_pid = 0;
 
 #define ensure_auth_init() { if (auth_driver_pid == 0) auth_driver_pid = get_driver_pid(DT_AUTH); }
 
@@ -268,4 +268,17 @@ int authbase_save(uint8_t* buf, uint64_t len) {
     }
     shm_free(shm_id);
     return res;
+}
+
+int auth_set_id(apid_t pid, auth_id_t id) {
+	ensure_auth_init();
+    message_t req;
+    message_t resp;
+
+	req.subtype = MSG_SUBTYPE_QUERY;
+    req.param1 = AUTH_CMD_SET_ID;
+	req.param2 = (uint64_t)pid;
+	req.param3 = id.raw;
+    
+    return auth_rpc_call(&req, &resp);
 }

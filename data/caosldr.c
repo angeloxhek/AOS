@@ -39,7 +39,7 @@ uint8_t kernel_stack[16384];
 process_t kernel_process;
 thread_t* current_thread;
 thread_t* ready_queue;
-uint64_t thread_count = 0;
+atid_t thread_count = 0;
 thread_t* zombies_list = 0;
 thread_t* idle_thread_ptr = 0;
 
@@ -278,6 +278,10 @@ int expand_heap(uint64_t size) {
 
 void* kernel_malloc(uint64_t size) {
     if (size == 0) return 0;
+	if (malloc_initialized != 0 && malloc_initialized != 1) {
+		kernel_error(0x5, malloc_initialized, 0, 0, 0);
+		__builtin_unreachable();
+	}
     size = (size + 15) & ~15;
     uint64_t irq = spinlock_irq_save();
     spinlock_acquire(&heap_lock);
@@ -606,7 +610,7 @@ void kernel_main(boot_info_t* boot_info) {
     
     hal_enable_interrupts();
 	serial_init();
-    thread_t* t = create_kernel_thread(idle_thread);
+    thread_t* t = create_kernel_thread(idle_thread, THREAD_READY);
 	idle_thread_ptr = t;
 
 	if (ready_queue == t) {
@@ -643,7 +647,7 @@ void kernel_main(boot_info_t* boot_info) {
     if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
     pid = 0;
-    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (int*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
+    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (uint64_t*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
 
 
     // --- VFS Driver ---
@@ -661,7 +665,7 @@ void kernel_main(boot_info_t* boot_info) {
     if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
     pid = 0;
-    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (int*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
+    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (uint64_t*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
 
 
     // --- INIT Driver ---
@@ -679,7 +683,7 @@ void kernel_main(boot_info_t* boot_info) {
     if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
     pid = 0;
-    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (int*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
+    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (uint64_t*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
 
     kprint("Stage 2 completed!\n");
     

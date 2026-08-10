@@ -2,6 +2,8 @@ global start
 global boot_ver
 extern kernel_main
 extern kernel_stack
+extern __bss_start
+extern __bss_end
 
 %define KERNEL_VMA 0xFFFFFFFF80000000
 %define KERNEL_BASE 0x10000
@@ -434,6 +436,12 @@ higher_half_entry:
     mov qword [rsp+2], 0
     lidt [rsp]
     add rsp, 10
+
+	mov rdi, __bss_start
+    mov rcx, __bss_end
+    sub rcx, rdi
+    xor rax, rax
+    rep stosb
 
     mov rdi, KERNEL_VMA + BOOT_INFO_ADDR
 

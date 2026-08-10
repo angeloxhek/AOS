@@ -27,6 +27,7 @@ typedef enum {
     AUTH_CMD_GET_MEMBERS,
 	AUTH_CMD_SAVE,
 	AUTH_CMD_LOAD,
+	AUTH_CMD_SET_ID,
 } auth_cmd_t;
 
 typedef enum : uint8_t {
@@ -51,14 +52,15 @@ typedef enum : uint8_t {
 
 #define ATYPE_DEFAULT      (ATYPE_CHILD | ATYPE_TOKEN | ATYPE_PASSWORD | ATYPE_CHANGE)
 
-#define APERM_NONE         (0 << 0)
-#define APERM_MANAGE_USER  (1 << 0)
-#define APERM_MANAGE_GROUP (1 << 1)
-#define APERM_USE_GROUP    (1 << 2)
+#define APERM_NONE           (0 << 0)
+#define APERM_MANAGE_USER    (1 << 0)
+#define APERM_MANAGE_GROUP   (1 << 1)
+#define APERM_USE_GROUP      (1 << 2)
+#define APERM_MANAGE_CONTEXT (1 << 3)
 
-#define APERM_SUPER        (APERM_MANAGE_USER | APERM_MANAGE_GROUP | APERM_USE_GROUP)
-#define APERM_ROOT         (APERM_MANAGE_USER | APERM_MANAGE_GROUP | APERM_USE_GROUP)
-#define APERM_ADMIN        (APERM_MANAGE_USER | APERM_USE_GROUP)
+#define APERM_SUPER        (APERM_MANAGE_USER | APERM_MANAGE_GROUP | APERM_USE_GROUP | APERM_MANAGE_CONTEXT)
+#define APERM_ROOT         (APERM_MANAGE_USER | APERM_MANAGE_GROUP | APERM_USE_GROUP | APERM_MANAGE_CONTEXT)
+#define APERM_ADMIN        (APERM_MANAGE_USER | APERM_USE_GROUP | APERM_MANAGE_CONTEXT)
 #define APERM_USER         (APERM_USE_GROUP)
 #define APERM_TEMP         (APERM_NONE)
 
@@ -99,7 +101,7 @@ typedef struct {
     auth_id_t data[32];
 } auth_members_t;
 
-#define AUTH_GET_FULL_PERMS(user, group) ((user)->perms | ((group)->allow_perms & ~(group)->deny_perms))
+#define AUTH_GET_FULL_PERMS(user, group) (((user)->perms | (group)->allow_perms) & ~(group)->deny_perms)
 
 #ifdef AOSLIB_AUTH
 
@@ -115,6 +117,7 @@ int auth_del_group(auth_id_t in);
 int auth_get_members(auth_id_t in, uint32_t index, auth_members_t* out);
 int authbase_load(uint8_t* buf, uint64_t len);
 int authbase_save(uint8_t* buf, uint64_t len);
+int auth_set_id(apid_t pid, auth_id_t id);
 
 #endif
 

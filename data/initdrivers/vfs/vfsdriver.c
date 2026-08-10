@@ -41,7 +41,7 @@ vfs_node_t* vfs_root = 0;
 
 typedef struct {
     int id;
-    uint32_t owner_pid;
+    apid_t owner_pid;
     int used;
     uint64_t offset;
     vfs_node_type_t type;
@@ -78,12 +78,12 @@ typedef struct {
     vfs_node_t* mount_node;
     uint64_t inode_id;
     int type;
-    uint32_t owner_pid;
+    apid_t owner_pid;
 } vfs_lock_t;
 
 vfs_lock_t active_locks[MAX_LOCKED_FILES];
 
-int vfs_check_lock(vfs_node_t* mount_node, uint64_t inode_id, uint32_t pid, int is_write) {
+int vfs_check_lock(vfs_node_t* mount_node, uint64_t inode_id, apid_t pid, int is_write) {
     if (!mount_node) return 0;
 
     for (int i = 0; i < MAX_LOCKED_FILES; i++) {
@@ -102,7 +102,7 @@ int vfs_check_lock(vfs_node_t* mount_node, uint64_t inode_id, uint32_t pid, int 
     return 0;
 }
 
-int vfs_alloc_fd(uint32_t pid) {
+int vfs_alloc_fd(apid_t pid) {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         if (!open_files[i].used) {
 			memset(&open_files[i], 0, sizeof(vfs_file_t));
@@ -116,7 +116,7 @@ int vfs_alloc_fd(uint32_t pid) {
     return -1;
 }
 
-vfs_file_t* vfs_get_file(int fd, uint32_t pid) {
+vfs_file_t* vfs_get_file(int fd, apid_t pid) {
     if (fd < 1 || fd > MAX_OPEN_FILES) return 0;
     vfs_file_t* f = &open_files[fd - 1];
     if (!f->used) return 0;
@@ -674,6 +674,10 @@ void handle_vfs_request(message_t* in) {
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
             if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
 			if (!(f->flags & VFS_FREAD)) { out.param1 = VFS_ERR_PERM; break; }
+			
+			uint64_t actual_shm_size = shm_get_size(shm_id);
+            if (actual_shm_size == 0) { out.param1 = VFS_ERR_UNKNOWN; break; }
+            if (size > actual_shm_size) size = actual_shm_size;
 
             void* buf = shm_map(shm_id);
             if (!buf) { out.param1 = VFS_ERR_UNKNOWN; break; }
@@ -715,6 +719,10 @@ void handle_vfs_request(message_t* in) {
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
             if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
 			if (!(f->flags & VFS_FWRITE)) { out.param1 = VFS_ERR_PERM; break; }
+			
+			uint64_t actual_shm_size = shm_get_size(shm_id);
+            if (actual_shm_size == 0) { out.param1 = VFS_ERR_UNKNOWN; break; }
+            if (size > actual_shm_size) size = actual_shm_size;
 
             void* buf = shm_map(shm_id);
             if (!buf) { out.param1 = VFS_ERR_UNKNOWN; break; }
@@ -755,6 +763,12 @@ void handle_vfs_request(message_t* in) {
             
             vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
+			
+			uint64_t actual_shm_size = shm_get_size(shm_id);
+            if (actual_shm_size < max_entries * sizeof(vfs_dirent_t)) {
+                max_entries = actual_shm_size / sizeof(vfs_dirent_t);
+            }
+            if (max_entries <= 0) { out.param1 = VFS_ERR_UNKNOWN; break; }
 
             vfs_dirent_t* dirent_array = (vfs_dirent_t*)shm_map(shm_id);
             if (!dirent_array) { out.param1 = VFS_ERR_UNKNOWN; break; }
@@ -955,6 +969,11 @@ void handle_vfs_request(message_t* in) {
 			
 			vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
 			if (!f) { out.param1 = VFS_ERR_PERM; break; }
+			
+			if (shm_get_size(shm_id) < sizeof(vfs_stat_info_t)) {
+                out.param1 = VFS_ERR_UNKNOWN;
+                break;
+            }
 
 			vfs_stat_info_t* user_stat = (vfs_stat_info_t*)shm_map(shm_id);
 			

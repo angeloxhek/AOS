@@ -9,10 +9,10 @@ int spawn_driver(driver_type_t type, const char* name, const char* path) {
 	startup_info_t info;
 	memset(&info, 0, sizeof(startup_info_t));
 	info.type = STARTUP_DRIVERMAIN;
-	int res = sysspawn(path, &info, 0);
+	int res = sysspawn(path, &info, 0, NULL);
 	if (res) return res;
-	uint32_t pid = 0;
-    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &type, 5000, (int*)&pid)) return -1;
+	apid_t pid = 0;
+    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &type, 5000, (uint64_t*)&pid)) return -1;
 	return 0;
 }
 
@@ -60,13 +60,21 @@ int spawn_application(char* path, char* args_str) {
     startup_info_t info;
     memset(&info, 0, sizeof(startup_info_t));
     info.type = STARTUP_MAIN;
+	info.state = THREAD_BLOCKED;
     info.data.main.argc = argc;
     info.data.main.argv = argv;
     
     info.data.main.envc = 0; 
     info.data.main.envp = NULL; 
-
-    int res = sysspawn(path, &info, 0); 
+	
+	apid_t pid = 0;
+    int res = sysspawn(path, &info, 0, &pid);
+	auth_set_id(pid, localroot);
+	
+	proc_info_user_t pinfo;
+	get_proc_info(pid, &pinfo);
+	
+	
     return res;
 }
 

@@ -270,6 +270,7 @@ startup_info_t* prepare_child_startup_info_kernel(process_t* proc, startup_info_
 }
 
 int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg2) {
+	if (!res || !res->proc) return -1;
     uint64_t user_stack_virt = 0x0000700000000000;
     uint64_t stack_pages = 8;
 
@@ -286,7 +287,9 @@ int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg
     user_rsp = (user_rsp & ~0xFULL) - 8;
     
     startup_info_t* info_addr = 0;
+	thread_state_t initial_state = THREAD_READY; 
     if (info != NULL) {
+		initial_state = info->state;
         if (hal_is_valid_user_pointer(info)) {
             info_addr = prepare_child_startup_info(res->proc, info);
         } else {
@@ -312,7 +315,7 @@ int start_elf_process(elf_load_result_t* res, startup_info_t* info, uint64_t arg
         );
     }
     
-    create_user_thread(res->entry_point, user_rsp, (uint64_t)res->proc->page_directory, res->proc, (uint64_t)info_addr, arg2);
+    res->proc->main_thread = create_user_thread(res->entry_point, user_rsp, (uint64_t)res->proc->page_directory, res->proc, initial_state, (uint64_t)info_addr, arg2);
 	
     return 0;
 }

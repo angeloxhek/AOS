@@ -45,6 +45,8 @@ typedef struct msg_node_t {
     struct msg_node_t* next;
 } msg_node_t;
 
+typedef struct thread_t thread_t;
+
 typedef struct process_t {
 	char              name[32];
     apid_t             id;
@@ -60,10 +62,11 @@ typedef struct process_t {
     struct process_t* next;
 	msg_node_t*       msg_queue_head;
     msg_node_t*       msg_queue_tail;
+	thread_t* main_thread;
 } process_t;
 
 typedef struct thread_t {
-	uint64_t         tid;
+	atid_t         tid;
 	uint64_t         rsp;
     uint64_t         stack_base;
     uint64_t         cr3;
@@ -211,13 +214,13 @@ int copy_string_from_user(const char* user_src, char* kernel_dest, int max_len);
 // -------------------------
 
 void init_scheduler();
-thread_t* create_thread_core(uint64_t cr3, process_t* owner);
-thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, uint64_t arg1, uint64_t arg2);
-thread_t* create_kernel_thread(void (*entry)(void));
+thread_t* create_thread_core(uint64_t cr3, process_t* owner, thread_state_t state);
+thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, thread_state_t state, uint64_t arg1, uint64_t arg2);
+thread_t* create_kernel_thread(void (*entry)(void), thread_state_t state);
 int kill_thread(thread_t* target, int exit_code);
-thread_t* get_thread_by_id(uint64_t tid);
+thread_t* get_thread_by_id(atid_t tid);
 process_t* get_process_by_id(apid_t pid);
-uint64_t get_thread_list(apid_t target_pid, uint64_t* user_buffer, uint64_t* max_elements);
+uint64_t get_thread_list(apid_t target_pid, atid_t* user_buffer, uint64_t* max_elements);
 uint64_t get_proc_list(apid_t* user_buffer, uint64_t* max_elements);
 void schedule(void);
 void yield(void);
@@ -231,7 +234,7 @@ int64_t register_driver(driver_type_t type, const char* user_name, uint32_t perm
 apid_t get_driver_pid(driver_type_t type);
 driver_info_t* get_driver_by_pid(apid_t pid);
 apid_t get_driver_pid_by_name(const char* name);
-int get_driver_pid_sleep_wrapper(void* arg);
+uint64_t get_driver_pid_sleep_wrapper(void* arg);
 
 
 // -------------------------
@@ -268,7 +271,7 @@ void spinlock_release(spinlock_t* lock);
 // -------------------------
 
 void sleep(uint64_t ms);
-int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result);
+int sleep_while_zero(uint64_t (*func)(void*), void* arg, uint64_t timeout_ms, uint64_t* out_result);
 void get_time_info(time_info_t* out);
 
 
@@ -285,7 +288,7 @@ void kernel_handle_user_exception(uint64_t int_no, uint64_t instruction_pointer)
 //           IPC
 // -------------------------
 
-int64_t ipc_forward(apid_t dest_tid, message_t* user_msg);
+int64_t ipc_forward(apid_t dest_pid, message_t* user_msg);
 int64_t ipc_requeue(message_t* user_msg);
 int64_t ipc_send(apid_t dest_pid, message_t* msg);
 int64_t ipc_try_receive(message_t* out_msg);

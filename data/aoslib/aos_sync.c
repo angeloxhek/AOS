@@ -17,8 +17,8 @@ void mutex_unlock(mutex_t* m) {
     __sync_lock_release(&m->locked);
 }
 
-int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result) {
-    int res = func(arg);
+int sleep_while_zero(uint64_t (*func)(void*), void* arg, uint64_t timeout_ms, uint64_t* out_result) {
+    uint64_t res = func(arg);
     if (res != 0) {
         if (out_result) *out_result = res;
         return 1;

@@ -87,6 +87,9 @@ void del_id(free_range_t** list, uint32_t id) {
     free_range_t* curr = *list;
 
     while (curr != NULL && curr->start < id) {
+		if (curr != NULL && id >= curr->start && id <= curr->end) {
+			return;
+		}
         prev = curr;
         curr = curr->next;
     }
@@ -208,156 +211,6 @@ int init_auth() {
 	return 0;
 }
 
-int add_user(auth_idex_t* inout, uint8_t isload) {
-	auth_idex_node_t* user = (auth_idex_node_t*)malloc(sizeof(auth_idex_node_t));
-	if (!user) return -1;
-	memcpy(&user->data, inout, sizeof(auth_idex_t));
-	if (!isload) {
-		uint32_t uid = 0;
-		if (get_uid(&uid)) {
-			free(user);
-			return -1;
-		}
-		user->data.id.user.uid = uid;
-		inout->id.user.uid = uid;
-		user->data.id.user.gid = 0;
-		inout->id.user.gid = 0;
-	}
-	user->next = idlist;
-	idlist = user;
-	return 0;
-}
-
-int del_user(auth_id_t user) {
-    auth_idex_node_t* curr = idlist;
-    auth_idex_node_t* prev = NULL;
-    while (curr != NULL) {
-        if (curr->data.id.user.uid == user.user.uid) {
-            if (prev != NULL) {
-                prev->next = curr->next;
-            } else {
-                idlist = curr->next;
-            }
-            del_uid(curr->data.id.user.uid);
-            free(curr);
-            return 0;
-        }
-        prev = curr;
-        curr = curr->next;
-    }
-    return -1;
-}
-
-int get_user(auth_id_t user, auth_idex_t* out) {
-	if (!out) return -1;
-	auth_idex_node_t* curr = idlist;
-	while (curr) {
-		if (curr->data.id.user.uid == user.user.uid) {
-			memcpy(out, &curr->data, sizeof(auth_idex_t));
-			return 0;
-		}
-		curr = curr->next;
-	}
-	return -1;
-}
-
-int get_user_by_name(const char* user, auth_idex_t* out) {
-	if (!out) return -1;
-	auth_idex_node_t* curr = idlist;
-	while (curr) {
-		if (strcmp(curr->data.name, user) == 0) {
-			memcpy(out, &curr->data, sizeof(auth_idex_t));
-			return 0;
-		}
-		curr = curr->next;
-	}
-	return -1;
-}
-
-int get_process_user(uint32_t pid, auth_idex_t* out) {
-	if (!out) return -1;
-	proc_info_user_t* info = (proc_info_user_t*)malloc(sizeof(proc_info_user_t));
-	if (get_proc_info(pid, info) != SYS_RES_OK) {
-		return -1;
-	}
-	return get_user(info->user, out);
-}
-
-int add_group(auth_grpex_t* inout, uint8_t isload) {
-	auth_grpex_node_t* group = (auth_grpex_node_t*)malloc(sizeof(auth_grpex_node_t));
-	if (!group) return -1;
-	memcpy(&group->grp, inout, sizeof(auth_grpex_t));
-	if (!isload) {
-		uint32_t gid = 0;
-		if (get_gid(&gid)) {
-			free(group);
-			return -1;
-		}
-		group->grp.id.user.uid = 0;
-		inout->id.user.uid = 0;
-		group->grp.id.user.gid = gid;
-		inout->id.user.gid = gid;
-	}
-	group->next = grplist;
-	grplist = group;
-	return 0;
-}
-
-int del_group(auth_id_t group) {
-    auth_grpex_node_t* curr = grplist;
-    auth_grpex_node_t* prev = NULL;
-    while (curr != NULL) {
-        if (curr->grp.id.user.gid == group.user.gid) {
-            if (prev != NULL) {
-                prev->next = curr->next;
-            } else {
-                grplist = curr->next;
-            }
-            del_gid(curr->grp.id.user.uid);
-            free(curr);
-            return 0;
-        }
-        prev = curr;
-        curr = curr->next;
-    }
-    return -1;
-}
-
-int get_group(auth_id_t group, auth_grpex_t* out) {
-	if (!out) return -1;
-	auth_grpex_node_t* curr = grplist;
-	while (curr) {
-		if (curr->grp.id.user.gid == group.user.gid) {
-			memcpy(out, &curr->grp, sizeof(auth_grpex_t));
-			return 0;
-		}
-		curr = curr->next;
-	}
-	return -1;
-}
-
-int get_group_by_name(const char* group, auth_grpex_t* out) {
-	if (!out) return -1;
-	auth_grpex_node_t* curr = grplist;
-	while (curr) {
-		if (strcmp(curr->grp.name, group) == 0) {
-			memcpy(out, &curr->grp, sizeof(auth_grpex_t));
-			return 0;
-		}
-		curr = curr->next;
-	}
-	return -1;
-}
-
-int get_process_group(uint32_t pid, auth_grpex_t* out) {
-	if (!out) return -1;
-	proc_info_user_t* info = (proc_info_user_t*)malloc(sizeof(proc_info_user_t));
-	if (get_proc_info(pid, info) != SYS_RES_OK) {
-		return -1;
-	}
-	return get_group(info->user, out);
-}
-
 auth_grpex_node_t* find_group_node(auth_id_t group) {
     auth_grpex_node_t* curr = grplist;
     while (curr) {
@@ -467,6 +320,181 @@ int del_member(auth_id_t group, auth_id_t user) {
     }
 
     return -1;
+}
+
+int add_user(auth_idex_t* inout, uint8_t isload) {
+	auth_idex_node_t* user = (auth_idex_node_t*)malloc(sizeof(auth_idex_node_t));
+	if (!user) return -1;
+	memcpy(&user->data, inout, sizeof(auth_idex_t));
+	if (!isload) {
+		uint32_t uid = 0;
+		if (get_uid(&uid)) {
+			free(user);
+			return -1;
+		}
+		user->data.id.user.uid = uid;
+		inout->id.user.uid = uid;
+		user->data.id.user.gid = 0;
+		inout->id.user.gid = 0;
+	}
+	user->next = idlist;
+	idlist = user;
+	return 0;
+}
+
+int del_user(auth_id_t user) {
+    auth_idex_node_t* curr = idlist;
+    auth_idex_node_t* prev = NULL;
+    while (curr != NULL) {
+        if (curr->data.id.user.uid == user.user.uid) {
+            if (prev != NULL) {
+                prev->next = curr->next;
+            } else {
+                idlist = curr->next;
+            }
+			auth_grpex_node_t* gcurr = grplist;
+            while (gcurr != NULL) {
+                del_member(gcurr->grp.id, user);
+                gcurr = gcurr->next;
+            }
+            del_uid(curr->data.id.user.uid);
+            free(curr);
+            return 0;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+    return -1;
+}
+
+int get_user(auth_id_t user, auth_idex_t* out) {
+	if (!out) return -1;
+	auth_idex_node_t* curr = idlist;
+	while (curr) {
+		if (curr->data.id.user.uid == user.user.uid) {
+			memcpy(out, &curr->data, sizeof(auth_idex_t));
+			return 0;
+		}
+		curr = curr->next;
+	}
+	return -1;
+}
+
+int get_user_by_name(const char* user, auth_idex_t* out) {
+	if (!out) return -1;
+	auth_idex_node_t* curr = idlist;
+	while (curr) {
+		if (strcmp(curr->data.name, user) == 0) {
+			memcpy(out, &curr->data, sizeof(auth_idex_t));
+			return 0;
+		}
+		curr = curr->next;
+	}
+	return -1;
+}
+
+int get_process_user(uint32_t pid, auth_idex_t* out) {
+    if (!out) return -1;
+    proc_info_user_t info;
+    if (get_proc_info(pid, &info) != SYS_RES_OK) {
+        return -1;
+    }
+    return get_user(info.user, out);
+}
+
+int add_group(auth_grpex_t* inout, uint8_t isload) {
+	auth_grpex_node_t* group = (auth_grpex_node_t*)malloc(sizeof(auth_grpex_node_t));
+	if (!group) return -1;
+	memcpy(&group->grp, inout, sizeof(auth_grpex_t));
+	if (!isload) {
+		uint32_t gid = 0;
+		if (get_gid(&gid)) {
+			free(group);
+			return -1;
+		}
+		group->grp.id.user.uid = 0;
+		inout->id.user.uid = 0;
+		group->grp.id.user.gid = gid;
+		inout->id.user.gid = gid;
+	}
+	group->next = grplist;
+	grplist = group;
+	return 0;
+}
+
+int del_group(auth_id_t group) {
+    auth_grpex_node_t* curr = grplist;
+    auth_grpex_node_t* prev = NULL;
+    while (curr != NULL) {
+        if (curr->grp.id.user.gid == group.user.gid) {
+            if (prev != NULL) {
+                prev->next = curr->next;
+            } else {
+                grplist = curr->next;
+            }
+            del_gid(curr->grp.id.user.uid);
+            free(curr);
+            return 0;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+    return -1;
+}
+
+int get_group(auth_id_t group, auth_grpex_t* out) {
+	if (!out) return -1;
+	auth_grpex_node_t* curr = grplist;
+	while (curr) {
+		if (curr->grp.id.user.gid == group.user.gid) {
+			memcpy(out, &curr->grp, sizeof(auth_grpex_t));
+			return 0;
+		}
+		curr = curr->next;
+	}
+	return -1;
+}
+
+int get_group_by_name(const char* group, auth_grpex_t* out) {
+	if (!out) return -1;
+	auth_grpex_node_t* curr = grplist;
+	while (curr) {
+		if (strcmp(curr->grp.name, group) == 0) {
+			memcpy(out, &curr->grp, sizeof(auth_grpex_t));
+			return 0;
+		}
+		curr = curr->next;
+	}
+	return -1;
+}
+
+int get_process_group(uint32_t pid, auth_grpex_t* out) {
+	if (!out) return -1;
+	proc_info_user_t info;
+	if (get_proc_info(pid, &info) != SYS_RES_OK) {
+		return -1;
+	}
+	return get_group(info.user, out);
+}
+
+int is_user_in_group(auth_id_t user, auth_id_t group) {  
+	if (group.user.gid == 0) return 1;   
+	
+    auth_grpex_node_t* grp = find_group_node(group);
+    if (!grp) return 0;
+    
+    auth_members_node_t* curr = grp->members;
+    while (curr) {
+        for (int i = 0; i < 32; i++) {
+            if (!(curr->data.freemask & (1U << i))) {
+                if (curr->data.data[i].user.uid == user.user.uid) {
+                    return 1;
+                }
+            }
+        }
+        curr = curr->next;
+    }
+    return 0;
 }
 
 int authbase_save(uint8_t* buf, uint64_t len) {
@@ -659,9 +687,21 @@ int can_delete_group(auth_idex_t* parent, auth_grpex_t* group, auth_grpex_t* chi
 	return 1;
 }
 
+int can_set_id(auth_idex_t* callu, auth_grpex_t* callg, auth_idex_t* oldu, auth_grpex_t* oldg, auth_idex_t* newu, auth_grpex_t* newg) {
+	uint64_t operms = AUTH_GET_FULL_PERMS(oldu, oldg);
+	uint64_t nperms = AUTH_GET_FULL_PERMS(newu, newg);
+	uint64_t cperms = AUTH_GET_FULL_PERMS(callu, callg);
+	if (callu->pgroup > oldu->pgroup || callu->pgroup > newu->pgroup) return 0;
+	if ((cperms | nperms) != cperms) return 0;
+	if (!(callu->auth_type & ATYPE_CHANGE) || !(callg->auth_type & ATYPE_CHANGE) || !(oldu->auth_type & ATYPE_CHANGE) || !(oldg->auth_type & ATYPE_CHANGE)) return 0;
+	if (newg->id.user.gid != 0 && !(operms & APERM_USE_GROUP)) return 0;
+	if (!is_user_in_group(newu->id, newg->id)) return 0;
+	return 1;
+}
+
 void handle_message(message_t* in) {
-	message_t* out = (message_t*)malloc(sizeof(message_t));
-	if (!out) return;
+	message_t out_msg;
+    message_t* out = &out_msg;
 	memset(out, 0, sizeof(message_t));
 	out->type = MSG_TYPE_AUTH;
 	out->subtype = MSG_SUBTYPE_RESPONSE;
@@ -857,6 +897,36 @@ void handle_message(message_t* in) {
             
 			shm_free(*(uint64_t*)(in->data));
 			out->param1 = res ? AUTH_ERR_UNKNOWN : AUTH_ERR_OK;
+			break;
+		}
+		case AUTH_CMD_SET_ID: {
+			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
+			apid_t pid = (apid_t)in->param2;
+			auth_idex_t curr_user;
+			auth_grpex_t curr_group;
+			auth_idex_t ou;
+			auth_grpex_t og;
+			auth_id_t nid;
+			nid.raw = in->param3;
+			auth_idex_t nu;
+			auth_grpex_t ng;
+			if (get_process_user(in->sender_pid, &curr_user) || get_process_group(in->sender_pid, &curr_group) || get_process_user(pid, &ou) || get_process_group(pid, &og)) {
+				out->param1 = AUTH_ERR_NOTFOUND;
+				break;
+			}
+			if (get_group(nid, &ng) || get_user(nid, &nu)) {
+				out->param1 = AUTH_ERR_NOTFOUND;
+				break;
+			}
+			if (in->sender_pid != pid && !(AUTH_GET_FULL_PERMS(&curr_user, &curr_group) & APERM_MANAGE_CONTEXT)) {
+				out->param1 = AUTH_ERR_DENIED;
+				break;
+			}
+			if(!can_set_id(&curr_user, &curr_group, &ou, &og, &nu, &ng)) {
+				out->param1 = AUTH_ERR_DENIED;
+				break;
+			}
+			out->param1 = (uint64_t)sys_set_process_auth(pid, nid);
 			break;
 		}
 		default: {

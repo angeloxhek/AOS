@@ -28,7 +28,10 @@ SECTIONS
 
     .bss : AT(ADDR(.bss) - OFFSET)
     {
+		__bss_start = .;
         *(.bss)
+		*(COMMON)
+		__bss_end = .;
     }
     
     /DISCARD/ : {

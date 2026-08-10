@@ -38,12 +38,13 @@ extern "C" {
 #define SYS_EXEC                     29
 #define SYS_SHM_GET_SIZE             30
 #define SYS_SET_PROCESS_AUTH         31
+#define SYS_SET_THREAD_STATE         32
 
 typedef enum {
     MSG_TYPE_NONE = 0, MSG_TYPE_AUTH, MSG_TYPE_VFS,
     MSG_TYPE_VIDEO, MSG_TYPE_HARDWARE, MSG_TYPE_INPUT,
     MSG_TYPE_WND,
-	MSG_TYPE_DATA
+	MSG_TYPE_DATA = 99
 } msg_type_t;
 
 typedef enum {
@@ -67,11 +68,11 @@ typedef struct message_t {
 
 typedef enum { SEEK_SET = 1, SEEK_CUR, SEEK_END } seek_whence_t;
 
-#define AOS_HANDLE_SUBTYPE_CHECK(st) do { \
+#define AOS_HANDLE_SUBTYPE_CHECK(st) { \
     _Static_assert(__builtin_types_compatible_p(typeof(*(in)), message_t), "AOS_HANDLE_SUBTYPE_CHECK: 'in' must be message_t*"); \
     _Static_assert(__builtin_types_compatible_p(typeof(*(out)), message_t), "AOS_HANDLE_SUBTYPE_CHECK: 'out' must be message_t*"); \
     if (in->subtype != (st)) { out->param1 = DRV_ERR_NOCOMM; break; } \
-} while(0)
+}
 	
 #ifdef AOSLIB_SYSCALLS
 
@@ -90,7 +91,7 @@ void ipc_seek(int64_t offset, seek_whence_t whence);
 int ipc_get_at(uint64_t index, message_t* out);
 
 apid_t get_driver_pid(driver_type_t type);
-int get_driver_pid_sleep_wrapper(void* arg);
+uint64_t get_driver_pid_sleep_wrapper(void* arg);
 apid_t get_driver_pid_name(const char* name);
 driver_type_t dt_from_str(const char* str);
 

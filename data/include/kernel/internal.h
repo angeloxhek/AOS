@@ -19,7 +19,7 @@ extern uint64_t boot_time;
 
 extern thread_t* current_thread;
 extern thread_t* ready_queue;
-extern uint64_t thread_count;
+extern atid_t thread_count;
 extern process_t kernel_process;
 extern uint8_t kernel_stack[KERNEL_STACK_SIZE];
 extern thread_t* zombies_list;

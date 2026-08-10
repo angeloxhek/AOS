@@ -28,7 +28,8 @@
     #define NULL ((void *)0)
 #endif
 
-typedef uint32_t apid_t;
+typedef uint64_t apid_t;
+typedef uint64_t atid_t;
 
 #define SYS_RES_OK                    0
 #define SYS_RES_INVALID              -1

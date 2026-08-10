@@ -21,11 +21,12 @@ typedef struct {
     uint64_t heap_limit;
     uint64_t threads_count;
     auth_id_t user;
+    atid_t main_thread;
 } proc_info_user_t;
 
 typedef struct {
-    uint64_t tid;
-    uint32_t parent_pid;
+    atid_t tid;
+    apid_t parent_pid;
     thread_state_t  state;
     int      waiting_for_msg; 
     uint64_t wake_up_time;
@@ -39,7 +40,7 @@ typedef struct {
 
 typedef struct {
     void*       tcb_self;
-    uint64_t    tid;
+    atid_t      tid;
     apid_t      pid;
     uint64_t    reserved1[2];
     uint64_t    stack_canary;
@@ -64,6 +65,7 @@ typedef enum : uint8_t {
 
 typedef struct {
     startup_type_t type;
+    thread_state_t state;
     union {
         struct {
             int argc;
@@ -92,20 +94,20 @@ __attribute__((noreturn)) void exit(int code);
 #endif
 
 #ifdef AOSLIB_SYSCALLS
-int sysspawn(const char* path, startup_info_t* info, uint64_t arg2);
-int sysspawnex(spawn_args_t* args);
+int sysspawn(const char* path, startup_info_t* info, uint64_t arg2, apid_t* respid);
+int sysspawnex(spawn_args_t* args, apid_t* respid);
 uint32_t sysfork(void);
 int sysexec(const char* path, startup_info_t* info, uint64_t arg2);
 int sysexecex(spawn_args_t* args);
 
 int get_proc_info(apid_t pid, proc_info_user_t* out_info);
-int get_thread_info(uint64_t tid, thread_info_user_t* out_info);
+int get_thread_info(atid_t tid, thread_info_user_t* out_info);
 int get_pid_list(apid_t* buff, uint64_t* count);
-int get_tid_list(apid_t pid, uint64_t* buff, uint64_t* count);
+int get_tid_list(apid_t pid, atid_t* buff, uint64_t* count);
 
 void thread_yield(void);
 void syssleep(uint64_t ms);
-int sleep_while_zero(int (*func)(void*), void* arg, uint64_t timeout_ms, int* out_result);
+int sleep_while_zero(uint64_t (*func)(void*), void* arg, uint64_t timeout_ms, uint64_t* out_result);
 
 int get_time_info(time_info_t* info);
 #endif

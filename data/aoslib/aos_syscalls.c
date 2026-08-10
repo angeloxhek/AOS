@@ -47,7 +47,7 @@ apid_t get_driver_pid_name(const char* name) {
     return (apid_t)syscall(SYS_GET_DRIVER_PID_BY_NAME, (uint64_t)name, 0, 0, 0, 0);
 }
 
-int get_driver_pid_sleep_wrapper(void* arg) {
+uint64_t get_driver_pid_sleep_wrapper(void* arg) {
     return get_driver_pid(*(driver_type_t*)arg);
 }
 
@@ -230,15 +230,15 @@ int get_proc_info(apid_t pid, proc_info_user_t* out_info) {
     return syscall(SYS_GET_PROC_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
 }
 
-int get_thread_info(uint64_t tid, thread_info_user_t* out_info) {
-    return syscall(SYS_GET_THREAD_INFO, tid, (uint64_t)out_info, 0, 0, 0);
+int get_thread_info(atid_t tid, thread_info_user_t* out_info) {
+    return syscall(SYS_GET_THREAD_INFO, (uint64_t)tid, (uint64_t)out_info, 0, 0, 0);
 }
 
 int get_pid_list(apid_t* buff, uint64_t* count) {
     return syscall(SYS_GET_PID_LIST, (uint64_t)buff, (uint64_t)count, 0, 0, 0);
 }
 
-int get_tid_list(apid_t pid, uint64_t* buff, uint64_t* count) {
+int get_tid_list(apid_t pid, atid_t* buff, uint64_t* count) {
     return syscall(SYS_GET_TID_LIST, (uint64_t)pid, (uint64_t)buff, (uint64_t)count, 0, 0);
 }
 
@@ -270,7 +270,7 @@ int get_time_info(time_info_t* info) {
 	return (int)syscall(SYS_GET_TIME_INFO, (uint64_t)info, 0, 0, 0, 0);
 }
 
-int sysspawn(const char* path, startup_info_t* info, uint64_t arg2) {
+int sysspawn(const char* path, startup_info_t* info, uint64_t arg2, apid_t* respid) {
 	spawn_args_t args;
 	if (!path || !info) return SYS_RES_INVALID;
 	int fd = vfs_open(path, VFS_FREAD);
@@ -317,13 +317,13 @@ int sysspawn(const char* path, startup_info_t* info, uint64_t arg2) {
 	args.size = size;
 	args.info = info;
 	args.arg_val = arg2;
-	res = sysspawnex(&args);
+	res = sysspawnex(&args, respid);
 	free(stat);
 	return res;
 }
 
-int sysspawnex(spawn_args_t* args) {
-	return (int)syscall(SYS_SPAWN, (uint64_t)args, 0, 0, 0, 0);
+int sysspawnex(spawn_args_t* args, apid_t* respid) {
+	return (int)syscall(SYS_SPAWN, (uint64_t)args, (uint64_t)respid, 0, 0, 0);
 }
 
 uint32_t sysfork(void) {
