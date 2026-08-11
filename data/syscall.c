@@ -381,6 +381,8 @@ void generic_syscall_handler(syscall_args_t* args) {
             hal_copy_address_space(parent->page_directory, child->page_directory);
 
             thread_t* child_thread = create_thread_core((uint64_t)child->page_directory, child, THREAD_BLOCKED);
+			
+			child->main_thread = child_thread;
             
             hal_prepare_fork_context(current_thread, child_thread);
             

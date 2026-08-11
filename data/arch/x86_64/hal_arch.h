@@ -106,6 +106,7 @@ typedef struct {
 #define PAGE_PRESENT   0x1
 #define PAGE_WRITE     0x2
 #define PAGE_USER      0x4
+#define PAGE_SHARED    0x200
 #define PAGE_FRAME     0x000FFFFFFFFFF000
 #define PAGE_MASK      0xFFFFFFFFFFFFF000
 #define PHYS_PML4      0x80000

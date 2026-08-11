@@ -694,6 +694,23 @@ void kernel_main(boot_info_t* boot_info) {
 
 __attribute__((noreturn)) void idle_thread() {
     while(1) {
+		uint64_t irq = spinlock_irq_save();
+        thread_t* z = zombies_list;
+        zombies_list = 0;
+        spinlock_irq_restore(irq);
+
+        while (z) {
+            thread_t* next_z = z->next_zombie;
+            if (z->stack_base) {
+                kernel_free((void*)z->stack_base);
+            }
+            if (z->owner && z->owner->main_thread == z) {
+                hal_destroy_address_space(z->owner);
+                kernel_free(z->owner);
+            }
+            kernel_free(z);
+            z = next_z;
+        }
         hal_enable_interrupts();
         hal_cpu_relax();
     }

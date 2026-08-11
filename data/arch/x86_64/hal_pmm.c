@@ -22,13 +22,13 @@ static void copy_table_recursive(uint64_t* src_table, uint64_t* dst_table, int l
     for (int i = 0; i < 512; i++) {
         if (!(src_table[i] & 0x1)) continue;
 
-        uint64_t phys_next = pmm_alloc_block();
-        if (!phys_next) kernel_error(0x5, 0, 0, 0, 0);
-
         uint64_t flags = src_table[i] & 0xFFF;
-        dst_table[i] = phys_next | flags;
 
         if (level > 0) {
+            uint64_t phys_next = pmm_alloc_block();
+            if (!phys_next) kernel_error(0x5, 0, 0, 0, 0);
+            dst_table[i] = phys_next | flags;
+
             uint64_t* src_next = (uint64_t*)temp_map(GET_PHYS_ADDR(src_table[i]));
             uint64_t* dst_next = (uint64_t*)temp_map(phys_next);
             
@@ -38,10 +38,14 @@ static void copy_table_recursive(uint64_t* src_table, uint64_t* dst_table, int l
             temp_unmap(dst_next);
         } else {
             uint64_t src_data_phys = GET_PHYS_ADDR(src_table[i]);
-            uint64_t dst_data_phys = pmm_alloc_block();
             
-            dst_table[i] = dst_data_phys | flags;
-            copy_data_page(src_data_phys, dst_data_phys);
+            if (flags & PAGE_SHARED) {
+                dst_table[i] = src_data_phys | flags;
+            } else {
+                uint64_t dst_data_phys = pmm_alloc_block();
+                dst_table[i] = dst_data_phys | flags;
+                copy_data_page(src_data_phys, dst_data_phys);
+            }
         }
     }
 }
@@ -68,8 +72,10 @@ static void destroy_pt(uint64_t pt_phys) {
     uint64_t* pt_virt = (uint64_t*)temp_map(pt_phys);
     for (int i = 0; i < 512; i++) {
         if (pt_virt[i] & 0x1) {
-            uint64_t page_phys = GET_PHYS_ADDR(pt_virt[i]);
-            pmm_free_block(page_phys);
+            if (!(pt_virt[i] & PAGE_SHARED)) {
+                uint64_t page_phys = GET_PHYS_ADDR(pt_virt[i]);
+                pmm_free_block(page_phys);
+            }
         }
     }
     temp_unmap(pt_virt);

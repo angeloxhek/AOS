@@ -78,7 +78,7 @@ uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr) {
     obj->owner_vaddr = my_vaddr;
 
     for (uint64_t i = 0; i < page_count; i++) {
-        hal_map_page_in_space((uint64_t)current_thread->owner->page_directory, my_vaddr + (i * 4096), obj->phys_pages[i], 0x7);
+        hal_map_page_in_space((uint64_t)current_thread->owner->page_directory, my_vaddr + (i * 4096), obj->phys_pages[i], 0x7 | PAGE_SHARED);
     }
 
     hal_flush_tlb();
@@ -126,7 +126,7 @@ uint64_t shm_map(uint64_t shm_id) {
     current_thread->owner->next_shm_vaddr += (obj->page_count * 4096);
 
     for (uint64_t i = 0; i < obj->page_count; i++) {
-        hal_map_page_in_space((uint64_t)current_thread->owner->page_directory, target_vaddr + (i * 4096), obj->phys_pages[i], 0x7);
+        hal_map_page_in_space((uint64_t)current_thread->owner->page_directory, target_vaddr + (i * 4096), obj->phys_pages[i], 0x7 | PAGE_SHARED);
     }
 
     hal_flush_tlb();
