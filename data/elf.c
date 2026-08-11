@@ -16,7 +16,6 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
         hdr->e_ident[2] != 'L' || hdr->e_ident[3] != 'F' ||
         hdr->e_ident[4] != 2) { // 2 = ELFCLASS64
 
-        kernel_free(raw_data);
         result->result = ELF_RESULT_INVALID;
         return;
     }
@@ -26,7 +25,6 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
 	result->is_driver = 0; 
 
     if (hdr->e_phoff >= file_size || hdr->e_phoff + (uint64_t)hdr->e_phnum * sizeof(Elf64_Phdr) > file_size) {
-        kernel_free(raw_data);
         result->result = ELF_RESULT_INVALID;
         return;
     }
@@ -36,8 +34,7 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
     for (int i = 0; i < hdr->e_phnum; i++) {
         if (phdr[i].p_type == PT_LOAD) {
             uint64_t vaddr  = phdr[i].p_vaddr;
-            if (!hal_is_valid_user_pointer((void*)vaddr)) { // Изменено на HAL
-                kernel_free(raw_data);
+            if (!hal_is_valid_user_pointer((void*)vaddr)) {
                 result->result = ELF_RESULT_INVALID;
                 return;
             }
@@ -47,6 +44,11 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
             uint64_t start_page = vaddr & ~4095ULL;
             uint64_t end_page   = (vaddr + memsz + 4095) & ~4095ULL;
             uint64_t page_count = (end_page - start_page) / 4096;
+			
+			if (offset + filesz > file_size || offset + filesz < offset) {
+                result->result = ELF_RESULT_INVALID;
+                return;
+            }
 
             if (vaddr + memsz > max_vaddr) {
                 max_vaddr = vaddr + memsz;
@@ -60,7 +62,6 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
                     phys = existing_phys;
                 } else {
                     phys = pmm_alloc_block();
-                    // 0x7 = USER | WRITE | PRESENT
                     hal_map_page_in_space((uint64_t)proc->page_directory, curr_virt, phys, 0x7);
                 }
                 void* ptr = temp_map(phys);
@@ -103,7 +104,6 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
     }
 
     if (hdr->e_shoff >= file_size || hdr->e_shoff + (uint64_t)hdr->e_shnum * sizeof(Elf64_Shdr) > file_size) {
-        kernel_free(raw_data);
         result->result = ELF_RESULT_OK;
         return;
     }

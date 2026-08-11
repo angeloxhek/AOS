@@ -84,3 +84,12 @@ void pmm_deinit_region(uint64_t base, uint64_t size) {
         used_blocks++;
     }
 }
+
+uint64_t pmm_get_free_blocks() {
+    uint64_t irq = spinlock_irq_save();
+    spinlock_acquire(&pmm_lock);
+    uint64_t free_blocks = max_blocks - used_blocks;
+    spinlock_release(&pmm_lock);
+    spinlock_irq_restore(irq);
+    return free_blocks;
+}

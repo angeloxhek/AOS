@@ -19,7 +19,7 @@ extern "C" {
 #define SYS_EDIT_SYSTEM_FLAGS        10 // Driver only
 #define SYS_MAP_PHYS                 11 // Driver only
 #define SYS_GET_SPEC_INFO            12 // Driver only
-#define SYS_RESERVED5                13
+#define SYS_SET_IPC_LIMIT            13
 #define SYS_RESERVED6                14
 #define SYS_RESERVED7                15
 #define SYS_YIELD                    16

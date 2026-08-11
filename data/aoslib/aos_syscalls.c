@@ -226,6 +226,10 @@ int ipc_get_at(uint64_t index, message_t* out) {
     return -1;
 }
 
+int ipc_set_limit(apid_t pid, uint64_t new_limit) {
+    return syscall(SYS_SET_IPC_LIMIT, (apid_t)pid, new_limit, 0, 0, 0);
+}
+
 int get_proc_info(apid_t pid, proc_info_user_t* out_info) {
     return syscall(SYS_GET_PROC_INFO, (uint64_t)pid, (uint64_t)out_info, 0, 0, 0);
 }

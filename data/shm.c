@@ -48,6 +48,10 @@ uint64_t shm_alloc(uint64_t size_bytes, uint64_t* out_vaddr) {
 
     uint64_t page_count = (size_bytes + 4095) / 4096;
 
+    if (page_count > (pmm_get_free_blocks() - 1024)) {
+        return 0;
+    }
+
     shm_object_t* obj = (shm_object_t*)kernel_malloc(sizeof(shm_object_t));
     if (!obj) return 0;
     kernel_memset(obj, 0, sizeof(shm_object_t));

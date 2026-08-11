@@ -63,6 +63,7 @@ typedef struct process_t {
 	msg_node_t*       msg_queue_head;
     msg_node_t*       msg_queue_tail;
 	thread_t* main_thread;
+	uint64_t          ipc_queue_limit;
 } process_t;
 
 typedef struct thread_t {
@@ -176,6 +177,7 @@ uint64_t pmm_alloc_block();
 void pmm_free_block(uint64_t p_addr);
 void pmm_init_region(uint64_t base, uint64_t size);
 void pmm_deinit_region(uint64_t base, uint64_t size);
+uint64_t pmm_get_free_blocks(void);
 
 
 // -------------------------

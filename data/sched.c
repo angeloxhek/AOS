@@ -11,6 +11,7 @@ void init_scheduler() {
 	kernel_process.user.user.gid = 0;
     kernel_memcpy(kernel_process.name, "KERNEL", 6);
     kernel_process.page_directory = (uint64_t*)hal_get_current_address_space();
+    kernel_process.ipc_queue_limit = 256;
     
     thread_t* kthread = (thread_t*)kernel_malloc(sizeof(thread_t));
     if (!kthread) kernel_error(0x5, 0, 0, 0, 0);

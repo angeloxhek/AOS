@@ -18,6 +18,18 @@ int64_t ipc_forward(apid_t dest_pid, message_t* user_msg) {
         kernel_free(node); 
         return SYS_RES_INVALID; 
     }
+
+    if (target->peb_phys_page != 0) {
+        void* kvirt = temp_map(target->peb_phys_page);
+        aos_peb_t* peb = (aos_peb_t*)kvirt;
+        
+        if (peb->pending_msgs >= target->ipc_queue_limit) {
+            temp_unmap(kvirt);
+            hal_irq_restore(irq);
+            return SYS_RES_ALREADY; 
+        }
+        temp_unmap(kvirt);
+    }
     
     if (target->msg_queue_tail) target->msg_queue_tail->next = node;
     else target->msg_queue_head = node;

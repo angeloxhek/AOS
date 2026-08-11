@@ -395,6 +395,7 @@ process_t* create_process(const char* name) {
     }
 
     new_proc->next_shm_vaddr = 0x600000000000ULL;
+	new_proc->ipc_queue_limit = 256;
 	
 	new_proc->peb_phys_page = pmm_alloc_block();
 

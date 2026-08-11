@@ -37,7 +37,7 @@ typedef uint64_t atid_t;
 #define SYS_RES_ALREADY              -3
 #define SYS_RES_DRV_ERR              -4
 #define SYS_RES_QUEUE_EMPTY          -5
-#define SYS_RES_RESERVED1            -6
+#define SYS_RES_OOM                  -6
 #define SYS_RES_RANGE                -7
 #define SYS_RES_NOTFOUND             -8
 #define SYS_RES_KERNEL_ERR          -99

@@ -332,7 +332,7 @@ void generic_syscall_handler(syscall_args_t* args) {
         
         case SYS_SPAWN: {
             spawn_args_t* user_sargs = (spawn_args_t*)args->arg1;
-			apid_t* respid = (apid_t*)args->arg2;
+            apid_t* respid = (apid_t*)args->arg2;
             
             if (!hal_is_valid_user_pointer(user_sargs)) {
                 args->ret = SYS_RES_INVALID;
@@ -348,6 +348,29 @@ void generic_syscall_handler(syscall_args_t* args) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
+
+            int valid = 1;
+            for (uint64_t i = 0; i < kargs.size; i += 4096) {
+                if (!hal_is_valid_user_pointer(kargs.data + i)) { valid = 0; break; }
+            }
+            if (!valid || !hal_is_valid_user_pointer(kargs.data + kargs.size - 1)) {
+                args->ret = SYS_RES_INVALID;
+                break;
+            }
+			
+			uint64_t free_bytes = (pmm_get_free_blocks() - 1024) * 4096;
+			
+			if (kargs.size > free_bytes) {
+                args->ret = SYS_RES_OOM;
+                break;
+            }
+
+            uint8_t* k_data = (uint8_t*)kernel_malloc(kargs.size);
+            if (!k_data) {
+                args->ret = SYS_RES_KERNEL_ERR;
+                break;
+            }
+            kernel_memcpy(k_data, kargs.data, kargs.size);
             
             char name[32];
             kernel_memset(name, 0, 32);
@@ -357,16 +380,18 @@ void generic_syscall_handler(syscall_args_t* args) {
             }
             
             elf_load_result_t elf;
-            load_elf_raw(name, kargs.data, kargs.size, &elf);
+            load_elf_raw(name, k_data, kargs.size, &elf);
+            
+            kernel_free(k_data);
             
             if (elf.result != ELF_RESULT_OK || start_elf_process(&elf, kargs.info, kargs.arg_val) != 0) {
                 args->ret = SYS_RES_KERNEL_ERR;
                 break;
             }
             args->ret = SYS_RES_OK;
-			if (hal_is_valid_user_pointer(respid)) {
+            if (hal_is_valid_user_pointer(respid)) {
                 *respid = elf.proc->id;
-			}
+            }
             break;
         }
         
@@ -407,6 +432,22 @@ void generic_syscall_handler(syscall_args_t* args) {
                 !hal_is_valid_user_pointer(kargs.data) || 
                 (kargs.info && !hal_is_valid_user_pointer(kargs.info))) {
                 args->ret = SYS_RES_INVALID;
+                break;
+            }
+			
+			int valid = 1;
+            for (uint64_t i = 0; i < kargs.size; i += 4096) {
+                if (!hal_is_valid_user_pointer(kargs.data + i)) { valid = 0; break; }
+            }
+            if (!valid || !hal_is_valid_user_pointer(kargs.data + kargs.size - 1)) {
+                args->ret = SYS_RES_INVALID;
+                break;
+            }
+			
+			uint64_t free_bytes = (pmm_get_free_blocks() - 1024) * 4096;
+			
+			if (kargs.size > free_bytes) {
+                args->ret = SYS_RES_OOM;
                 break;
             }
             
@@ -491,38 +532,34 @@ void generic_syscall_handler(syscall_args_t* args) {
 		case SYS_MAP_PHYS: {
             uint64_t phys_addr = args->arg1;
             uint64_t size_bytes = args->arg2;
-			uint64_t* out_vaddr = (uint64_t*)args->arg3;
-			
-			if (!hal_is_valid_user_pointer(out_vaddr)) {
+            uint64_t* out_vaddr = (uint64_t*)args->arg3;
+            
+            if (!hal_is_valid_user_pointer(out_vaddr)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
-			
-			driver_info_t* drv = get_driver_by_pid(current_thread->owner->id);
-			if (!drv) {
-				args->ret = SYS_RES_INVALID;
-                break;
-			}
-			
-			if (!(drv->driver_perms & DRV_PERM_PHYS_MAP)) {
-				args->ret = SYS_RES_NO_PERM;
-                break;
-			}
             
-            uint64_t virt_addr = 0x00007E0000000000; 
+            driver_info_t* drv = get_driver_by_pid(current_thread->owner->id);
+            if (!drv || !(drv->driver_perms & DRV_PERM_PHYS_MAP)) {
+                args->ret = SYS_RES_NO_PERM;
+                break;
+            }
+            
             uint64_t pages = (size_bytes + 4095) / 4096;
-            
             uint64_t phys_aligned = phys_addr & ~4095ULL;
+            
+            uint64_t virt_addr = current_thread->owner->next_shm_vaddr;
+            current_thread->owner->next_shm_vaddr += (pages * 4096);
             
             for (uint64_t i = 0; i < pages; i++) {
                 hal_map_page_in_space((uint64_t)current_thread->owner->page_directory, 
                                       virt_addr + (i * 4096), 
                                       phys_aligned + (i * 4096), 
-                                      0x7);
+                                      0x207);
             }
             *out_vaddr = virt_addr;
-			
-			args->ret = SYS_RES_OK;
+            
+            args->ret = SYS_RES_OK;
             break;
         }
 		
@@ -585,7 +622,7 @@ void generic_syscall_handler(syscall_args_t* args) {
             
             process_t* target = get_process_by_id(target_pid);
             if (!target) {
-                args->ret = SYS_RES_INVALID;
+                args->ret = SYS_RES_NOTFOUND;
                 break;
             }
             
@@ -595,6 +632,25 @@ void generic_syscall_handler(syscall_args_t* args) {
             
             hal_irq_restore(irq);
             
+            args->ret = SYS_RES_OK;
+            break;
+        }
+		case SYS_SET_IPC_LIMIT: {
+            uint64_t new_limit = args->arg1;
+			apid_t target_pid = (apid_t)args->arg2;
+            
+            if (new_limit > 1000000) {
+                args->ret = SYS_RES_INVALID;
+                break;
+            }
+			
+			process_t* target = (target_pid == 0) ? (current_thread->owner) : (get_process_by_id(target_pid));
+			if (!target) {
+                args->ret = SYS_RES_NOTFOUND;
+                break;
+            }
+            
+            target->ipc_queue_limit = new_limit;
             args->ret = SYS_RES_OK;
             break;
         }
