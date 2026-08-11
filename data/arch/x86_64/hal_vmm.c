@@ -86,25 +86,26 @@ uint64_t hal_get_phys(uint64_t space_root_phys, uint64_t virt) {
     
     uint64_t* pml4_virt = (uint64_t*)temp_map(space_root_phys);
     uint64_t pml4_entry = pml4_virt[pml4_idx];
-    if (!(pml4_entry & 0x1)) { temp_unmap(pml4_virt); return 0; }
+    temp_unmap(pml4_virt);
+    if (!(pml4_entry & 0x1)) return 0;
     
     uint64_t pdpt_phys = pml4_entry & PAGE_FRAME;
     uint64_t* pdpt_virt = (uint64_t*)temp_map(pdpt_phys);
     uint64_t pdpt_entry = pdpt_virt[pdpt_idx];
-    if (!(pdpt_entry & 0x1)) { temp_unmap(pdpt_virt); return 0; }
+    temp_unmap(pdpt_virt);
+    if (!(pdpt_entry & 0x1)) return 0;
     
     if (pdpt_entry & 0x80) {
-        temp_unmap(pdpt_virt);
         return (pdpt_entry & PAGE_FRAME) + (virt & 0x3FFFFFFF);
     }
     
     uint64_t pd_phys = pdpt_entry & PAGE_FRAME;
     uint64_t* pd_virt = (uint64_t*)temp_map(pd_phys);
     uint64_t pd_entry = pd_virt[pd_idx];
-    if (!(pd_entry & 0x1)) { temp_unmap(pd_virt); return 0; }
+    temp_unmap(pd_virt);
+    if (!(pd_entry & 0x1)) return 0;
     
     if (pd_entry & 0x80) {
-        temp_unmap(pd_virt);
         return (pd_entry & PAGE_FRAME) + (virt & 0x1FFFFF);
     }
     

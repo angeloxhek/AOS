@@ -732,28 +732,36 @@ void handle_message(message_t* in) {
 		}
 
 		case AUTH_CMD_ADD_USER: {
-			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
-			auth_idex_t* new_user = (auth_idex_t*)shm_map(*(uint64_t*)(in->data));
-			if (!new_user) { out->param1 = AUTH_ERR_UNKNOWN; break; }
+            AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
+            auth_idex_t* shm_user = (auth_idex_t*)shm_map(*(uint64_t*)(in->data));
+            if (!shm_user) { out->param1 = AUTH_ERR_UNKNOWN; break; }
 
-			auth_idex_t curr_user;
-			auth_grpex_t curr_group;
+            auth_idex_t local_new_user;
+            memcpy(&local_new_user, shm_user, sizeof(auth_idex_t));
 
-			if (get_process_user(in->sender_pid, &curr_user) || get_process_group(in->sender_pid, &curr_group)) {
-				out->param1 = AUTH_ERR_NOTFOUND;
-				shm_free(*(uint64_t*)(in->data));
-				break;
-			}
-			if (!can_create_user(&curr_user, &curr_group, new_user)) {
-				out->param1 = AUTH_ERR_DENIED;
-				shm_free(*(uint64_t*)(in->data));
-				break;
-			}
-			int res = add_user(new_user, 0);
-			shm_free(*(uint64_t*)(in->data));
-			out->param1 = (!res) ? AUTH_ERR_OK : AUTH_ERR_USER;
-			break;
-		}
+            auth_idex_t curr_user;
+            auth_grpex_t curr_group;
+
+            if (get_process_user(in->sender_pid, &curr_user) || get_process_group(in->sender_pid, &curr_group)) {
+                out->param1 = AUTH_ERR_NOTFOUND;
+                shm_free(*(uint64_t*)(in->data));
+                break;
+            }
+            
+            if (!can_create_user(&curr_user, &curr_group, &local_new_user)) {
+                out->param1 = AUTH_ERR_DENIED;
+                shm_free(*(uint64_t*)(in->data));
+                break;
+            }
+            
+            int res = add_user(&local_new_user, 0);
+            
+            memcpy(shm_user, &local_new_user, sizeof(auth_idex_t));
+            
+            shm_free(*(uint64_t*)(in->data));
+            out->param1 = (!res) ? AUTH_ERR_OK : AUTH_ERR_USER;
+            break;
+        }
 		case AUTH_CMD_DEL_USER: {
 			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
 			auth_id_t user;
@@ -803,8 +811,13 @@ void handle_message(message_t* in) {
 		}
 		case AUTH_CMD_ADD_GROUP: {
 			AOS_HANDLE_SUBTYPE_CHECK(MSG_SUBTYPE_QUERY);
-            auth_grpex_t* new_group = (auth_grpex_t*)shm_map(*(uint64_t*)(in->data));
-			if (!new_group) { out->param1 = AUTH_ERR_UNKNOWN; break; }
+			
+            auth_grpex_t* shm_grp = (auth_grpex_t*)shm_map(*(uint64_t*)(in->data));
+            if (!shm_grp) { out->param1 = AUTH_ERR_UNKNOWN; break; }
+
+            auth_grpex_t new_group;
+            memcpy(&new_group, shm_grp, sizeof(auth_grpex_t));
+			
 			auth_idex_t curr_user;
 			auth_grpex_t curr_group;
 			if (get_process_user(in->sender_pid, &curr_user) || get_process_group(in->sender_pid, &curr_group)) {
@@ -812,12 +825,12 @@ void handle_message(message_t* in) {
 				shm_free(*(uint64_t*)(in->data));
 				break;
 			}
-			if (!can_create_group(&curr_user, &curr_group, new_group)) {
+			if (!can_create_group(&curr_user, &curr_group, &new_group)) {
 				out->param1 = AUTH_ERR_DENIED;
 				shm_free(*(uint64_t*)(in->data));
 				break;
 			}
-            int res = add_group(new_group, 0);
+            int res = add_group(&new_group, 0);
 			shm_free(*(uint64_t*)(in->data));
             out->param1 = (!res) ? AUTH_ERR_OK : AUTH_ERR_USER;
             break;

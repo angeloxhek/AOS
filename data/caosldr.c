@@ -343,19 +343,21 @@ void kernel_free(void* ptr) {
     if (!ptr) return;
     uint64_t irq = spinlock_irq_save();
     spinlock_acquire(&heap_lock);
+    
     malloc_header_t* header = (malloc_header_t*)((uint8_t*)ptr - sizeof(malloc_header_t));
     header->is_free = 1;
+    
     malloc_header_t* current = free_list_start;
-    while (current && current->next) {
-        if (current->is_free && current->next->is_free) {
-            if ((uint8_t*)current + sizeof(malloc_header_t) + current->size == (uint8_t*)current->next) {
-                current->size += current->next->size + sizeof(malloc_header_t);
-                current->next = current->next->next;
-                continue;
-            }
+    while (current) {
+        while (current->is_free && current->next && current->next->is_free &&
+               ((uint8_t*)current + sizeof(malloc_header_t) + current->size == (uint8_t*)current->next)) {
+            
+            current->size += current->next->size + sizeof(malloc_header_t);
+            current->next = current->next->next;
         }
         current = current->next;
     }
+    
     spinlock_release(&heap_lock);
     spinlock_irq_restore(irq);
 }

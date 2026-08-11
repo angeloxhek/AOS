@@ -100,21 +100,36 @@ int64_t ipc_receive(message_t* out_msg) {
 
 int64_t ipc_receive_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg) {
     while (1) {
-        message_t temp_msg;
-        int64_t res = ipc_receive(&temp_msg);
-        if (res != SYS_RES_OK) return res;
+        uint64_t irq = hal_irq_save();
         
-        int match = 1;
-        if (pid != 0 && temp_msg.sender_pid != pid) match = 0;
-        if (type != MSG_TYPE_NONE && temp_msg.type != type) match = 0;
-        if (subtype != MSG_SUBTYPE_NONE && temp_msg.subtype != subtype) match = 0;
+        msg_node_t* curr = current_thread->owner->msg_queue_head;
+        msg_node_t* prev = 0;
         
-        if (match) {
-            *out_msg = temp_msg;
-            return SYS_RES_OK;
+        while (curr) {
+            int match = 1;
+            if (pid != 0 && curr->msg.sender_pid != pid) match = 0;
+            if (type != MSG_TYPE_NONE && curr->msg.type != type) match = 0;
+            if (subtype != MSG_SUBTYPE_NONE && curr->msg.subtype != subtype) match = 0;
+            
+            if (match) {
+                *out_msg = curr->msg;
+                if (prev) prev->next = curr->next;
+                else current_thread->owner->msg_queue_head = curr->next;
+                
+                if (curr == current_thread->owner->msg_queue_tail) {
+                    current_thread->owner->msg_queue_tail = prev;
+                }
+                
+                kernel_free(curr);
+                hal_irq_restore(irq);
+                return SYS_RES_OK;
+            }
+            prev = curr;
+            curr = curr->next;
         }
-        
-        ipc_requeue(&temp_msg);
+        current_thread->waiting_for_msg = 1;
+        current_thread->state = THREAD_BLOCKED;
         schedule();
+        hal_irq_restore(irq);
     }
 }

@@ -50,7 +50,10 @@ static void copy_table_recursive(uint64_t* src_table, uint64_t* dst_table, int l
     }
 }
 
-void hal_copy_address_space(uint64_t* src_pml4_virt, uint64_t* dst_pml4_virt) {
+void hal_copy_address_space(uint64_t* src_pml4_phys, uint64_t* dst_pml4_phys) {
+    uint64_t* src_pml4_virt = (uint64_t*)temp_map((uint64_t)src_pml4_phys);
+    uint64_t* dst_pml4_virt = (uint64_t*)temp_map((uint64_t)dst_pml4_phys);
+
     for (int i = 0; i < 256; i++) {
         if (!(src_pml4_virt[i] & 0x1)) continue;
 
@@ -61,11 +64,14 @@ void hal_copy_address_space(uint64_t* src_pml4_virt, uint64_t* dst_pml4_virt) {
         uint64_t* src_pdpt = (uint64_t*)temp_map(GET_PHYS_ADDR(src_pml4_virt[i]));
         uint64_t* dst_pdpt = (uint64_t*)temp_map(pdpt_phys);
 
-        copy_table_recursive(src_pdpt, dst_pdpt, 2, dst_pml4_virt);
+        copy_table_recursive(src_pdpt, dst_pdpt, 2, (uint64_t*)dst_pml4_phys);
 
         temp_unmap(src_pdpt);
         temp_unmap(dst_pdpt);
     }
+
+    temp_unmap(src_pml4_virt);
+    temp_unmap(dst_pml4_virt);
 }
 
 static void destroy_pt(uint64_t pt_phys) {
