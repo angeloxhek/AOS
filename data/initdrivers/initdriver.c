@@ -140,48 +140,57 @@ void parse_apps_conf(char* buffer) {
 }
 
 void parse_drivers_conf(char* buffer) {
-    char *line_saveptr;
-    char *line = strtok_r(buffer, "\n", &line_saveptr);
+    char* p = buffer;
+    
+    while (*p) {
+        while (*p == ' ' || *p == '\r' || *p == '\n') p++;
+        if (!*p) break;
 
-    while (line != NULL) {
-        if (line[0] == '\0' || line[0] == '#') {
-            line = strtok_r(NULL, "\n", &line_saveptr);
-            continue;
+        char* eol = p;
+        while (*eol && *eol != '\n') eol++;
+        
+        char saved_char = *eol;
+        *eol = '\0';
+
+        if (*p != '#' && *p != '\0') {
+            char* eq = strchr(p, '=');
+            if (eq) {
+                *eq = '\0';
+                char* key = p;
+                char* path = eq + 1;
+
+                int path_len = strlen(path);
+                while (path_len > 0 && (path[path_len - 1] == '\r' || path[path_len - 1] == ' ')) {
+                    path[path_len - 1] = '\0';
+                    path_len--;
+                }
+
+                driver_type_t type = DT_USER;
+                char *name = NULL;
+
+                char *semicolon = strchr(key, ';');
+                
+                if (semicolon) {
+                    *semicolon = '\0';
+                    type = dt_from_str(key);
+                    name = semicolon + 1;
+                } else if (strncmp(key, "DT_", 3) == 0) {
+                    type = dt_from_str(key);
+                    name = NULL;
+                } else {
+                    type = DT_USER;
+                    name = key;
+                }
+
+                int res = spawn_driver(type, name, path);
+                printf("INITDRIVER: Registering [type=%d, name=%s, path=%s]: code=%d\n", 
+                       type, name ? name : "system", path, res);
+            }
         }
 
-        char *key = strtok(line, "=");
-        char *path = strtok(NULL, "=");
-
-        if (key && path) {
-			int path_len = strlen(path);
-            while (path_len > 0 && (path[path_len - 1] == '\r' || path[path_len - 1] == ' ')) {
-                path[path_len - 1] = '\0';
-                path_len--;
-            }
-			
-            driver_type_t type = DT_USER;
-            char *name = NULL;
-
-            char *semicolon = strchr(key, ';');
-            
-            if (semicolon) {
-                *semicolon = '\0';
-                type = dt_from_str(key);
-                name = semicolon + 1;
-            } else if (strncmp(key, "DT_", 3) == 0) {
-                type = dt_from_str(key);
-                name = NULL;
-            } else {
-                type = DT_USER;
-                name = key;
-            }
-
-			int res = spawn_driver(type, name, path);
-            printf("INITDRIVER: Registering [type=%d, name=%s, path=%s]: code=%d\n", type, name ? name : "system", path, res);
-            
-        }
-
-        line = strtok_r(NULL, "\n", &line_saveptr);
+        *eol = saved_char;
+        p = eol;
+        if (*p == '\n') p++;
     }
 }
 

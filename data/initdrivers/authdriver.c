@@ -602,6 +602,7 @@ int authbase_load(uint8_t* buf, uint64_t len) {
 
     uint64_t offset = header->users_offset;
     while (offset != 0 && offset < len) {
+		if (offset + sizeof(authbase_idex_node_t) > len) return -1; 
         authbase_idex_node_t* idex = (authbase_idex_node_t*)(buf + offset);
         
         if (!(idex->data.flags & AFLAG_LOCAL)) {
@@ -610,12 +611,16 @@ int authbase_load(uint8_t* buf, uint64_t len) {
 			
 			if (idex->data.pgroup == PGROUP_ROOT) has_root = 0;
         }
+		
+		if (idex->next != 0 && idex->next <= offset) return -1;
         
         offset = idex->next;
     }
 
     offset = header->groups_offset;
     while (offset != 0 && offset < len) {
+		if (offset + sizeof(authbase_grpex_node_t) > len) return -1;
+		
         authbase_grpex_node_t* grpex = (authbase_grpex_node_t*)(buf + offset);
         
 		if (grpex->grp.flags & AFLAG_LOCAL) { offset = grpex->next; continue; }
@@ -629,6 +634,8 @@ int authbase_load(uint8_t* buf, uint64_t len) {
 		auth_members_node_t* last_ram_mem = NULL;
 		
 		while (mem_offset != 0 && mem_offset < len) {
+			if (mem_offset + sizeof(authbase_members_node_t) > len) return -1;
+			
 			authbase_members_node_t* memex = (authbase_members_node_t*)(buf + mem_offset);
 			
 			auth_members_node_t* ram_mem = (auth_members_node_t*)malloc(sizeof(auth_members_node_t));
@@ -644,8 +651,12 @@ int authbase_load(uint8_t* buf, uint64_t len) {
 			}
 			last_ram_mem = ram_mem;
 			
+			if (memex->next != 0 && memex->next <= mem_offset) return -1;
+			
 			mem_offset = memex->next;
 		}
+		
+		if (grpex->next != 0 && grpex->next <= offset) return -1;
         
         offset = grpex->next;
     }
@@ -864,14 +875,21 @@ void handle_message(message_t* in) {
 			auth_id_t group;
 			group.raw = in->param2;
 			uint32_t chunk_idx = (uint32_t)in->param3;
+			
+			uint64_t shm_id = *(uint64_t*)(in->data);
+			
+			if (shm_get_size(shm_id) < sizeof(auth_members_t)) {
+                out->param1 = AUTH_ERR_UNKNOWN;
+                break;
+            }
 
-			auth_members_t* buf = (auth_members_t*)shm_map(*(uint64_t*)(in->data));
+			auth_members_t* buf = (auth_members_t*)shm_map(shm_id);
 			if (!buf) { out->param1 = AUTH_ERR_UNKNOWN; break; }
 
 			memset(buf, 0, sizeof(auth_members_t));
 			int res = get_group_members(group, chunk_idx, buf);
 
-			shm_free(*(uint64_t*)(in->data));
+			shm_free(shm_id);
 			out->param1 = res ? AUTH_ERR_NOTFOUND : AUTH_ERR_OK;
 			break;
 		}

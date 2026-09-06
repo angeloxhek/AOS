@@ -745,6 +745,8 @@ int fat32_read(fs_instance_t fs, fs_file_handle_t f, void* buf, uint64_t size, u
     
     uint8_t* cl_buf = malloc(cluster_bytes);
 
+    if (!cl_buf) return -1;
+
     while (bytes_read < size && cluster < 0x0FFFFFF8) {
         uint64_t lba = cluster_to_lba(inst, cluster);
         fat32_read_sectors(inst, lba, inst->sectors_per_cluster, cl_buf);

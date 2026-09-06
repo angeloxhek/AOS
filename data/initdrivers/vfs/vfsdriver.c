@@ -631,7 +631,7 @@ void handle_vfs_request(message_t* in) {
                             out.param1 = VFS_ERR_OK;
                             out.param2 = new_fd;
                         } else {
-                            new_f->used = 0;
+                            vfs_free_fd(new_fd, in->sender_pid);
                             out.param1 = VFS_ERR_NOTFOUND;
                         }
                         break;
@@ -680,7 +680,7 @@ void handle_vfs_request(message_t* in) {
                 }
                 
                 if (!f->mounted_file.handle) {
-                    f->used = 0;
+                    vfs_free_fd(new_fd, in->sender_pid);
                     out.param1 = VFS_ERR_NOTFOUND;
                 } else {
                     out.param1 = VFS_ERR_OK;
@@ -702,7 +702,7 @@ void handle_vfs_request(message_t* in) {
                 out.param2 = new_fd;
             }
             else {
-                f->used = 0;
+                vfs_free_fd(new_fd, in->sender_pid);
                 out.param1 = VFS_ERR_PERM;
             }
 
