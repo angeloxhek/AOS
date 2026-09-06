@@ -10,12 +10,26 @@ typedef struct {
 static ide_drive_t ide_drives[4];
 static int ide_drive_count = 0;
 
-static void ide_wait_bsy(uint16_t base) {
-    while (hal_inb(base + 7) & 0x80);
+static int ide_wait_bsy(uint16_t base) {
+    uint32_t timeout = 1000000;
+
+    while (timeout--) {
+        uint8_t status = hal_inb(base + 7);
+        if (status == 0xFF) return -1;
+        if (!(status & 0x80)) return 0;
+    }
+    return -1;
 }
 
-static void ide_wait_drq(uint16_t base) {
-    while (!(hal_inb(base + 7) & 0x08));
+static int ide_wait_drq(uint16_t base) {
+    uint32_t timeout = 1000000;
+
+    while (timeout--) {
+        uint8_t status = hal_inb(base + 7);
+        if (status == 0xFF || (status & 0x01)) return -1;
+        if (status & 0x08) return 0;
+    }
+    return -1;
 }
 
 static int ide_init(void) {
@@ -32,13 +46,14 @@ static int ide_init(void) {
             hal_outb(base + 2, 0); hal_outb(base + 3, 0);
             hal_outb(base + 4, 0); hal_outb(base + 5, 0);
             hal_outb(base + 7, 0xEC);
+
+            uint8_t status = hal_inb(base + 7);
+            if (status == 0 || status == 0xFF) continue;
             
-            if (hal_inb(base + 7) == 0) continue; 
-            
-            ide_wait_bsy(base);
+            if (ide_wait_bsy(base) < 0) continue;
             if (hal_inb(base + 4) != 0 || hal_inb(base + 5) != 0) continue;
             
-            ide_wait_drq(base);
+            if (ide_wait_drq(base) < 0) continue;
             uint16_t ident[256];
             hal_insw(base, ident, 256);
             
@@ -63,7 +78,7 @@ static int ide_read(disk_instance_t disk, uint64_t lba, uint64_t count, void* bu
     uint8_t* ptr = (uint8_t*)buf;
     
     for (uint64_t i = 0; i < count; i++, lba++) {
-        ide_wait_bsy(d->base);
+        if (ide_wait_bsy(d->base) < 0) return -1;
         hal_outb(d->base + 6, 0xE0 | (d->is_slave << 4) | ((lba >> 24) & 0x0F));
         hal_outb(d->base + 2, 1);
         hal_outb(d->base + 3, (uint8_t)lba);
@@ -71,8 +86,8 @@ static int ide_read(disk_instance_t disk, uint64_t lba, uint64_t count, void* bu
         hal_outb(d->base + 5, (uint8_t)(lba >> 16));
         hal_outb(d->base + 7, 0x20);
         
-        ide_wait_bsy(d->base);
-        ide_wait_drq(d->base);
+        if (ide_wait_bsy(d->base) < 0) return -1;
+        if (ide_wait_drq(d->base) < 0) return -1;
         hal_insw(d->base, ptr, 256);
         ptr += 512;
     }
@@ -84,7 +99,7 @@ static int ide_write(disk_instance_t disk, uint64_t lba, uint64_t count, const v
     const uint8_t* ptr = (const uint8_t*)buf;
     
     for (uint64_t i = 0; i < count; i++, lba++) {
-        ide_wait_bsy(d->base);
+        if (ide_wait_bsy(d->base) < 0) return -1;
         hal_outb(d->base + 6, 0xE0 | (d->is_slave << 4) | ((lba >> 24) & 0x0F));
         hal_outb(d->base + 2, 1);
         hal_outb(d->base + 3, (uint8_t)lba);
@@ -92,13 +107,13 @@ static int ide_write(disk_instance_t disk, uint64_t lba, uint64_t count, const v
         hal_outb(d->base + 5, (uint8_t)(lba >> 16));
         hal_outb(d->base + 7, 0x30);
         
-        ide_wait_bsy(d->base);
-        ide_wait_drq(d->base);
+        if (ide_wait_bsy(d->base) < 0) return -1;
+        if (ide_wait_drq(d->base) < 0) return -1;
         hal_outsw(d->base, ptr, 256);
         ptr += 512;
     }
     hal_outb(d->base + 7, 0xE7);
-    ide_wait_bsy(d->base);
+    if (ide_wait_bsy(d->base) < 0) return -1;
     return 0;
 }
 

@@ -270,9 +270,16 @@ int dev_write_ctl(void* param, void* buf, uint64_t size, uint64_t offset) {
 }
 
 vfs_node_t* vfs_mkdir(vfs_node_t* parent, const char* name) {
-	if (!parent || !name) return 0;
+    if (!parent || !name) return 0;
+    
+    vfs_node_t* existing = find_child(parent, name);
+    if (existing) {
+        if (existing->type == VFS_TYPE_DIR) return existing;
+        return 0; 
+    }
+
     vfs_node_t* node = calloc(1, sizeof(vfs_node_t));
-	if (!node || node == parent) return 0;
+    if (!node || node == parent) return 0;
     strlcpy(node->name, name, sizeof(node->name));
     node->type = VFS_TYPE_DIR;
     node->parent = parent;
@@ -293,11 +300,19 @@ void vfs_mkdev(vfs_node_t* parent, const char* name, void* read_func, void* writ
 }
 
 void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
-	if (!name || !target) return;
-    vfs_node_t* node = vfs_mkdir(parent, name);
-	if (!node) return; 
+    if (!name || !target) return;
+    
+    if (find_child(parent, name)) return; 
+
+    vfs_node_t* node = calloc(1, sizeof(vfs_node_t));
+    if (!node) return;
+    strlcpy(node->name, name, sizeof(node->name));
     node->type = VFS_TYPE_SYMLINK;
+    node->parent = parent;
     strlcpy(node->target_path, target, sizeof(node->target_path));
+    
+    node->next = parent->children;
+    parent->children = node;
 }
 
 vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
@@ -355,7 +370,7 @@ void vfs_on_partition_found(block_dev_t* raw_disk, uint8_t part_id, uint64_t sta
             if (fs_drv->get_label) fs_drv->get_label(fs_inst, label);
             if (strcmp(label, "NO_NAME") != 0) vfs_symlink(ctx->mnt_node, label, target); // /mnt/DISK_C
             
-            if (is_bootable) vfs_symlink(vfs_root, "boot", target); // /boot -> активный диск
+            if (is_bootable || start_lba == 0) vfs_symlink(vfs_root, "boot", target); // /boot -> активный диск
             break;
         }
     }
@@ -430,7 +445,7 @@ void vfs_init_tree() {
             }
             
             if (!parsed) {
-                vfs_on_partition_found(raw_disk, 0, 0, total_sec, 0, &ctx);
+                vfs_on_partition_found(raw_disk, 0, 0, total_sec, 1, &ctx);
             }
         }
     }

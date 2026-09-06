@@ -35,6 +35,17 @@ static int mbr_parse(block_dev_t* raw_disk, part_found_cb_t callback, void* cont
     
     if (block_read(raw_disk, 0, 1, sector) != 0) return 0;
     if (sector[510] != 0x55 || sector[511] != 0xAA) return 0;
+
+    uint16_t bytes_per_sector = *(uint16_t*)&sector[11];
+    uint8_t sectors_per_cluster = sector[13];
+    uint8_t fats_count = sector[16];
+    uint32_t sectors_per_fat = *(uint32_t*)&sector[36];
+    if ((bytes_per_sector == 512 || bytes_per_sector == 1024 ||
+         bytes_per_sector == 2048 || bytes_per_sector == 4096) &&
+        sectors_per_cluster != 0 && fats_count != 0 && sectors_per_fat != 0) {
+        return 0;
+    }
+    if (memcmp(&sector[82], "FAT32   ", 8) == 0) return 0;
     
     mbr_entry_t* parts = (mbr_entry_t*)&sector[446];
     if (parts[0].type == 0xEE) return 0;

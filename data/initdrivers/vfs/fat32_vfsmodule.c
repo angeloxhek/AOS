@@ -613,7 +613,12 @@ int find_entry_in_cluster_chain(fat32_instance_t* inst, uint32_t start_cluster, 
             strncpy(current_upper, current_name, 256);
             to_upper(current_upper);
 
-            if (strcmp(current_upper, search_name) == 0) {
+            char short_name[256];
+            fat32_format_sfn(short_name, dir[i].name);
+            to_upper(short_name);
+
+            if (strcmp(current_upper, search_name) == 0 ||
+                strcmp(short_name, search_name) == 0) {
                 file_out->first_cluster = ((uint32_t)dir[i].cluster_high << 16) | dir[i].cluster_low;
                 file_out->size_bytes = dir[i].file_size;
                 file_out->attributes = dir[i].attr;
