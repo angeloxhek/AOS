@@ -20,6 +20,9 @@ DRIVERS_DIR = $(DISK_DIR)/drivers
 BIN_DIR = $(DISK_DIR)/bin
 LINUX_DIR = $(DISK_DIR)/linux
 
+AOSLIB_DIR    = $(CURDIR)/sdk/aoslib
+AOSLIBLIN_DIR = $(CURDIR)/sdk/aosliblin
+
 include data/arch/$(ARCH)/arch.mk
 
 ifeq ($(V),1)
@@ -41,38 +44,26 @@ BROWN  := \033[0;33m
 GRAY   := \033[0;37m
 NC     := \033[0m
 
-AOSLIB_CFLAGS = -I $(CURDIR)/data/include
-LIBC_CFLAGS = -I $(CURDIR)/aosliblin/include
+KERNEL_INC    = -I $(CURDIR)/data/include
+SDK_INC       = -I $(AOSLIB_DIR)/include
+LIBC_CFLAGS   = -I $(AOSLIBLIN_DIR)/include $(SDK_INC)
 
 COMMON_CFLAGS = -Wall -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fstack-protector
-KERNEL_CFLAGS = $(COMMON_CFLAGS) -g3 -O0 $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS) $(AOSLIB_CFLAGS)
-
+KERNEL_CFLAGS = $(COMMON_CFLAGS) -g3 -O0 $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS) $(KERNEL_INC) $(SDK_INC)
 USER_COMMON_CFLAGS = $(COMMON_CFLAGS) -fno-asynchronous-unwind-tables $(ARCH_CFLAGS) $(ARCH_USER_CFLAGS)
 LIB_CFLAGS = $(USER_COMMON_CFLAGS) -nostdinc
-DRV_CFLAGS = $(USER_COMMON_CFLAGS) $(AOSLIB_CFLAGS) -nostdinc
-USR_CFLAGS = $(USER_COMMON_CFLAGS) $(AOSLIB_CFLAGS) -nostdinc
+DRV_CFLAGS = $(USER_COMMON_CFLAGS) $(SDK_INC) $(KERNEL_INC) -nostdinc
+USR_CFLAGS = $(USER_COMMON_CFLAGS) $(SDK_INC) -nostdinc
 
 LDFLAGS = --no-warn-rwx-segments $(ARCH_LDFLAGS)
-
 
 COMMON_OBJS = $(TEMP_DIR)/caosldr.o $(TEMP_DIR)/pmm.o \
               $(TEMP_DIR)/vmm.o $(TEMP_DIR)/sched.o $(TEMP_DIR)/ipc.o \
               $(TEMP_DIR)/syscall.o $(TEMP_DIR)/elf.o $(TEMP_DIR)/console.o \
-			  $(TEMP_DIR)/shm.o
+              $(TEMP_DIR)/shm.o
 
 KERNEL_OBJS = $(COMMON_OBJS) $(ARCH_OBJS)
-			  
-AOSLIB_OBJS = $(TEMP_DIR)/aos_syscalls.o $(TEMP_DIR)/aos_vfs.o $(TEMP_DIR)/aos_sync.o \
-			  $(TEMP_DIR)/aos_utils.o $(TEMP_DIR)/aos_stdio.o $(TEMP_DIR)/aos_auth.o \
-			  $(TEMP_DIR)/aos_video.o $(TEMP_DIR)/aos_input.o $(TEMP_DIR)/aos_window.o \
-			  $(TEMP_DIR)/aos_ui.o \
-			  $(TEMP_DIR)/libc_stdlib.o $(TEMP_DIR)/libc_ctype.o $(TEMP_DIR)/libc_stdio.o \
-			  $(TEMP_DIR)/libc_string.o $(TEMP_DIR)/libc_strings.o $(AOSLIB_ARCH_OBJS)
 
-AOSLIBLIN_OBJS = $(AOSLIB_OBJS) \
-				 $(TEMP_DIR)/libc_unistd.o $(TEMP_DIR)/libc_time.o $(TEMP_DIR)/libc_sys_time.o \
-				 $(TEMP_DIR)/libc_sys_stat.o $(TEMP_DIR)/libc_pwd.o $(TEMP_DIR)/libc_grp.o
-			  
 .PHONY: all clean kernel libs drivers configs userspace userlinux prepare
 
 all: prepare kernel $(ARCH_EXTRA_TARGETS) libs drivers configs userspace userlinux
@@ -101,16 +92,24 @@ $(DISK_DIR)/AOSLDR.BIN: $(KERNEL_OBJS)
 	$(Q)$(OBJCOPY) -O binary -S -R .bss -R .note -R .comment -R .note.gnu.property $(TEMP_DIR)/aosldr.elf $@
 
 include data/initdrivers/make.mk
-	
+
+$(TEMP_DIR)/aos_start.o $(BUILD_DIR)/libs/libaos.a: FORCE
+	$(ECHO) "${PURPLE}[ SUBMAKE ]${NC} sdk/aoslib\n"
+	$(Q)$(MAKE) -s -C $(AOSLIB_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
+	$(Q)$(CP) $(AOSLIB_DIR)/build/libaos.a $(BUILD_DIR)/libs/libaos.a
+	$(Q)$(CP) $(AOSLIB_DIR)/build/aos_start.o $(TEMP_DIR)/aos_start.o
+
+$(TEMP_DIR)/libc_start.o $(BUILD_DIR)/libs/libaoslin.a $(TEMP_DIR)/libaoslin.a: FORCE
+	$(ECHO) "${PURPLE}[ SUBMAKE ]${NC} sdk/aosliblin\n"
+	$(Q)$(MAKE) -s -C $(AOSLIBLIN_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
+	$(Q)$(CP) $(AOSLIBLIN_DIR)/build/libaoslin.a $(BUILD_DIR)/libs/libaoslin.a
+	$(Q)$(CP) $(AOSLIBLIN_DIR)/build/libaoslin.a $(TEMP_DIR)/libaoslin.a
+	$(Q)$(CP) $(AOSLIBLIN_DIR)/build/libc_start.o $(TEMP_DIR)/libc_start.o
+
 libs: $(BUILD_DIR)/libs/libaos.a $(BUILD_DIR)/libs/libaoslin.a $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/libc_start.o
 
-$(BUILD_DIR)/libs/libaos.a: $(AOSLIB_OBJS)
-	$(ECHO) "${LCYAN}[   AR    ]${NC} $@\n"
-	$(Q)$(AR) rcs $@ $^
-
-$(BUILD_DIR)/libs/libaoslin.a: $(AOSLIBLIN_OBJS)
-	$(ECHO) "${LCYAN}[   AR    ]${NC} $@\n"
-	$(Q)$(AR) rcs $@ $^
+FORCE:
+.PHONY: FORCE
 	
 include data/drivers/make.mk
 	
@@ -141,16 +140,6 @@ $(LINUX_DIR)/tree:
 	$(ECHO) "${BROWN}[   CP    ]${NC} ${CURDIR}/userlinux/tree/tree ${GREEN}->${NC} ${DISK_DIR}/tree_linux\n"
 	$(Q)$(CP) $(CURDIR)/userlinux/tree/tree $(DISK_DIR)/tree_linux
 
-$(TEMP_DIR)/aos_%.o: $(CURDIR)/data/aoslib/aos_%.c
-	@$(MKDIR) -p $(dir $@)
-	$(ECHO) "${CYAN}[   CC    ]${NC} $<\n"
-	$(Q)$(CC) $(LIB_CFLAGS) $(AOSLIB_CFLAGS) -c $< -o $@
-	
-$(TEMP_DIR)/libc_%.o: $(CURDIR)/data/aoslib/libc_%.c
-	@$(MKDIR) -p $(dir $@)
-	$(ECHO) "${CYAN}[   CC    ]${NC} $<\n"
-	$(Q)$(CC) $(LIB_CFLAGS) $(LIBC_CFLAGS) -c $< -o $@	
-
 $(TEMP_DIR)/%.o: $(CURDIR)/data/drivers/%.c
 	@$(MKDIR) -p $(dir $@)
 	$(ECHO) "${CYAN}[   CC    ]${NC} $<\n"
@@ -176,3 +165,5 @@ clean:
 	$(Q)$(RM) -rf $(TEMP_DIR)/*
 	$(ECHO) "${DRED}[   RM    ]${NC} ${ABUILD_DIR}/*\n"
 	$(Q)$(RM) -rf $(ABUILD_DIR)/*
+	$(Q)$(MAKE) -s -C $(AOSLIB_DIR) clean
+	$(Q)$(MAKE) -s -C $(AOSLIBLIN_DIR) clean

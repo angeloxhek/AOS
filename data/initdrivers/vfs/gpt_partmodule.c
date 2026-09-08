@@ -1,5 +1,9 @@
-#include "../include/aoslib.h"
-#include "../include/vfs/part_interface.h"
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+
+#include <vfs/disk_interface.h>
+#include <vfs/part_interface.h>
 
 typedef struct {
     uint64_t signature;

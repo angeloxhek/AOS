@@ -2,7 +2,6 @@
 #define KERNEL_INTERNAL_H
 
 #include "aosldr.h"
-#include "aoslib.h"
 #include "hal.h"
 
 extern uint64_t* bitmap;

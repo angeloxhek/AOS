@@ -1,5 +1,15 @@
 #include <stdint.h>
-#include <aoslib.h>
+#include <stddef.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#include <aos/types.h>
+#include <aos/syscalls.h>
+#include <aos/process.h>
+#include <aos/driver.h>
+#include <aos/auth.h>
+#include <aos/vfs.h>
 
 AOS_DECLARE_DRIVER(DT_INIT, 0, 0);
 

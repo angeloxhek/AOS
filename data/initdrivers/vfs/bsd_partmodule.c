@@ -1,4 +1,8 @@
-#include <aoslib.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+
+#include <vfs/disk_interface.h>
 #include <vfs/part_interface.h>
 
 #define BSD_MAGIC 0x82564557

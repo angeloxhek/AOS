@@ -1,5 +1,12 @@
 #include <stdint.h>
-#include <aoslib.h>
+#include <stddef.h>
+#include <string.h>
+#include <stdio.h>
+
+#include <aos/types.h>
+#include <aos/driver.h>
+#include <aos/ipc.h>
+#include <aos/input.h>
 
 #define PS2_DATA_PORT   0x60
 #define PS2_CMD_PORT    0x64

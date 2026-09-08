@@ -1,5 +1,13 @@
 #include <stdint.h>
-#include <aoslib.h>
+#include <stddef.h>
+#include <string.h>
+#include <stdio.h>
+
+#include <aos/types.h>
+#include <aos/driver.h>
+#include <aos/ipc.h>
+#include <aos/syscalls.h>
+#include <aos/videodriver.h>
 
 #define VBE_DISPI_IOPORT_INDEX 0x01CE
 #define VBE_DISPI_IOPORT_DATA  0x01CF

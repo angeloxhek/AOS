@@ -1,4 +1,8 @@
-#include <aoslib.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+
+#include <vfs/disk_interface.h>
 #include <vfs/part_interface.h>
 
 static int iso9660_parse(block_dev_t* raw_disk, part_found_cb_t callback, void* context) {

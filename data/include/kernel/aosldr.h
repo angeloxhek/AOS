@@ -2,10 +2,18 @@
 #define AOSKERNEL 0x01
 
 #include <stdint.h>
+#include <stddef.h>
+
 #include "bootparams.h"
 #include "elf-min.h"
-#include "aoslib.h"
 #include "hal.h"
+
+#include <aos/types.h>
+#include <aos/syscalls.h>
+#include <aos/ipc.h>
+#include <aos/auth.h>
+#include <aos/process.h>
+#include <aos/driver.h>
 
 #define PAGE_SIZE      4096
 #define BLOCK_SIZE     4096
@@ -120,6 +128,12 @@ typedef struct shm_object {
     shm_map_node_t*   map_list;
     struct shm_object* next;
 } shm_object_t;
+
+typedef struct malloc_header {
+    size_t size;
+    int is_free;
+    struct malloc_header* next;
+} __attribute__((aligned(16))) malloc_header_t;
 	
 
 // -------------------------

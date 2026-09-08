@@ -1,5 +1,16 @@
 #include <stdint.h>
-#include <aoslib.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+#include <aos/types.h>
+#include <aos/driver.h>
+#include <aos/ipc.h>
+#include <aos/input.h>
+#include <aos/videodriver.h>
+#include <aos/window.h>
+#include <aos/syscalls.h>
 
 AOS_DECLARE_DRIVER(DT_WND, DRV_PERM_GET_SPEC_INFO, 0);
 

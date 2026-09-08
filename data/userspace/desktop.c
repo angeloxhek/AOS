@@ -1,5 +1,10 @@
 #include <stdint.h>
-#include <aoslib.h>
+#include <stdio.h>
+
+#include <aos/types.h>
+#include <aos/window.h>
+#include <aos/ui.h>
+#include <aos/ipc.h>
 
 int main(int argc, char** argv) {
     printf("Desktop: Starting Shell...\n");

@@ -1,5 +1,16 @@
 #include <stdint.h>
-#include <aoslib.h>
+#include <stddef.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <limits.h>
+
+#include <aos/types.h>
+#include <aos/ipc.h>
+#include <aos/driver.h>
+#include <aos/auth.h>
+#include <aos/process.h>
+#include <aos/syscalls.h>
 
 #define AUTHBASE_VERSION 1
 #define AUTHBASE_KEY     "A5U3T9H3B2A0S3E6"
@@ -966,7 +977,6 @@ void handle_message(message_t* in) {
 		}
 	}
 	ipc_send(in->sender_pid, out);
-	free(out);
 }
 
 int driver_main(void* reserved1, void* reserved2) {

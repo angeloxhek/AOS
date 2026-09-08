@@ -1,4 +1,9 @@
-#include <aoslib.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <aos/types.h>
+#include <aos/vfs.h>
 
 static inline void print_indent(int level) {
     for (int i = 0; i < level; i++) {

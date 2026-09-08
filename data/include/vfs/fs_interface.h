@@ -1,7 +1,7 @@
 #ifndef FS_INTERFACE_H
 #define FS_INTERFACE_H
 
-#include <aoslib.h>
+#include <stdint.h>
 #include <vfs/disk_interface.h>
 typedef void* fs_file_handle_t; 
 

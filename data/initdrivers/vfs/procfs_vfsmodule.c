@@ -1,5 +1,15 @@
 #include <stdint.h>
-#include <aoslib.h>
+#include <stddef.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#include <aos/types.h>
+#include <aos/process.h>
+#include <aos/syscalls.h>
+#include <aos/vfs.h>
+
+#include <vfs/disk_interface.h>
 #include <vfs/fs_interface.h>
 
 // --- 1. ТИПЫ ДВИЖКА (ENGINE) ---
@@ -42,45 +52,64 @@ static int write_text(const char* text, void* buf, uint64_t size, uint64_t offse
 }
 
 // Функции файлов
-static int read_pid_name(apid_t pid, uint64_t none, void* buf, uint64_t size, uint64_t offset) {
-    proc_info_user_t pinfo; if (get_proc_info(pid, &pinfo) != SYS_RES_OK) return -1;
-    char text[64]; snprintf(text, sizeof(text), "%s\n", pinfo.name);
+static int read_pid_name(uint64_t id1, uint64_t none, void* buf, uint64_t size, uint64_t offset) {
+    (void)none;
+    apid_t pid = (apid_t)id1;
+    proc_info_user_t pinfo; 
+    if (get_proc_info(pid, &pinfo) != SYS_RES_OK) return -1;
+    char text[64]; 
+    snprintf(text, sizeof(text), "%s\n", pinfo.name);
     return write_text(text, buf, size, offset);
 }
 
-static int read_tid_status(atid_t tid, uint64_t none, void* buf, uint64_t size, uint64_t offset) {
-    thread_info_user_t tinfo; if (get_thread_info(tid, &tinfo) != SYS_RES_OK) return -1;
-    char text[128]; snprintf(text, sizeof(text), "State: %d\n", tinfo.state);
+static int read_tid_status(uint64_t id1, uint64_t none, void* buf, uint64_t size, uint64_t offset) {
+    (void)none;
+    atid_t tid = (atid_t)id1;
+    thread_info_user_t tinfo; 
+    if (get_thread_info(tid, &tinfo) != SYS_RES_OK) return -1;
+    char text[128]; 
+    snprintf(text, sizeof(text), "State: %d\n", tinfo.state);
     return write_text(text, buf, size, offset);
 }
 
 // Функции симлинков
-static int symlink_tid_to_proc(atid_t tid, uint64_t none, void* buf, uint64_t size, uint64_t offset) {
-    thread_info_user_t tinfo; if (get_thread_info(tid, &tinfo) != SYS_RES_OK) return -1;
-    char path[64]; snprintf(path, sizeof(path), "/tasks/p/%u/", tinfo.parent_pid);
+static int symlink_tid_to_proc(uint64_t id1, uint64_t none, void* buf, uint64_t size, uint64_t offset) {
+    (void)none;
+    atid_t tid = (atid_t)id1;
+    thread_info_user_t tinfo; 
+    if (get_thread_info(tid, &tinfo) != SYS_RES_OK) return -1;
+    char path[64]; 
+    snprintf(path, sizeof(path), "/tasks/p/%u/", tinfo.parent_pid);
     return write_text(path, buf, size, offset);
 }
 
-static int read_thread_symlink(apid_t pid, atid_t tid, void* buf, uint64_t size, uint64_t offset) {
-    char path[64]; snprintf(path, sizeof(path), "/tasks/t/%u/", tid);
+static int read_thread_symlink(uint64_t id1, uint64_t id2, void* buf, uint64_t size, uint64_t offset) {
+    (void)id1;
+    atid_t tid = (atid_t)id2;
+    char path[64]; 
+    snprintf(path, sizeof(path), "/tasks/t/%u/", (uint32_t)tid);
     return write_text(path, buf, size, offset);
 }
 
 // Функции списков
 static int get_all_pids(uint64_t none, uint64_t* arr, uint64_t* max) {
+    (void)none;
     return get_pid_list((apid_t*)arr, max); 
 }
 
 static int get_all_tids(uint64_t none, uint64_t* arr, uint64_t* max) { 
+    (void)none;
     return get_tid_list((apid_t)-1, arr, max);
 }
 
-static int get_threads_for_pid(apid_t pid, uint64_t* arr, uint64_t* max) { 
+static int get_threads_for_pid(uint64_t parent_id, uint64_t* arr, uint64_t* max) { 
+    apid_t pid = (apid_t)parent_id;
     return get_tid_list(pid, arr, max); 
 }
 
 // ЗАГЛУШКА: Для списка FD
-static int get_thread_fds(atid_t tid, uint64_t* arr, uint64_t* max) {
+static int get_thread_fds(uint64_t parent_id, uint64_t* arr, uint64_t* max) {
+    (void)parent_id;
     if (*max < 3) return 0;
     arr[0] = 0; arr[1] = 1; arr[2] = 2; // Возвращаем фейковые 0, 1, 2
     return 3; 
@@ -109,7 +138,6 @@ proc_entry_t tid_dir_template[] = {
 // Шаблон: Что внутри папки процесса (/tasks/p/<pid>/)
 proc_entry_t pid_dir_template[] = {
     {"name",    PROC_FILE, NULL, read_pid_name, NULL},
-    // threads - это папка, внутри которой динамически создаются СИМЛИНКИ!
     {"threads", PROC_DYNAMIC_SYMLINK, NULL, read_thread_symlink, get_threads_for_pid},
     {NULL, 0, NULL, NULL, NULL}
 };

@@ -1,4 +1,6 @@
-#include <aoslib.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <aos/driver.h>
 #include <vfs/disk_interface.h>
 
 typedef struct {

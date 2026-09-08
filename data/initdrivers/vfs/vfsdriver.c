@@ -1,5 +1,15 @@
 #include <stdint.h>
-#include <aoslib.h>
+#include <stddef.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#include <aos/types.h>
+#include <aos/driver.h>
+#include <aos/ipc.h>
+#include <aos/vfs.h>
+#include <aos/syscalls.h>
+
 #include <vfs/fs_interface.h>
 #include <vfs/disk_interface.h>
 #include <vfs/part_interface.h>
@@ -269,6 +279,19 @@ int dev_write_ctl(void* param, void* buf, uint64_t size, uint64_t offset) {
     return size;
 }
 
+vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
+    if (!parent || !name) return 0;
+    
+    vfs_node_t* child = parent->children;
+    while (child) {
+        if (strcmp(child->name, name) == 0) {
+            return child;
+        }
+        child = child->next;
+    }
+    return 0;
+}
+
 vfs_node_t* vfs_mkdir(vfs_node_t* parent, const char* name) {
     if (!parent || !name) return 0;
     
@@ -313,19 +336,6 @@ void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
     
     node->next = parent->children;
     parent->children = node;
-}
-
-vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
-    if (!parent || !name) return 0;
-    
-    vfs_node_t* child = parent->children;
-    while (child) {
-        if (strcmp(child->name, name) == 0) {
-            return child;
-        }
-        child = child->next;
-    }
-    return 0;
 }
 
 typedef struct {
