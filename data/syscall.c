@@ -654,13 +654,20 @@ void generic_syscall_handler(syscall_args_t* args) {
             args->ret = SYS_RES_OK;
             break;
         }
-		/*case SYS_SET_THREAD_STATE: {
-			
+		case SYS_SET_THREAD_STATE: {
+			atid_t tid = (atid_t)args->arg1;
+			thread_state_t state = (thread_state_t)args->arg2;
             uint64_t irq = hal_irq_save();
+			thread_t* th = get_thread_by_id(tid);
+			if (!th) {
+				args->ret = SYS_RES_NOTFOUND;
+				break;
+			}
+			th->state = state;
 			args->ret = SYS_RES_OK;
             hal_irq_restore(irq);
             break;
-        }*/
+        }
         default: {
             kprint("Unknown Syscall invoked!\n");
             args->ret = SYS_RES_INVALID;

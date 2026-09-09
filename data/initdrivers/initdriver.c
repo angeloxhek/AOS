@@ -84,6 +84,7 @@ int spawn_application(char* path, char* args_str) {
 	proc_info_user_t pinfo;
 	get_proc_info(pid, &pinfo);
 	
+	set_thread_state(pinfo.main_thread, THREAD_READY);
 	
     return res;
 }
