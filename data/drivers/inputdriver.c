@@ -156,14 +156,16 @@ int driver_main(void* reserved1, void* reserved2) {
 
         if (msg.type == MSG_TYPE_HARDWARE && msg.subtype == MSG_SUBTYPE_SEND) {
             if (msg.param1 == HW_EVT_IRQ) {
-                uint8_t status = hal_inb(PS2_CMD_PORT);
-                while (status & 0x01) {
-                    uint8_t data = hal_inb(PS2_DATA_PORT);
-                    if (status & 0x20) handle_mouse_byte(data);
-                    else handle_keyboard_byte(data);
-                    status = hal_inb(PS2_CMD_PORT);
-                }
-            }
+				uint8_t status = hal_inb(PS2_CMD_PORT);
+				if (status & 0x01) {
+					uint8_t data = hal_inb(PS2_DATA_PORT);
+					if (status & 0x20) {
+						handle_mouse_byte(data);
+					} else {
+						handle_keyboard_byte(data);
+					}
+				}
+			}
         }
     }
 }

@@ -228,16 +228,20 @@ void kernel_on_timer_tick(void) {
 
 void kernel_on_ps2_irq(int irq_number) {
     if (input_driver_pid == 0) input_driver_pid = get_driver_pid(DT_INPUT);
-    if (input_driver_pid == 0) return;
+    if (input_driver_pid == 0) {
+        hal_inb(0x60);
+        return;
+    }
 	message_t msg;
 	kernel_memset(&msg, 0, sizeof(message_t));
 	msg.type = MSG_TYPE_HARDWARE; 
 	msg.subtype = MSG_SUBTYPE_SEND;
 	msg.param1 = HW_EVT_IRQ;
 	msg.param2 = irq_number;
-	
 	msg.sender_pid = 0;
-	ipc_forward(input_driver_pid, &msg);
+	if (ipc_forward(input_driver_pid, &msg) != SYS_RES_OK) {
+        hal_inb(0x60);
+    }
 }
 
 void kernel_handle_user_exception(uint64_t int_no, uint64_t instruction_pointer) {
@@ -714,8 +718,7 @@ __attribute__((noreturn)) void idle_thread() {
             kernel_free(z);
             z = next_z;
         }
-        hal_enable_interrupts();
-        hal_cpu_relax();
+        hal_idle_cpu();
     }
 	__builtin_unreachable();
 }

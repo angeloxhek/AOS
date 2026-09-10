@@ -96,6 +96,10 @@ __attribute__((noreturn)) void hal_halt(void) {
     }
 }
 
+void hal_idle_cpu(void) {
+    asm volatile("sti; hlt" ::: "memory");
+}
+
 void hal_debug_print_early(const char* str) {
     volatile uint16_t* vga_buffer = (volatile uint16_t*)0xB8000;
     for(int i = 0; i < 80 * 25; i++) {

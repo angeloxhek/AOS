@@ -10,6 +10,7 @@ struct process_t;
 uint64_t hal_irq_save(void);
 void hal_irq_restore(uint64_t flags);
 void hal_cpu_relax(void);
+void hal_idle_cpu(void);
 uint64_t hal_get_random_seed(void);
 
 void hal_cpu_init(void);

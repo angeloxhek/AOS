@@ -138,45 +138,34 @@ void kprint_error(const char* str) {
 //      uint to text
 // ------------------------
 
-void uint32_to_hex(uint32_t value, char* out_buffer) { // buff size 9
+static void uint_to_hex(uint64_t value, char* out_buffer, uint8_t base, uint8_t full_str) {
     const char *hex_digits = "0123456789ABCDEF";
-    out_buffer[0] = hex_digits[(value >> 28) & 0x0F];
-    out_buffer[1] = hex_digits[(value >> 24) & 0x0F];
-    out_buffer[2] = hex_digits[(value >> 20) & 0x0F];
-    out_buffer[3] = hex_digits[(value >> 16) & 0x0F];
-    out_buffer[4] = hex_digits[(value >> 12) & 0x0F];
-    out_buffer[5] = hex_digits[(value >> 8) & 0x0F];
-    out_buffer[6] = hex_digits[(value >> 4) & 0x0F];
-    out_buffer[7] = hex_digits[value & 0x0F];
-    out_buffer[8] = 0;
+    
+    int num_digits = base / 4; 
+    int buffer_idx = 0;
+    int started = 0;
+
+    for (int i = num_digits - 1; i >= 0; i--) {
+        uint8_t digit_val = (value >> (i * 4)) & 0x0F;
+        if (!full_str && !started && digit_val == 0) {
+            if (i > 0) continue; 
+        }
+        started = 1;
+        out_buffer[buffer_idx++] = hex_digits[digit_val];
+    }
+    out_buffer[buffer_idx] = '\0';
+}
+
+void uint8_to_hex(uint32_t value, char* out_buffer) { // buff size 3
+    uint_to_hex(value, out_buffer, 8, 1);
+}
+
+void uint32_to_hex(uint32_t value, char* out_buffer) { // buff size 9
+    uint_to_hex(value, out_buffer, 32, 0);
 }
 
 void uint64_to_hex(uint64_t value, char* out_buffer) { // buff size 17
-    const char *hex_digits = "0123456789ABCDEF";
-    for (int i = 15; i >= 0; i--) {
-        out_buffer[i] = hex_digits[value & 0x0F];
-        value >>= 4;
-    }
-    out_buffer[16] = '\0';
-}
-
-void uint32_to_dec(uint32_t value, char* out_buffer) { // buff size 11
-    char temp[11];
-    int i = 0;
-    if (value == 0) {
-        out_buffer[0] = '0';
-        out_buffer[1] = '\0';
-        return;
-    }
-    while (value > 0) {
-        temp[i++] = (value % 10) + '0';
-        value /= 10;
-    }
-    int j = 0;
-    while (i > 0) {
-        out_buffer[j++] = temp[--i];
-    }
-    out_buffer[j] = '\0';
+    uint_to_hex(value, out_buffer, 64, 0);
 }
 
 void uint64_to_dec(uint64_t value, char* out_buffer) { // buff size 21
@@ -241,7 +230,12 @@ __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64
     _kprint_error("; 0x");
     uint64_to_hex(arg4, buff);
     _kprint_error(buff);
-    _kprint_error("\nThe system has been halted!");
+	_kprint_error("\n");
+#ifdef DEBUG_MODE
+	debug_backtrace();
+#else
+    _kprint_error("The system has been halted!\n");
+#endif
     
     hal_halt();
     __builtin_unreachable();
@@ -261,3 +255,58 @@ void pausepoint(){
     kprint("Pausepoint. Press any key to continue :3\n");
     hal_debug_pause();
 }
+
+#ifdef DEBUG_MODE
+
+void debug_print_thread(thread_t* th) {
+	if (!th) return;
+	char buf[32];
+	_kprint_error("TID: ");
+	uint64_to_dec(th->tid, buf);
+	_kprint_error(buf);
+	_kprint_error("; state: 0x");
+	uint8_to_hex(th->state, buf);
+	_kprint_error(buf);
+	if (th->owner) {
+		_kprint_error("; process name: \"");
+		kernel_strncpy(buf, th->owner->name, 32);
+		_kprint_error(buf);
+		_kprint_error("\"; PID: ");
+		uint32_to_hex(th->owner->id, buf);
+		_kprint_error(buf);
+		_kprint_error("; auth id: ");
+		uint64_to_dec(th->owner->user.user.gid, buf);
+		_kprint_error(buf);
+		_kprint_error("/");
+		uint64_to_dec(th->owner->user.user.uid, buf);
+		_kprint_error(buf);
+		_kprint_error("; IPC limit: ");
+		uint64_to_dec(th->owner->ipc_queue_limit, buf);
+		_kprint_error(buf);
+		if (th->owner->main_thread && th->tid == th->owner->main_thread->tid) _kprint_error("; MAIN");
+	}
+	if (th->waiting_for_msg) _kprint_error("; IPC WAIT");
+	if (th->wake_up_time > 0) _kprint_error("; TIME WAIT");
+	_kprint_error("\n");
+}
+
+void debug_backtrace() {
+	_kprint_error("===Backtrace===\nCurrent thread:\n");
+	if (current_thread) debug_print_thread(current_thread);
+	else _kprint_error("NULL");
+	if (ready_queue) {
+        thread_t* t = ready_queue;
+        do {
+			_kprint_error("============\n");
+            debug_print_thread(t);
+            t = t->next;
+        } while (t != ready_queue);
+    }
+}
+
+__attribute__((noreturn)) void debug_stop_kernel() {
+	kernel_error(0x0, 0x0, 0x0, 0x0, 0x0);
+	__builtin_unreachable();
+}
+
+#endif

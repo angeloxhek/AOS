@@ -156,9 +156,9 @@ void _kprint_error(const char* str);
 //      uint to text
 // ------------------------
 
+void uint8_to_hex(uint32_t value, char* out_buffer);
 void uint32_to_hex(uint32_t value, char* out_buffer);
 void uint64_to_hex(uint64_t value, char* out_buffer);
-void uint32_to_dec(uint32_t value, char* out_buffer);
 void uint64_to_dec(uint64_t value, char* out_buffer);
 uint64_t octal_to_int(const char* str);
 
@@ -344,6 +344,11 @@ __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64
 __attribute__((noreturn)) void __stack_chk_fail(void);
 __attribute__((noreturn)) void breakpoint();
 void pausepoint();
+#ifdef DEBUG_MODE
+void debug_print_thread(thread_t* th);
+void debug_backtrace();
+__attribute__((noreturn)) void debug_stop_kernel();
+#endif
 
 
 // ------------------------

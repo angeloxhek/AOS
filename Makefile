@@ -49,6 +49,12 @@ SDK_INC       = -I $(AOSLIB_DIR)/include
 LIBC_CFLAGS   = -I $(AOSLIBLIN_DIR)/include $(SDK_INC)
 
 COMMON_CFLAGS = -Wall -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fstack-protector
+
+ifeq ($(DEBUG), 1)
+    COMMON_CFLAGS += -DDEBUG_MODE
+    $(info [INFO] Compiling in DEBUG mode)
+endif
+
 KERNEL_CFLAGS = $(COMMON_CFLAGS) -g3 -O0 $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS) $(KERNEL_INC) $(SDK_INC)
 USER_COMMON_CFLAGS = $(COMMON_CFLAGS) -fno-asynchronous-unwind-tables $(ARCH_CFLAGS) $(ARCH_USER_CFLAGS)
 LIB_CFLAGS = $(USER_COMMON_CFLAGS) -nostdinc
