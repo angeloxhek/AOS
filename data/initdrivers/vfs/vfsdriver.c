@@ -58,6 +58,7 @@ typedef struct {
 	vfs_node_t* mount_node;
 	uint64_t inode_id;
 	uint32_t flags;
+	char name[64];
     union {
         struct {
             fs_driver_t* driver;
@@ -681,6 +682,11 @@ void handle_vfs_request(message_t* in) {
             vfs_file_t* f = vfs_get_file(new_fd, in->sender_pid);
             f->offset = 0;
 
+		const char* fname = strrchr(path, '/');
+		if (fname) fname++;
+		else fname = path;
+		strlcpy(f->name, fname, sizeof(f->name));
+
             if (res.node->type == VFS_TYPE_MOUNT_POINT) {
                 f->type = VFS_TYPE_MOUNT_POINT;
                 f->mounted_file.driver = res.node->mount.driver;
@@ -1075,7 +1081,7 @@ void handle_vfs_request(message_t* in) {
 					user_stat->inode_id = native_stat.inode_id;
 					user_stat->size_bytes = native_stat.size_bytes;
 					user_stat->attributes = native_stat.attributes;
-					strlcpy(user_stat->name, f->mount_node->name, 256); 
+					strlcpy(user_stat->name, f->name, 256); 
 					out.param1 = VFS_ERR_OK;
 				} else {
 					out.param1 = VFS_ERR_UNKNOWN;

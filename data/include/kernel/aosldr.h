@@ -347,6 +347,7 @@ void pausepoint();
 #ifdef DEBUG_MODE
 void debug_print_thread(thread_t* th);
 void debug_backtrace();
+void debug_print_stack_trace(uint64_t max_frames);
 __attribute__((noreturn)) void debug_stop_kernel();
 #endif
 

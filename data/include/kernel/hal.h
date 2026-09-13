@@ -74,4 +74,11 @@ void hal_set_exec_context(void* arch_context, uint64_t entry_point, uint64_t use
 
 void hal_set_io_permissions(process_t* process);
 
+typedef struct {
+    uint64_t ip;
+    uint64_t internal[3];
+} hal_stack_frame_t;
+
+void hal_stack_trace_init(hal_stack_frame_t* frame);
+int hal_stack_trace_next(hal_stack_frame_t* frame, const char** stop_reason);
 #endif

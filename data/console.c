@@ -258,6 +258,40 @@ void pausepoint(){
 
 #ifdef DEBUG_MODE
 
+typedef struct {
+    uint64_t addr;
+    const char* name;
+    const char* file;
+    uint32_t line;
+} ksymbol_t;
+
+__attribute__((weak)) const ksymbol_t kernel_symbols[] = { {0, "", "", 0} };
+__attribute__((weak)) const uint32_t kernel_symbols_count = 0;
+
+static const ksymbol_t* ksymbol_lookup(uint64_t rip, uint64_t* offset_out) {
+    if (kernel_symbols_count == 0 || rip < kernel_symbols[0].addr) return 0;
+
+    int low = 0;
+    int high = kernel_symbols_count - 1;
+    int best = -1;
+
+    while (low <= high) {
+        int mid = low + (high - low) / 2;
+        if (kernel_symbols[mid].addr <= rip) {
+            best = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    if (best != -1) {
+        if (offset_out) *offset_out = rip - kernel_symbols[best].addr;
+        return &kernel_symbols[best];
+    }
+    return 0;
+}
+
 void debug_print_thread(thread_t* th) {
 	if (!th) return;
 	char buf[32];
@@ -290,8 +324,57 @@ void debug_print_thread(thread_t* th) {
 	_kprint_error("\n");
 }
 
+void debug_print_stack_trace(uint64_t max_frames) {
+    _kprint_error("Call trace:\n");
+
+    hal_stack_frame_t frame;
+    hal_stack_trace_init(&frame);
+
+    char buf[32];
+    uint64_t frame_idx = 0;
+    const char* stop_reason = "Completed";
+
+    while (frame_idx < max_frames && hal_stack_trace_next(&frame, &stop_reason)) {
+        uint64_t offset = 0;
+        const ksymbol_t* sym = ksymbol_lookup(frame.ip - 1, &offset);
+
+        if (sym && (kernel_strcmp(sym->name, "debug_print_stack_trace") == 0 ||
+                    kernel_strcmp(sym->name, "debug_backtrace") == 0 ||
+                    kernel_strcmp(sym->name, "kernel_error") == 0)) {
+            continue;
+        }
+
+        _kprint_error("  #");
+        uint64_to_dec(frame_idx++, buf);
+        _kprint_error(buf);
+        _kprint_error(" 0x");
+        uint64_to_hex(frame.ip, buf);
+        _kprint_error(buf);
+
+        if (sym) {
+            _kprint_error(" in ");
+            _kprint_error(sym->name);
+            _kprint_error(" (");
+            _kprint_error(sym->file);
+            _kprint_error(":");
+            uint64_to_dec(sym->line, buf);
+            _kprint_error(buf);
+            _kprint_error(") +0x");
+            uint64_to_hex(offset, buf);
+            _kprint_error(buf);
+        }
+        _kprint_error("\n");
+    }
+
+    _kprint_error("  -> Trace stopped: ");
+    _kprint_error(stop_reason ? stop_reason : "Limit reached");
+    _kprint_error("\n");
+}
+
 void debug_backtrace() {
-	_kprint_error("===Backtrace===\nCurrent thread:\n");
+	_kprint_error("===Backtrace===\n");
+	debug_print_stack_trace(16);
+	_kprint_error("Current thread:\n");
 	if (current_thread) debug_print_thread(current_thread);
 	else _kprint_error("NULL");
 	if (ready_queue) {

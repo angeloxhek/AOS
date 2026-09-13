@@ -92,8 +92,17 @@ prepare:
 kernel: $(DISK_DIR)/AOSLDR.BIN $(DISK_DIR)/INITRD.TAR
 
 $(DISK_DIR)/AOSLDR.BIN: $(KERNEL_OBJS)
-	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -T $(CURDIR)/data/aosldr.ld -Map $(TEMP_DIR)/aosldr.map -o $(TEMP_DIR)/aosldr.elf $(KERNEL_OBJS)
+	$(ECHO) "${YELLOW}[   LD    ]${NC} (Pass 1: linking kernel) ${TEMP_DIR}/aosldr.elf\n"
+	$(Q)$(LD) $(LDFLAGS) -T $(CURDIR)/data/aosldr.ld -Map $(TEMP_DIR)/aosldr.map -o $(TEMP_DIR)/aosldr_tmp.elf $(KERNEL_OBJS)
+ifeq ($(DEBUG), 1)
+	$(ECHO) "${CYAN}[ GENSYMS ]${NC} Generating symbol table... ${TEMP_DIR}/aosldr.elf\n"
+	$(Q)python3 scripts/gensyms.py $(TEMP_DIR)/aosldr_tmp.elf $(TEMP_DIR)/ksyms.c "$(CROSS_COMPILE)"
+	$(Q)$(CC) $(KERNEL_CFLAGS) -c $(TEMP_DIR)/ksyms.c -o $(TEMP_DIR)/ksyms.o
+	$(ECHO) "${YELLOW}[   LD    ]${NC} (Pass 2: embedding symbols)\n"
+	$(Q)$(LD) $(LDFLAGS) -T $(CURDIR)/data/aosldr.ld -Map $(TEMP_DIR)/aosldr.map -o $(TEMP_DIR)/aosldr.elf $(KERNEL_OBJS) $(TEMP_DIR)/ksyms.o
+else
+	$(Q)$(CP) $(TEMP_DIR)/aosldr_tmp.elf $(TEMP_DIR)/aosldr.elf
+endif
 	$(ECHO) "${PURPLE}[ OBJCOPY ]${NC} $@\n"
 	$(Q)$(OBJCOPY) -O binary -S -R .bss -R .note -R .comment -R .note.gnu.property $(TEMP_DIR)/aosldr.elf $@
 

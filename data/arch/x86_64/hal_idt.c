@@ -72,7 +72,10 @@ void hal_timer_init(uint32_t frequency) {
     hal_outb(0x40, (uint8_t)((divisor >> 8) & 0xFF));
 }
 
+registers_t* last_exception_regs = 0;
+
 void isr_handler(registers_t *r) {
+    last_exception_regs = r;
     if (r->int_no < 32) {
         if (state.system_flags & KERNEL_PANIC) {
             __asm__ volatile("cli; hlt");

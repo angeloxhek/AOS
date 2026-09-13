@@ -134,6 +134,8 @@ int driver_main(void* reserved1, void* reserved2) {
     printf("InputDriver: Starting...\n");
     init_mouse();
 
+	ipc_set_limit(0, 1024);
+
     message_t msg;
     while(1) {
         ipc_recv(&msg);

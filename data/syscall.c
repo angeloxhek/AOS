@@ -636,8 +636,8 @@ void generic_syscall_handler(syscall_args_t* args) {
             break;
         }
 		case SYS_SET_IPC_LIMIT: {
-            uint64_t new_limit = args->arg1;
-			apid_t target_pid = (apid_t)args->arg2;
+            apid_t target_pid = (apid_t)args->arg1;
+			uint64_t new_limit = args->arg2;
             
             if (new_limit > 1000000) {
                 args->ret = SYS_RES_INVALID;
