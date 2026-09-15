@@ -1,7 +1,7 @@
 #include <kernel/internal.h>
 
 // -------------------------
-//           IPC
+//            IPC
 // -------------------------
 
 int64_t ipc_forward(apid_t dest_pid, message_t* user_msg) {
@@ -26,6 +26,7 @@ int64_t ipc_forward(apid_t dest_pid, message_t* user_msg) {
         if (peb->pending_msgs >= target->ipc_queue_limit) {
             temp_unmap(kvirt);
             hal_irq_restore(irq);
+            kernel_free(node); // Добавлено: освобождение памяти перед выходом
             return SYS_RES_ALREADY; 
         }
         temp_unmap(kvirt);
@@ -35,7 +36,7 @@ int64_t ipc_forward(apid_t dest_pid, message_t* user_msg) {
     else target->msg_queue_head = node;
     target->msg_queue_tail = node;
     
-	if (ready_queue) {
+    if (ready_queue) {
         thread_t* th = ready_queue;
         do {
             if (th->owner != 0 && th->owner->id == dest_pid) {
@@ -57,8 +58,8 @@ int64_t ipc_forward(apid_t dest_pid, message_t* user_msg) {
         
         temp_unmap(kvirt);
     }
-	
-	hal_irq_restore(irq);
+    
+    hal_irq_restore(irq);
     
     return SYS_RES_OK;
 }
@@ -79,10 +80,16 @@ static int __ipc_pop_msg(message_t* out_msg) {
     
     if (!current_thread->owner->msg_queue_head) current_thread->owner->msg_queue_tail = 0;
     
-    /*if (current_thread->fs_base != 0) {
-        aos_tcb_t* tcb = (aos_tcb_t*)current_thread->fs_base;
-        if (tcb->pending_msgs > 0) tcb->pending_msgs--;
-    }*/
+    // Добавлено: уменьшение счетчика при извлечении сообщения
+    if (current_thread->owner->peb_phys_page != 0) {
+        void* kvirt = temp_map(current_thread->owner->peb_phys_page);
+        aos_peb_t* peb = (aos_peb_t*)kvirt;
+
+        if (peb->pending_msgs > 0)
+            peb->pending_msgs--;
+
+        temp_unmap(kvirt);
+    }
     
     *out_msg = node->msg;
     kernel_free(node);
@@ -130,6 +137,17 @@ int64_t ipc_receive_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, messa
                 
                 if (curr == current_thread->owner->msg_queue_tail) {
                     current_thread->owner->msg_queue_tail = prev;
+                }
+
+                // Добавлено: уменьшение счетчика также необходимо здесь
+                if (current_thread->owner->peb_phys_page != 0) {
+                    void* kvirt = temp_map(current_thread->owner->peb_phys_page);
+                    aos_peb_t* peb = (aos_peb_t*)kvirt;
+
+                    if (peb->pending_msgs > 0)
+                        peb->pending_msgs--;
+
+                    temp_unmap(kvirt);
                 }
                 
                 kernel_free(curr);
