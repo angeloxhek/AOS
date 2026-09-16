@@ -1,7 +1,7 @@
 #include <kernel/internal.h>
 
 // -------------------------
-//            IPC
+//           IPC
 // -------------------------
 
 int64_t ipc_forward(apid_t dest_pid, message_t* user_msg) {
@@ -26,7 +26,7 @@ int64_t ipc_forward(apid_t dest_pid, message_t* user_msg) {
         if (peb->pending_msgs >= target->ipc_queue_limit) {
             temp_unmap(kvirt);
             hal_irq_restore(irq);
-            kernel_free(node); // Добавлено: освобождение памяти перед выходом
+            kernel_free(node);
             return SYS_RES_ALREADY; 
         }
         temp_unmap(kvirt);
@@ -80,7 +80,6 @@ static int __ipc_pop_msg(message_t* out_msg) {
     
     if (!current_thread->owner->msg_queue_head) current_thread->owner->msg_queue_tail = 0;
     
-    // Добавлено: уменьшение счетчика при извлечении сообщения
     if (current_thread->owner->peb_phys_page != 0) {
         void* kvirt = temp_map(current_thread->owner->peb_phys_page);
         aos_peb_t* peb = (aos_peb_t*)kvirt;
@@ -139,7 +138,6 @@ int64_t ipc_receive_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, messa
                     current_thread->owner->msg_queue_tail = prev;
                 }
 
-                // Добавлено: уменьшение счетчика также необходимо здесь
                 if (current_thread->owner->peb_phys_page != 0) {
                     void* kvirt = temp_map(current_thread->owner->peb_phys_page);
                     aos_peb_t* peb = (aos_peb_t*)kvirt;
