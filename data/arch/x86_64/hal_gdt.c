@@ -78,15 +78,18 @@ static void fpu_init() {
     cr0 |= (1 << 1);
     cr0 |= (1 << 5);
     asm volatile("mov %0, %%cr0" :: "r"(cr0));
+
     asm volatile("mov %%cr4, %0" : "=r"(cr4));
     cr4 |= (1 << 9);
     cr4 |= (1 << 10);
     asm volatile("mov %0, %%cr4" :: "r"(cr4));
     
+    asm volatile("fninit");
+
     uint32_t mxcsr = 0x1F80;
     asm volatile("ldmxcsr %0" :: "m"(mxcsr));
-    asm volatile("fninit");
-    asm volatile("fxsave %0" : "=m"(default_fpu_state));
+    
+    asm volatile("fxsave64 %0" : "=m"(*default_fpu_state));
 }
 
 void hal_cpu_init(void) {

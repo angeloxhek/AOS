@@ -258,6 +258,8 @@ int driver_main(void* reserved1, void* reserved2) {
     
     printf("VideoDriver: Ready and waiting for commands...\n");
 
+	set_thread_priority(0, THREAD_PRIO_REALTIME);
+
     message_t msg;
     while(1) {
         ipc_recv_ex(0, MSG_TYPE_VIDEO, MSG_SUBTYPE_NONE, &msg);

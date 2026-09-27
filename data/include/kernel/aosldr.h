@@ -89,6 +89,7 @@ typedef struct thread_t {
 	thread_state_t   state;
 	int              exit_code;
 	int              waiting_for_msg;
+	thread_prio_t    priority;
 	uint8_t fpu_state[512] __attribute__((aligned(16)));
 } thread_t;
 
@@ -103,6 +104,7 @@ typedef struct driver_info_t {
 	char name[DRIVER_NAME_MAX];
 	uint32_t driver_perms;
     uint16_t allowed_ports[ALLOWED_PORTS_MAX];
+	driver_status_t status;
 	struct driver_info_t* next;
 } driver_info_t;
 

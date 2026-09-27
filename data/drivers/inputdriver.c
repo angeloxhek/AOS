@@ -136,6 +136,8 @@ int driver_main(void* reserved1, void* reserved2) {
 
 	ipc_set_limit(0, 1024);
 
+	set_thread_priority(0, THREAD_PRIO_REALTIME);
+
     message_t msg;
     while(1) {
         ipc_recv(&msg);

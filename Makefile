@@ -131,14 +131,12 @@ include data/drivers/make.mk
 configs:
 	$(ECHO) "${BROWN}[   CP    ]${NC} ${CURDIR}/configs ${GREEN}->${NC} ${DISK_DIR}/configs\n"
 	$(Q)$(CP) -r $(CURDIR)/configs $(DISK_DIR)
+	$(ECHO) "${BROWN}[   CP    ]${NC} ${CURDIR}/assets ${GREEN}->${NC} ${DISK_DIR}/assets\n"
+	$(Q)$(CP) -r $(CURDIR)/assets $(DISK_DIR)
 
-userspace: $(BIN_DIR)/tree.elf $(BIN_DIR)/desktop.elf
+userspace: $(BIN_DIR)/desktop.elf $(BIN_DIR)/aex.elf
 
-$(BIN_DIR)/tree.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/tree.o $(BUILD_DIR)/libs/libaos.a
-	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -N -T $(CURDIR)/data/driver.ld $^ -o $@
-
-$(BIN_DIR)/desktop.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/desktop.o $(BUILD_DIR)/libs/libaos.a
+$(BIN_DIR)/%.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/%.o $(BUILD_DIR)/libs/libaos.a
 	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
 	$(Q)$(LD) $(LDFLAGS) -N -T $(CURDIR)/data/driver.ld $^ -o $@
 	

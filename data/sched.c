@@ -49,6 +49,7 @@ thread_t* create_thread_core(uint64_t root_phys, process_t* owner, thread_state_
     t->tid = thread_count;
     thread_count++;
     t->owner = owner;
+	t->priority = THREAD_PRIO_NORMAL;
     
     if (ready_queue == 0) {
         ready_queue = t;
@@ -132,24 +133,27 @@ void schedule() {
     thread_t* next = 0;
 
     if (ready_queue) {
-        
         thread_t* start_node = ready_queue;
         
-        if (prev->state != THREAD_ZOMBIE && prev != idle_thread_ptr) {
+        if (prev && prev->state != THREAD_ZOMBIE && prev != idle_thread_ptr) {
             if (prev->next != 0) {
                 start_node = prev->next;
             }
         }
 
-        thread_t* temp = start_node;
-        if (temp) {
+        for (int current_prio = 0; current_prio < THREAD_PRIO_LEVELS; current_prio++) {
+            thread_t* temp = start_node;
+            
             do {
-                if (temp->state == THREAD_READY || temp->state == THREAD_RUNNING) {
+                if ((temp->state == THREAD_READY || temp->state == THREAD_RUNNING) && 
+                    temp->priority == current_prio) {
                     next = temp;
                     break;
                 }
                 temp = temp->next;
             } while (temp != start_node);
+
+            if (next) break;
         }
     }
 

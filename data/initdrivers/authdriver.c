@@ -968,7 +968,7 @@ void handle_message(message_t* in) {
 				out->param1 = AUTH_ERR_DENIED;
 				break;
 			}
-			out->param1 = (uint64_t)sys_set_process_auth(pid, nid);
+			out->param1 = (uint64_t)sysset_process_auth(pid, nid);
 			break;
 		}
 		default: {
@@ -998,6 +998,8 @@ int driver_main(void* reserved1, void* reserved2) {
     } else {
         printf("AUTHDRIVER: localroot created successfully. Raw auth_id_t=%llx (uid=%x; gid=%x)\n", temp_root->id.raw, temp_root->id.user.uid, temp_root->id.user.gid);
     }
+
+    set_thread_priority(0, THREAD_PRIO_REALTIME);
 	
     message_t msg;
     while(1) {

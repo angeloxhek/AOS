@@ -43,6 +43,13 @@ int main(int argc, char** argv) {
     message_t msg;
     while(1) {
         ipc_recv(&msg);
+
+        if (msg.type == MSG_TYPE_WND && msg.subtype == MSG_SUBTYPE_SEND) {
+            if (msg.param1 == WND_CMD_DESTROY) {
+                printf("Desktop: Window closed, exiting...\n");
+                exit(0);
+            }
+        }
     }
     return 0;
 }

@@ -1108,6 +1108,8 @@ int driver_main(void* reserved1, void* reserved2) {
     vfs_init_tree();
     printf("VFS: Tree initialized.\n");
 	
+	set_thread_priority(0, THREAD_PRIO_REALTIME);
+
 	message_t msg;
     while (1) {
         ipc_recv_ex(0, MSG_TYPE_VFS, MSG_SUBTYPE_NONE, &msg);

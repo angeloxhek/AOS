@@ -461,6 +461,7 @@ int64_t register_driver(driver_type_t type, const char* user_name, uint32_t perm
     kernel_memcpy(new_driver->name, name_buf, DRIVER_NAME_MAX);
 	new_driver->driver_perms = perms;
 	kernel_memcpy(new_driver->allowed_ports, allowed_ports, ALLOWED_PORTS_MAX*sizeof(uint16_t));
+    new_driver->status = DRV_STAT_CREATED;
     new_driver->next = drivers_list_head;
     drivers_list_head = new_driver;
     

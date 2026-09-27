@@ -598,11 +598,11 @@ switch_to_task:
 
     mov [rdi + 8], rsp 
 
-	fxsave [rdi + 112]
+	fxsave64 [rdi + 112]
 
     mov rsp, [rsi + 8]
 	
-	fxrstor [rsi + 112]
+	fxrstor64 [rsi + 112]
 
     mov rax, [rsi + 24] 
     mov rcx, cr3
