@@ -121,10 +121,14 @@ void hal_debug_pause(void) {
 
 extern registers_t* last_exception_regs;
 
-void hal_stack_trace_init(hal_stack_frame_t* frame) {
+uint64_t hal_get_frame_pointer(void) {
     uint64_t fp;
     __asm__ volatile("mov %%rbp, %0" : "=r"(fp));
-    frame->internal[0] = fp;
+    return fp;
+}
+
+void hal_stack_trace_init(hal_stack_frame_t* frame) {
+    frame->internal[0] = hal_get_frame_pointer();
     frame->internal[1] = 0;
     frame->ip = 0;
 }

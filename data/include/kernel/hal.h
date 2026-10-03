@@ -81,4 +81,6 @@ typedef struct {
 
 void hal_stack_trace_init(hal_stack_frame_t* frame);
 int hal_stack_trace_next(hal_stack_frame_t* frame, const char** stop_reason);
+int hal_is_valid_kernel_frame(uint64_t fp);
+uint64_t hal_get_frame_pointer(void);
 #endif

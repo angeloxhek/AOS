@@ -84,6 +84,8 @@ syswindow_t* find_window_at(int x, int y) {
     return NULL;
 }
 
+void bring_to_front(syswindow_t* win);
+
 syswindow_t* create_window(apid_t owner_pid, int x, int y, int w, int h, uint64_t shm_id, uint32_t flags) {
     syswindow_t* win = (syswindow_t*)malloc(sizeof(syswindow_t));
     if (!win) return 0;
@@ -96,18 +98,28 @@ syswindow_t* create_window(apid_t owner_pid, int x, int y, int w, int h, uint64_
     win->shm_id = shm_id;
     
     uint8_t* shm_ptr = (uint8_t*)shm_map(shm_id);
-    
-    uint64_t frame_size = (uint64_t)w * h * 4;
-    win->pixels = (uint32_t*)(shm_ptr + frame_size);
+	uint64_t frame_size = (uint64_t)w * h * 4;
 
-    agfx_init(&win->surface, win->pixels, w, h, w * 4);
+	win->pixels = (uint32_t*)(shm_ptr + frame_size);
+	agfx_init(&win->surface, win->pixels, w, h, w * 4);
     
     win->next = 0;
-    win->prev = top_window;
+    win->prev = 0;
     
-    if (top_window) top_window->next = win;
-    else bottom_window = win;
-    top_window = win;
+    if (!bottom_window) {
+        bottom_window = top_window = win;
+    } 
+    else if (flags & WND_FLAG_BACKGROUND) {
+        win->next = bottom_window;
+        bottom_window->prev = win;
+        bottom_window = win;
+    } 
+    else {
+        win->prev = top_window;
+        top_window->next = win;
+        top_window = win;
+        bring_to_front(win);
+    }
     return win;
 }
 
@@ -382,8 +394,8 @@ int driver_main(void* reserved1, void* reserved2) {
 					int win_id = (int)msg.param2;
                     syswindow_t* win = find_window_by_id(win_id);
                     if (win) {
-                        int tot_w, tot_h;
-                        get_window_total_bounds(win, &tot_w, &tot_h);
+						int tot_w, tot_h;
+						get_window_total_bounds(win, &tot_w, &tot_h);
 
                         int dmg_x = MAX(0, win->x - 16);
                         int dmg_y = MAX(0, win->y - 16);

@@ -35,6 +35,13 @@ int hal_is_valid_user_pointer(const void* ptr) {
     return 1;
 }
 
+int hal_is_valid_kernel_frame(uint64_t fp) {
+    if (fp & 0x7) return 0;
+    if (fp < 0xFFFF800000000000ULL) return 0;
+
+    return 1;
+}
+
 uint64_t hal_get_user_tls_base(void) {
     return hal_rdmsr(0xC0000102); // KernelGSBase
 }

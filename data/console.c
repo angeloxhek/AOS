@@ -293,35 +293,88 @@ static const ksymbol_t* ksymbol_lookup(uint64_t rip, uint64_t* offset_out) {
 }
 
 void debug_print_thread(thread_t* th) {
-	if (!th) return;
-	char buf[32];
-	_kprint_error("TID: ");
-	uint64_to_dec(th->tid, buf);
-	_kprint_error(buf);
-	_kprint_error("; state: 0x");
-	uint8_to_hex(th->state, buf);
-	_kprint_error(buf);
-	if (th->owner) {
-		_kprint_error("; process name: \"");
-		kernel_strncpy(buf, th->owner->name, 32);
-		_kprint_error(buf);
-		_kprint_error("\"; PID: ");
-		uint32_to_hex(th->owner->id, buf);
-		_kprint_error(buf);
-		_kprint_error("; auth id: ");
-		uint64_to_dec(th->owner->user.user.gid, buf);
-		_kprint_error(buf);
-		_kprint_error("/");
-		uint64_to_dec(th->owner->user.user.uid, buf);
-		_kprint_error(buf);
-		_kprint_error("; IPC limit: ");
-		uint64_to_dec(th->owner->ipc_queue_limit, buf);
-		_kprint_error(buf);
-		if (th->owner->main_thread && th->tid == th->owner->main_thread->tid) _kprint_error("; MAIN");
-	}
-	if (th->waiting_for_msg) _kprint_error("; IPC WAIT");
-	if (th->wake_up_time > 0) _kprint_error("; TIME WAIT");
-	_kprint_error("\n");
+    if (!th) return;
+    char buf[32];
+    _kprint_error("TID: ");
+    uint64_to_dec(th->tid, buf);
+    _kprint_error(buf);
+    
+    _kprint_error("; state: 0x");
+    uint8_to_hex(th->state, buf);
+    _kprint_error(buf);
+    
+    if (th->owner) {
+        _kprint_error("; process name: \"");
+        kernel_strncpy(buf, th->owner->name, 32);
+        _kprint_error(buf);
+        _kprint_error("\"; PID: ");
+        uint32_to_hex(th->owner->id, buf);
+        _kprint_error(buf);
+        _kprint_error("; auth id: ");
+        uint64_to_dec(th->owner->user.user.gid, buf);
+        _kprint_error(buf);
+        _kprint_error("/");
+        uint64_to_dec(th->owner->user.user.uid, buf);
+        _kprint_error(buf);
+        _kprint_error("; IPC limit: ");
+        uint64_to_dec(th->owner->ipc_queue_limit, buf);
+        _kprint_error(buf);
+        if (th->owner->main_thread && th->tid == th->owner->main_thread->tid) _kprint_error("; MAIN");
+    }
+    if (th->waiting_for_msg) _kprint_error("; IPC WAIT");
+    if (th->wake_up_time > 0) _kprint_error("; TIME WAIT");
+    _kprint_error("\n");
+
+    if (th != current_thread && th->rsp >= th->stack_base && th->rsp < th->stack_base + KERNEL_STACK_SIZE) {
+        uint64_t* sp = (uint64_t*)th->rsp;
+        
+        uint64_t fp = sp[5];
+        
+        _kprint_error("    Sleeping at: ");
+        
+        if (!hal_is_valid_kernel_frame(fp)) {
+            _kprint_error("<invalid frame pointer>\n");
+        } else {
+            int depth = 0;
+            while (fp != 0 && depth < 4) {
+                if (!hal_is_valid_kernel_frame(fp)) break;
+                
+                uint64_t* frame_ptr = (uint64_t*)fp;
+                uint64_t next_fp = frame_ptr[0];
+                uint64_t ret_rip = frame_ptr[1];
+                
+                if (ret_rip == 0) break;
+
+                uint64_t offset;
+                const ksymbol_t* sym = ksymbol_lookup(ret_rip - 1, &offset);
+                
+                if (sym && (kernel_strcmp(sym->name, "schedule") == 0 || 
+                            kernel_strcmp(sym->name, "hal_switch_task") == 0)) {
+                    fp = next_fp;
+                    continue;
+                }
+                
+                if (depth > 0) _kprint_error(" <- ");
+                
+                if (sym) {
+                    _kprint_error("<");
+                    _kprint_error(sym->name);
+                    _kprint_error(">");
+                } else {
+                    _kprint_error("<0x");
+                    uint64_to_hex(ret_rip, buf);
+                    _kprint_error(buf);
+                    _kprint_error(">");
+                }
+                
+                depth++;
+                
+                if (next_fp <= fp) break;
+                fp = next_fp;
+            }
+            _kprint_error("\n");
+        }
+    }
 }
 
 void debug_print_stack_trace(uint64_t max_frames) {
