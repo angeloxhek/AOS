@@ -1,4 +1,4 @@
-#include "hal_arch.h"
+#include <arch/hal_arch.h>
 
 extern uint64_t pmm_alloc_block(void);
 extern void pmm_free_block(uint64_t p_addr);
@@ -142,4 +142,13 @@ uint64_t hal_get_total_ram(boot_info_t* boot_info) {
         }
     }
     return total_ram;
+}
+
+uint64_t hal_get_pmm_bitmap_addr(void) {
+    return KERNEL_BASE + 0x100000;
+}
+
+void hal_pmm_init_regions(uint64_t total_ram) {
+    pmm_deinit_region(0x0, 0x1000000);
+    pmm_init_region(0x1000000, total_ram - 0x1000000);
 }

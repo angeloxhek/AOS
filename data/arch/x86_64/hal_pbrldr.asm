@@ -54,10 +54,19 @@ entry:
 	cmp eax, 0
     je error_initrd
     mov [InitrdSize], eax
+	
+	xor eax, eax
+	mov cx, 1
+	push 0
+	pop es
+	mov bx, 0x6000
+	call ReadSectors
 
+	mov eax, [fs:0x7C1C]
 	mov ebx, 0x40000
     mov ecx, [cs:InitrdSize]
     mov dl, [cs:DrvNum]
+	mov edi, [fs:0x61B8]
     jmp 0x1000:0x0000
 
 error_kernel:

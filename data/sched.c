@@ -69,7 +69,7 @@ thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t
     uint64_t total_tls_size = proc->tls_mem_size + tcb_size;
 
     uint64_t alloc_pages = (total_tls_size + 4096 - 1) / 4096;
-    uint64_t tls_virt = 0x00007FFFFF000000;
+    uint64_t tls_virt = HAL_USER_TLS_BASE;
 
     for (uint64_t i = 0; i < alloc_pages * 4096; i += 4096) {
         uint64_t phys = pmm_alloc_block();

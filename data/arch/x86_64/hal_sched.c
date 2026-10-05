@@ -1,4 +1,4 @@
-#include "hal_arch.h"
+#include <arch/hal_arch.h>
 
 extern void switch_to_task(thread_t* prev, thread_t* next);
 extern void trampoline_enter_user(void);

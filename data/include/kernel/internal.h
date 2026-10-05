@@ -34,6 +34,7 @@ extern int cursor_x;
 extern int cursor_y;
 extern uint32_t bg_color;
 extern boot_video_t* video;
+extern boot_disk_t* disk;
 
 extern st_flags_t state;
 

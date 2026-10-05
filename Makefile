@@ -44,7 +44,7 @@ BROWN  := \033[0;33m
 GRAY   := \033[0;37m
 NC     := \033[0m
 
-KERNEL_INC    = -I $(CURDIR)/data/include
+KERNEL_INC    = -I $(CURDIR)/data/include -I $(CURDIR)/data/arch/$(ARCH)
 SDK_INC       = -I $(AOSLIB_DIR)/include
 LIBC_CFLAGS   = -I $(AOSLIBLIN_DIR)/include $(SDK_INC)
 

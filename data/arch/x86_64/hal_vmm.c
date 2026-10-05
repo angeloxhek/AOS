@@ -1,4 +1,4 @@
-#include "hal_arch.h"
+#include <arch/hal_arch.h>
 
 uint64_t* pml4_table_virt = 0;
 

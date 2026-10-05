@@ -35,16 +35,22 @@ void kclear() {
     spinlock_irq_restore(irq_state);
 }
 
-void kprint_scroll() {
-	uint64_t vaddr = video->framebuffer_addr_virt;
+void kprint_scroll(void) {
     if (!(state.system_flags & CAN_PRINT)) return;
+    
+    uint64_t vaddr = video->framebuffer_addr_virt;
     uint32_t font_h = 16;
+    
     uint64_t bytes_to_move = (uint64_t)video->pitch * (video->height - font_h);
     uint8_t* fb = (uint8_t*)vaddr;
     kernel_memcpy(fb, fb + (font_h * video->pitch), bytes_to_move);
-    uint8_t* bottom_part = fb + bytes_to_move;
-    uint64_t bottom_size = (uint64_t)font_h * video->pitch;
-    kernel_memset64(bottom_part, ((uint64_t)bg_color << 32) | bg_color, bottom_size);
+    
+    uint32_t* bottom_pixels = (uint32_t*)(fb + bytes_to_move);
+    uint64_t pixels_to_fill = ((uint64_t)font_h * video->pitch) / 4;
+    
+    for (uint64_t i = 0; i < pixels_to_fill; i++) {
+        bottom_pixels[i] = bg_color;
+    }
 }
 
 void _kprint_char(int x_pos, int y_pos, char c, uint32_t fg, uint32_t bg) {
@@ -326,9 +332,7 @@ void debug_print_thread(thread_t* th) {
     _kprint_error("\n");
 
     if (th != current_thread && th->rsp >= th->stack_base && th->rsp < th->stack_base + KERNEL_STACK_SIZE) {
-        uint64_t* sp = (uint64_t*)th->rsp;
-        
-        uint64_t fp = sp[5];
+        uint64_t fp = hal_get_stopped_thread_fp(th);
         
         _kprint_error("    Sleeping at: ");
         

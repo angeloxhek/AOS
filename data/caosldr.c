@@ -9,6 +9,7 @@ int cursor_x = 0;
 int cursor_y = 0;
 uint32_t bg_color = 0x00000000;
 boot_video_t* video;
+boot_disk_t* disk;
 st_flags_t state;
 
 const char* const kernel_messages[] = {
@@ -28,9 +29,8 @@ uint64_t max_blocks = 0;
 uint64_t used_blocks = 0;
 uint64_t bitmap_size = 0;
 
-#define HEAP_START_ADDR 0xFFFF800040000000
-malloc_header_t* free_list_start = (malloc_header_t*)HEAP_START_ADDR;
-uint64_t heap_current_limit = HEAP_START_ADDR;
+malloc_header_t* free_list_start = (malloc_header_t*)HAL_HEAP_START;
+uint64_t heap_current_limit = HAL_HEAP_START;
 int malloc_initialized = 0;
 
 __attribute__((aligned(16)))
@@ -54,46 +54,6 @@ apid_t input_driver_pid = 0;
 
 shm_object_t* shm_global_list = 0;
 uint64_t next_shm_id = 1;
-
-const unsigned char kbd_us[128] =
-{
-    0,  27, '1', '2', '3', '4', '5', '6', '7', '8',	/* 9 */
-  '9', '0', '-', '=', '\b',	/* Backspace */
-  '\t',			/* Tab */
-  'q', 'w', 'e', 'r',	/* 19 */
-  't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',	/* Enter key */
-    0,			/* 29   - Control */
-  'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';',	/* 39 */
- '\'', '`',   0,		/* Left shift */
- '\\', 'z', 'x', 'c', 'v', 'b', 'n',			/* 49 */
-  'm', ',', '.', '/',   0,				/* Right shift */
-  '*',
-    0,	/* Alt */
-  ' ',	/* Space bar */
-    0,	/* Caps lock */
-    0,	/* 59 - F1 key ... > */
-    0,   0,   0,   0,   0,   0,   0,   0,
-    0,	/* < ... F10 */
-    0,	/* 69 - Num lock*/
-    0,	/* Scroll Lock */
-    0,	/* Home key */
-    0,	/* Up Arrow */
-    0,	/* Page Up */
-  '-',
-    0,	/* Left Arrow */
-    0,
-    0,	/* Right Arrow */
-  '+',
-    0,	/* 79 - End key*/
-    0,	/* Down Arrow */
-    0,	/* Page Down */
-    0,	/* Insert Key */
-    0,	/* Delete Key */
-    0,   0,   0,
-    0,	/* F11 Key */
-    0,	/* F12 Key */
-    0,	/* All other keys are undefined */
-};
 
 
 // --------------------------
@@ -136,14 +96,6 @@ uint64_t rtc_to_unix(uint8_t sec, uint8_t min, uint8_t hour,
 // --------------------------
 //        Data Utils
 // --------------------------
-
-// DANGER: DONT USE THIS PLS
-void* kernel_memset64(void* ptr, uint64_t value, uint64_t n) {
-    n /= 8;
-	uint64_t* p = ptr;
-    while (n--) *p++ = value;
-    return ptr;
-}
 
 void* kernel_memset(void* ptr, uint8_t value, uint64_t n) {
     uint64_t pattern = (uint64_t)value;
@@ -226,7 +178,7 @@ void kernel_on_timer_tick(void) {
     }
 }
 
-void kernel_on_ps2_irq(int irq_number) {
+void kernel_on_input_irq(int irq_number) {
     if (input_driver_pid == 0) input_driver_pid = get_driver_pid(DT_INPUT);
     if (input_driver_pid == 0) {
         hal_inb(0x60);
@@ -295,7 +247,7 @@ void* kernel_malloc(uint64_t size) {
             spinlock_irq_restore(irq);
             return 0;
         }
-        free_list_start->size = (heap_current_limit - HEAP_START_ADDR) - sizeof(malloc_header_t);
+        free_list_start->size = (heap_current_limit - HAL_HEAP_START) - sizeof(malloc_header_t);
         free_list_start->is_free = 1;
         free_list_start->next = 0;
         malloc_initialized = 1;
@@ -364,17 +316,6 @@ void kernel_free(void* ptr) {
     
     spinlock_release(&heap_lock);
     spinlock_irq_restore(irq);
-}
-
-// No kernel_free() pls
-void* kernel_malloc_aligned(uint64_t size, uint64_t alignment) {
-    void* ptr = kernel_malloc(size + alignment + sizeof(void*));
-    if (!ptr) return 0;
-    uint64_t addr = (uint64_t)ptr;
-    uint64_t aligned_addr = (addr + (alignment - 1)) & ~(alignment - 1);
-    if (aligned_addr < addr) aligned_addr += alignment;
-
-    return (void*)aligned_addr;
 }
 
 
@@ -579,6 +520,7 @@ void kernel_main(boot_info_t* boot_info) {
     }
     font = &fontvgasys;
     video = &boot_info->video;
+	disk = &boot_info->disk;
     _kclear();
     _kprint("AOSLDR, hello from kernel...\n");
 
@@ -587,6 +529,10 @@ void kernel_main(boot_info_t* boot_info) {
     if (boot_info->magic != BOOT_MAGIC) kernel_error(0x8, 0, boot_info->magic, BOOT_MAGIC, 0);
     _kprint("Loader type: 0x");
     uint64_to_hex(boot_info->type, buff);
+    _kprint(buff);
+    _kprint("\n");
+	_kprint("Loader version: ");
+    uint64_to_dec(boot_info->version, buff);
     _kprint(buff);
     _kprint("\n");
 	if (boot_info->version != BOOT_VERSION) kernel_error(0x8, 2, boot_info->version, BOOT_VERSION, 0);
@@ -603,10 +549,8 @@ void kernel_main(boot_info_t* boot_info) {
     _kprint(" MB\n");
 
     hal_vm_init();
-    uint64_t bitmap_addr = KERNEL_BASE + 0x100000;
-    init_pmm(total_ram, bitmap_addr);
-    pmm_deinit_region(0x0, 0x1000000);
-    pmm_init_region(0x1000000, total_ram - 0x1000000);
+    init_pmm(total_ram, hal_get_pmm_bitmap_addr());
+    hal_pmm_init_regions(total_ram);
     _kprint("Memory is configured!\n");
 
     hal_interrupts_init();

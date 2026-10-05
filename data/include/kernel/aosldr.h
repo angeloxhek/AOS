@@ -4,9 +4,11 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#include "bootparams.h"
-#include "elf-min.h"
-#include "hal.h"
+#include <kernel/bootparams.h>
+#include <kernel/elf-min.h>
+#include <kernel/hal.h>
+#include <arch/hal_arch.h>
+
 
 #include <aos/types.h>
 #include <aos/syscalls.h>
@@ -14,6 +16,7 @@
 #include <aos/auth.h>
 #include <aos/process.h>
 #include <aos/driver.h>
+#include <aos/sysinfo.h>
 
 #define PAGE_SIZE      4096
 #define BLOCK_SIZE     4096
@@ -169,7 +172,6 @@ uint64_t octal_to_int(const char* str);
 //        Data Utils
 // --------------------------
 
-void* kernel_memset64(void* ptr, uint64_t value, uint64_t num);
 void* kernel_memset(void* ptr, uint8_t value, uint64_t num);
 void kernel_memcpy(void* dest, const void* src, uint64_t n);
 void kernel_to_upper(char* s);
@@ -213,7 +215,6 @@ int expand_heap(uint64_t size);
 void* kernel_malloc(uint64_t size);
 void kernel_free(void* ptr);
 void* kernel_realloc(void* ptr, uint64_t new_size);
-void* kernel_malloc_aligned(uint64_t size, uint64_t alignment);
 
 
 // -------------------------
@@ -298,7 +299,7 @@ void get_time_info(time_info_t* out);
 // -------------------------
 
 void kernel_on_timer_tick(void);
-void kernel_on_ps2_irq(int irq_number);
+void kernel_on_input_irq(int irq_number);
 void kernel_handle_user_exception(uint64_t int_no, uint64_t instruction_pointer);
 
 

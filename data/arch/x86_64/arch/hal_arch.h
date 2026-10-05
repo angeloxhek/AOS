@@ -116,4 +116,6 @@ typedef struct {
 #define PHYS_HHDM_PDPT  0x84000
 #define PHYS_HHDM_PD    0x85000
 
+#define HAL_HEAP_START 0xFFFF800040000000ULL
+
 #endif

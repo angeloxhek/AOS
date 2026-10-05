@@ -1,4 +1,4 @@
-#include "hal_arch.h"
+#include <arch/hal_arch.h>
 
 extern uint8_t bcd_to_bin(uint8_t bcd);
 extern uint64_t rtc_to_unix(uint8_t sec, uint8_t min, uint8_t hour, uint8_t day, uint8_t month, uint8_t year);
@@ -125,6 +125,14 @@ uint64_t hal_get_frame_pointer(void) {
     uint64_t fp;
     __asm__ volatile("mov %%rbp, %0" : "=r"(fp));
     return fp;
+}
+
+uint64_t hal_get_stopped_thread_fp(thread_t* th) {
+    if (!th || th->rsp < th->stack_base || th->rsp >= th->stack_base + 16384) {
+        return 0;
+    }
+    uint64_t* sp = (uint64_t*)th->rsp;
+    return sp[5]; 
 }
 
 void hal_stack_trace_init(hal_stack_frame_t* frame) {

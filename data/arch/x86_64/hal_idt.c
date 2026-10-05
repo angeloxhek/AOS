@@ -1,4 +1,4 @@
-#include "hal_arch.h"
+#include <arch/hal_arch.h>
 
 #define IDT_INTERRUPTS \
     X(0)  X(1)  X(2)  X(3)  X(4)  X(5)  X(6)  X(7)  \
@@ -12,7 +12,7 @@ struct idt_entry idt[256];
 struct idt_ptr   idtp;
 
 extern void kernel_on_timer_tick(void);
-extern void kernel_on_ps2_irq(int irq_number);
+extern void kernel_on_input_irq(int irq_number);
 extern void kernel_handle_user_exception(uint64_t int_no, uint64_t rip);
 extern void kernel_error(uint64_t code, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4);
 
@@ -111,10 +111,10 @@ void isr_handler(registers_t *r) {
             kernel_on_timer_tick();
         } 
         else if (r->int_no == 33) {
-            kernel_on_ps2_irq(1);
+            kernel_on_input_irq(1);
         } 
         else if (r->int_no == 44) {
-            kernel_on_ps2_irq(12);
+            kernel_on_input_irq(12);
         }
     }
 }

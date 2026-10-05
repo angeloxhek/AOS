@@ -4,13 +4,19 @@
 #include <stdint.h>
 
 #define BOOT_MAGIC 0xB007CAFE
-#define BOOT_VERSION 2
+#define BOOT_VERSION 3
 
 typedef enum {
     BOOT_TYPE_UNKNOWN = 0,
-    BOOT_TYPE_MBR     = 1,
-    BOOT_TYPE_UEFI    = 2
+    BOOT_TYPE_MBR,
+    BOOT_TYPE_UEFI
 } boot_type_t;
+
+typedef enum {
+	BOOT_DISK_TYPE_UNKNOWN = 0,
+	BOOT_DISK_TYPE_MBR,
+	BOOT_DISK_TYPE_GPT
+} boot_disk_type_t;
 
 /* --- 1. ОБЩИЕ СТРУКТУРЫ (COMMON) --- */
 
@@ -38,12 +44,26 @@ typedef struct {
     uint32_t desc_version;   // Версия (для UEFI)
 } __attribute__((packed)) boot_mmap_t; // Размер: 24 байта
 
+typedef struct {
+	uint8_t type; // boot_disk_type_t
+	uint8_t reserved[3];
+	union {
+		struct {
+			uint64_t part_lba;
+			uint32_t drive_sign;
+			uint8_t reserved[4];
+		} __attribute__((packed)) mbr;
+		struct {
+			uint8_t uuid[16];
+		} __attribute__((packed)) gpt;
+	} specific;
+} __attribute__((packed)) boot_disk_t; // Размер: 20 байт
+
 /* --- 2. СПЕЦИФИЧНЫЕ ПОЛЯ (SPECIFIC) --- */
 
 /* Только для BIOS/MBR */
 typedef struct {
-    uint8_t  drive_num;      // Например, 0x80
-    uint8_t  reserved[15];   // Выравнивание (опционально)
+    uint8_t  reserved[24];   // Выравнивание (опционально)
 } __attribute__((packed)) mbr_info_t;
 
 /* Только для UEFI */
@@ -83,7 +103,10 @@ typedef struct {
         mbr_info_t  mbr;
         uefi_info_t uefi;
     } specific;               // Оффсет 122
+	
+	// [146] Загрузочный раздел
+	boot_disk_t disk;         // Оффсет 146
 
-} __attribute__((packed)) boot_info_t;
+} __attribute__((packed)) boot_info_t; // 166 байт
 
 #endif

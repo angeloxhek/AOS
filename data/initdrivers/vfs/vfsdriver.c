@@ -9,12 +9,15 @@
 #include <aos/ipc.h>
 #include <aos/vfs.h>
 #include <aos/syscalls.h>
+#include <aos/sysinfo.h>
 
 #include <vfs/fs_interface.h>
 #include <vfs/disk_interface.h>
 #include <vfs/part_interface.h>
 
-AOS_DECLARE_DRIVER(DT_VFS, DRV_PERM_IO_PORTS, 0xFFFF);
+AOS_DECLARE_DRIVER(DT_VFS, DRV_PERM_IO_PORTS | DRV_PERM_GET_SPEC_INFO, 0xFFFF);
+
+sys_boot_disk_t boot_disk_info;
 
 typedef enum {
     VFS_TYPE_DIR,
@@ -381,7 +384,7 @@ void vfs_on_partition_found(block_dev_t* raw_disk, uint8_t part_id, uint64_t sta
             if (fs_drv->get_label) fs_drv->get_label(fs_inst, label);
             if (strcmp(label, "NO_NAME") != 0) vfs_symlink(ctx->mnt_node, label, target); // /mnt/DISK_C
             
-            if (is_bootable || start_lba == 0) vfs_symlink(vfs_root, "boot", target); // /boot -> активный диск
+            if (is_bootable) vfs_symlink(vfs_root, "boot", target); // /boot -> активный диск
             break;
         }
     }
@@ -413,6 +416,12 @@ void vfs_init_tree() {
     
     int global_disk_id = 0;
     int global_part_id = 0;
+	
+	part_boot_desc_t boot_dsk;
+	boot_dsk.type = boot_disk_info.type;
+	boot_dsk.specific.mbr.drive_sign = boot_disk_info.specific.mbr.drive_sign;
+	boot_dsk.specific.mbr.part_lba = boot_disk_info.specific.mbr.part_lba;
+	memcpy(boot_dsk.specific.gpt.guid, boot_disk_info.specific.gpt.uuid, sizeof(boot_dsk.specific.gpt.guid));
 
     for (int d = 0; available_disks[d] != 0; d++) {
         disk_driver_t* disk_drv = available_disks[d];
@@ -449,14 +458,14 @@ void vfs_init_tree() {
 
             int parsed = 0;
             for (int p = 0; available_parsers[p] != 0; p++) {
-                if (available_parsers[p]->parse(raw_disk, vfs_on_partition_found, &ctx)) {
+                if (available_parsers[p]->parse(raw_disk, &boot_dsk, vfs_on_partition_found, &ctx)) {
                     parsed = 1;
                     break;
                 }
             }
             
             if (!parsed) {
-                vfs_on_partition_found(raw_disk, 0, 0, total_sec, 1, &ctx);
+                vfs_on_partition_found(raw_disk, 0, 0, total_sec, 0, &ctx);
             }
         }
     }
@@ -1104,6 +1113,9 @@ void handle_vfs_request(message_t* in) {
 }
 
 int driver_main(void* reserved1, void* reserved2) {
+	if(sysget_spec_info(SPEC_INFO_BOOT_DISK, &boot_disk_info, sizeof(sys_boot_disk_t)) != SYS_RES_OK) {
+		printf("VFS: Boot disk is invalid!\n");
+	}
 	
     vfs_init_tree();
     printf("VFS: Tree initialized.\n");

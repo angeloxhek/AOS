@@ -8,6 +8,7 @@
 #include <aos/ipc.h>
 #include <aos/syscalls.h>
 #include <aos/videodriver.h>
+#include <aos/sysinfo.h>
 
 #define VBE_DISPI_IOPORT_INDEX 0x01CE
 #define VBE_DISPI_IOPORT_DATA  0x01CF
@@ -204,7 +205,7 @@ void handle_video_request(message_t* in) {
 int driver_main(void* reserved1, void* reserved2) {
     printf("VideoDriver: Initializing...\n");
 
-    if (sysget_spec_info(SPEC_INFO_VIDEO, &vinfo) != SYS_RES_OK) {
+    if (sysget_spec_info(SPEC_INFO_VIDEO, &vinfo, sizeof(sys_video_t)) != SYS_RES_OK) {
         printf("VideoDriver: Failed to get video info!\n");
         return -1;
     }

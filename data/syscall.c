@@ -566,6 +566,7 @@ void generic_syscall_handler(syscall_args_t* args) {
 		case SYS_GET_SPEC_INFO: {
             uint64_t info_id = args->arg1;
             void* out_buffer = (void*)args->arg2;
+			uint64_t out_size = args->arg3;
             
             if (!hal_is_valid_user_pointer(out_buffer)) {
                 args->ret = SYS_RES_INVALID;
@@ -584,6 +585,10 @@ void generic_syscall_handler(syscall_args_t* args) {
 			}
             
             if (info_id == SPEC_INFO_VIDEO) {
+				if (out_size < sizeof(sys_video_t)) {
+					args->ret = SYS_RES_INVALID;
+					break;
+				}
                 sys_video_t* uinfo = (sys_video_t*)out_buffer;
                 
                 uinfo->framebuffer_addr = video->framebuffer_addr;
@@ -599,7 +604,21 @@ void generic_syscall_handler(syscall_args_t* args) {
                 uinfo->blue_mask_shift = video->blue_mask_shift;
                 
                 args->ret = SYS_RES_OK;
-            } 
+            }
+			else if (info_id == SPEC_INFO_BOOT_DISK) {
+				if (out_size < sizeof(sys_boot_disk_t)) {
+					args->ret = SYS_RES_INVALID;
+					break;
+				}
+				sys_boot_disk_t* uinfo = (sys_boot_disk_t*)out_buffer;
+                
+				uinfo->type = disk->type;
+				uinfo->specific.mbr.part_lba = disk->specific.mbr.part_lba;
+				uinfo->specific.mbr.drive_sign = disk->specific.mbr.drive_sign;
+				kernel_memcpy(uinfo->specific.gpt.uuid, disk->specific.gpt.uuid, sizeof(disk->specific.gpt.uuid));
+                
+                args->ret = SYS_RES_OK;
+			}
             else {
                 args->ret = SYS_RES_NOTFOUND;
             }

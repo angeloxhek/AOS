@@ -1,4 +1,4 @@
-#include "hal_arch.h"
+#include <arch/hal_arch.h>
 
 extern void syscall_entry(void);
 extern void generic_syscall_handler(syscall_args_t* args);

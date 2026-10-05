@@ -268,7 +268,7 @@ int driver_main(void* reserved1, void* reserved2) {
 
     video_init();
 
-    if (sysget_spec_info(SPEC_INFO_VIDEO, &vinfo) != SYS_RES_OK) {
+    if (sysget_spec_info(SPEC_INFO_VIDEO, &vinfo, sizeof(sys_video_t)) != SYS_RES_OK) {
         printf("WindowManager: Failed to get video info!\n");
         return -1;
     }

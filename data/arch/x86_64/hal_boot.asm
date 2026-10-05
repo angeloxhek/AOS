@@ -8,7 +8,7 @@ extern __bss_end
 %define KERNEL_VMA 0xFFFFFFFF80000000
 %define KERNEL_BASE 0x10000
 %define BOOT_INFO_ADDR 0x7000
-%define BOOT_STRUCT_VERSION 2
+%define BOOT_STRUCT_VERSION 3
 %define BOOT_MAGIC 0xB007CAFE
 
 %define VBE_INFO_BLOCK  0x5000  ; 512 байт
@@ -39,9 +39,11 @@ entry:
     cli
 	cld
 	
+	mov [cs:V2P16(part_lba)], eax
 	mov [cs:V2P16(initrd_phys_tmp)], ebx
 	mov [cs:V2P16(initrd_size_tmp)], ecx
 	mov [cs:V2P16(boot_drive)], dl
+	mov [cs:V2P16(boot_sign)], edi
 	
 	mov al, 0xFF
 	out 0xA1, al
@@ -63,7 +65,7 @@ entry:
 	
 	mov edi, BOOT_INFO_ADDR
     xor eax, eax
-    mov ecx, 40             ; 40 dword-ов = 160 байт
+    mov ecx, 42             ; 42 dword-ов = 168 байт
     rep stosd
 	mov edi, BOOT_INFO_ADDR
 	
@@ -117,8 +119,12 @@ entry:
     or dword [edi + 118], BOOT_FLAG_SMBIOS
 .no_smbios:
 
-    ; [122] Specific (MBR)
-    mov al, [cs:V2P16(boot_drive)]
+	; [146] Boot Disk
+    mov byte  [edi + 146], 1 ; MBR
+	mov eax, [cs:V2P16(part_lba)]
+    mov dword [edi + 150], eax
+	mov eax, [cs:V2P16(boot_sign)]
+    mov dword [edi + 158], eax
     
     in al, 0x92
     or al, 2
@@ -664,6 +670,8 @@ acpi_found_addr: dd 0
 smbios_found_addr: dd 0
 initrd_phys_tmp: dd 0
 initrd_size_tmp: dd 0
+part_lba: dd 0
+boot_sign: dd 0
 
 align 16
 gdt32_start:

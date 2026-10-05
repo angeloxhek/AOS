@@ -2,7 +2,8 @@
 #define HAL_H
 
 #include <stdint.h>
-#include "bootparams.h"
+#include <kernel/bootparams.h>
+#include <arch/hal_arch.h>
 
 struct thread_t;
 struct process_t;
@@ -83,4 +84,14 @@ void hal_stack_trace_init(hal_stack_frame_t* frame);
 int hal_stack_trace_next(hal_stack_frame_t* frame, const char** stop_reason);
 int hal_is_valid_kernel_frame(uint64_t fp);
 uint64_t hal_get_frame_pointer(void);
+
+uint64_t hal_get_pmm_bitmap_addr(void);
+void hal_pmm_init_regions(uint64_t total_ram);
+uint64_t hal_get_stopped_thread_fp(struct thread_t* th);
+
+#if defined(__LP64__) || defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__)
+    #define HAL_USER_TLS_BASE 0x00007FFFFF000000ULL
+#else
+    #define HAL_USER_TLS_BASE 0x7FFF0000UL
+#endif
 #endif

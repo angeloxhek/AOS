@@ -1,4 +1,4 @@
-#include "hal_arch.h"
+#include <arch/hal_arch.h>
 
 struct gdt_entry gdt[7];
 struct gdt_ptr   gp;

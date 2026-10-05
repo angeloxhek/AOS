@@ -1,4 +1,5 @@
-#include <kernel/internal.h>
+#include <arch/hal_arch.h>
+#include <kernel/hal.h>
 
 #define COM1_PORT 0x3F8
 
