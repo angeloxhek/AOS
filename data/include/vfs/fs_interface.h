@@ -3,7 +3,8 @@
 
 #include <stdint.h>
 #include <vfs/disk_interface.h>
-typedef void* fs_file_handle_t; 
+typedef void* fs_file_handle_t;
+typedef void* fs_context_t; 
 
 typedef void* fs_instance_t;
 
@@ -20,7 +21,8 @@ typedef struct {
 } fs_stat_t;
 
 typedef struct {
-    fs_instance_t (*mount)(block_dev_t* dev);
+    const char name[64];
+    fs_instance_t (*mount)(block_dev_t* dev, fs_context_t context);
     void (*umount)(fs_instance_t fs);
     fs_file_handle_t (*open)(fs_instance_t fs, const char* path, uint32_t flags);
     fs_file_handle_t (*openat)(fs_instance_t fs, fs_file_handle_t dir_handle, const char* path, uint32_t flags);

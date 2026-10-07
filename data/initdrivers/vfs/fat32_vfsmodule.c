@@ -481,7 +481,8 @@ void fat32_truncate_file(fat32_instance_t* inst, fat32_file_t* file) {
     fat32_write_cached_sector(inst, file->dir_entry_lba, sec_buf);
 }
 
-fs_instance_t fat32_mount(block_dev_t* dev) {
+fs_instance_t fat32_mount(block_dev_t* dev, fs_context_t context) {
+	UNUSED(context);
     uint8_t* buf = malloc(FAT32_MAX_SECTOR_SIZE);
     if (block_read(dev, 0, 1, buf) != 0) {
         free(buf);

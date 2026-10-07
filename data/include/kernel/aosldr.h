@@ -279,8 +279,6 @@ uint8_t* load_file_initrd(void* initrd, const char* name, uint64_t* out_size);
 //         Spinlock
 // -------------------------
 
-uint64_t spinlock_irq_save(void);
-void spinlock_irq_restore(uint64_t flags);
 void spinlock_acquire(spinlock_t* lock);
 void spinlock_release(spinlock_t* lock);
 
@@ -312,7 +310,6 @@ int64_t ipc_requeue(message_t* user_msg);
 int64_t ipc_send(apid_t dest_pid, message_t* msg);
 int64_t ipc_try_receive(message_t* out_msg);
 int64_t ipc_receive(message_t* out_msg);
-int64_t ipc_receive_ex(apid_t pid, msg_type_t type, msg_subtype_t subtype, message_t* out_msg);
 
 // -------------------------
 //       Shared Memory

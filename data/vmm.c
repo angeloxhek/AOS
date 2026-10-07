@@ -8,7 +8,7 @@ uint64_t temp_bitmap[TEMP_PAGES_COUNT / 64] = {0};
 // -------------------------
 
 void* temp_map(uint64_t phys_addr) {
-    uint64_t irq = spinlock_irq_save();
+    uint64_t irq = hal_irq_save();
     spinlock_acquire(&temp_lock);
 
     int bit = -1;
@@ -22,7 +22,7 @@ void* temp_map(uint64_t phys_addr) {
     }
 
     spinlock_release(&temp_lock);
-    spinlock_irq_restore(irq);
+    hal_irq_restore(irq);
 
     if (bit == -1) {
         kernel_error(0x5, 0x2, 0, 0, 0);
@@ -46,13 +46,13 @@ void temp_unmap(void* virt_ptr) {
 
     hal_unmap_page(virt_addr);
 
-    uint64_t irq = spinlock_irq_save();
+    uint64_t irq = hal_irq_save();
     spinlock_acquire(&temp_lock);
     
     temp_bitmap[bit / 64] &= ~(1ULL << (bit % 64));
     
     spinlock_release(&temp_lock);
-    spinlock_irq_restore(irq);
+    hal_irq_restore(irq);
 }
 
 void process_map_memory(process_t* proc, uint64_t virt, uint64_t size) {

@@ -239,12 +239,12 @@ void* kernel_malloc(uint64_t size) {
 		__builtin_unreachable();
 	}
     size = (size + 15) & ~15;
-    uint64_t irq = spinlock_irq_save();
+    uint64_t irq = hal_irq_save();
     spinlock_acquire(&heap_lock);
     if (!malloc_initialized) {
         if (!expand_heap(size)) {
             spinlock_release(&heap_lock);
-            spinlock_irq_restore(irq);
+            hal_irq_restore(irq);
             return 0;
         }
         free_list_start->size = (heap_current_limit - HAL_HEAP_START) - sizeof(malloc_header_t);
@@ -268,7 +268,7 @@ restart_search:
             }
             current->is_free = 0;
             spinlock_release(&heap_lock);
-            spinlock_irq_restore(irq);
+            hal_irq_restore(irq);
             return (void*)((uint8_t*)current + sizeof(malloc_header_t));
         }
         last = current;
@@ -280,7 +280,7 @@ restart_search:
         malloc_header_t* new_block = (malloc_header_t*)((uint8_t*)last + sizeof(malloc_header_t) + last->size);
         if ((uint64_t)new_block >= heap_current_limit) {
             spinlock_release(&heap_lock);
-            spinlock_irq_restore(irq);
+            hal_irq_restore(irq);
             return 0;
         }
         new_block->size = (heap_current_limit - (uint64_t)new_block) - sizeof(malloc_header_t);
@@ -291,13 +291,13 @@ restart_search:
     }
 
     spinlock_release(&heap_lock);
-    spinlock_irq_restore(irq);
+    hal_irq_restore(irq);
     return 0;
 }
 
 void kernel_free(void* ptr) {
     if (!ptr) return;
-    uint64_t irq = spinlock_irq_save();
+    uint64_t irq = hal_irq_save();
     spinlock_acquire(&heap_lock);
     
     malloc_header_t* header = (malloc_header_t*)((uint8_t*)ptr - sizeof(malloc_header_t));
@@ -315,7 +315,7 @@ void kernel_free(void* ptr) {
     }
     
     spinlock_release(&heap_lock);
-    spinlock_irq_restore(irq);
+    hal_irq_restore(irq);
 }
 
 
@@ -479,14 +479,6 @@ uint8_t* load_file_initrd(void* initrd, const char* name, uint64_t* out_size) {
 //         Spinlock
 // -------------------------
 
-uint64_t spinlock_irq_save(void) {
-    return hal_irq_save();
-}
-
-void spinlock_irq_restore(uint64_t flags) {
-    hal_irq_restore(flags);
-}
-
 void spinlock_acquire(spinlock_t* lock) {
     while (__sync_lock_test_and_set(lock, 1)) {
         hal_cpu_relax();
@@ -646,10 +638,10 @@ void kernel_main(boot_info_t* boot_info) {
 
 __attribute__((noreturn)) void idle_thread() {
     while(1) {
-		uint64_t irq = spinlock_irq_save();
+		uint64_t irq = hal_irq_save();
         thread_t* z = zombies_list;
         zombies_list = 0;
-        spinlock_irq_restore(irq);
+        hal_irq_restore(irq);
 
         while (z) {
             thread_t* next_z = z->next_zombie;

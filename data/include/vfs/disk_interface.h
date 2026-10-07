@@ -17,7 +17,7 @@ typedef struct {
 } block_dev_t;
 
 struct disk_driver {
-    const char* name;
+    const char name[64];
     
     int (*init)(void); 
     

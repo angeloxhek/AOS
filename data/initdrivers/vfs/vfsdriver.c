@@ -368,7 +368,7 @@ void vfs_on_partition_found(block_dev_t* raw_disk, uint8_t part_id, uint64_t sta
 
     for (int i = 0; available_filesystems[i] != 0; i++) {
         fs_driver_t* fs_drv = available_filesystems[i];
-        fs_instance_t fs_inst = fs_drv->mount(part_dev);
+        fs_instance_t fs_inst = fs_drv->mount(part_dev, 0);
         
         if (fs_inst) {
             vfs_node_t* fs_node = vfs_mkdir(p_node, "fs");
@@ -405,7 +405,7 @@ void vfs_init_tree() {
     vfs_node_t* tasks = vfs_mkdir(vfs_root, "tasks");
     tasks->type = VFS_TYPE_MOUNT_POINT;
     tasks->mount.driver = &procfs_driver;
-    tasks->mount.fs_inst = procfs_driver.mount(0);
+    tasks->mount.fs_inst = procfs_driver.mount(0, 0);
     
     vfs_node_t* mnt  = vfs_mkdir(vfs_root, "mnt");
     vfs_node_t* mnt_id = vfs_mkdir(mnt, "id");

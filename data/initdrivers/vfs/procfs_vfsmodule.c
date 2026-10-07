@@ -214,7 +214,7 @@ parse_done:
     return handle;
 }
 
-fs_instance_t procfs_mount(block_dev_t* dev) { UNUSED(dev); return (fs_instance_t)1; }
+fs_instance_t procfs_mount(block_dev_t* dev, fs_context_t context) { UNUSED(dev); UNUSED(context); return (fs_instance_t)1; }
 void procfs_umount(fs_instance_t fs) { UNUSED(fs); }
 
 fs_file_handle_t procfs_open(fs_instance_t fs, const char* path, uint32_t flags) {

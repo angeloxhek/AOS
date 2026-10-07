@@ -687,42 +687,68 @@ void generic_syscall_handler(syscall_args_t* args) {
             hal_irq_restore(irq);
             break;
         }
-	case SYS_SET_THREAD_PRIORITY: {
-            atid_t target_tid = (atid_t)args->arg1;
-            thread_prio_t new_prio = (thread_prio_t)args->arg2;
-            
-            if (new_prio >= THREAD_PRIO_LEVELS) {
+		case SYS_SET_THREAD_PRIORITY: {
+				atid_t target_tid = (atid_t)args->arg1;
+				thread_prio_t new_prio = (thread_prio_t)args->arg2;
+				
+				if (new_prio >= THREAD_PRIO_LEVELS) {
+					args->ret = SYS_RES_INVALID;
+					break;
+				}
+				
+				thread_t* target = (target_tid == 0) ? current_thread : get_thread_by_id(target_tid);
+				if (!target) {
+					args->ret = SYS_RES_NOTFOUND;
+					break;
+				}
+				
+				target->priority = new_prio;
+				args->ret = SYS_RES_OK;
+				break;
+			}
+		case SYS_SET_DRIVER_STATUS: {
+			apid_t target_pid = (apid_t)args->arg1;
+			driver_status_t status = (driver_status_t)args->arg2;
+
+			if (target_pid != 0) {
+				args->ret = SYS_RES_KERNEL_ERR;
+				break;
+			}
+			driver_info_t* target = (target_pid == 0) ? get_driver_by_pid(current_thread->owner->id) : get_driver_by_pid(target_pid);
+			if (!target) {
+				args->ret = SYS_RES_NOTFOUND;
+				break;
+			}
+			target->status = status;
+			args->ret = SYS_RES_OK;
+			break;
+		}
+		case SYS_IPC_REPLY: {
+            message_t* in_msg = (message_t*)args->arg1;
+            message_t* out_msg = (message_t*)args->arg2;
+			if (!hal_is_valid_user_pointer(in_msg) || 
+                !hal_is_valid_user_pointer((uint8_t*)in_msg + sizeof(message_t) - 1)) {
                 args->ret = SYS_RES_INVALID;
                 break;
             }
-            
-            thread_t* target = (target_tid == 0) ? current_thread : get_thread_by_id(target_tid);
-            if (!target) {
-                args->ret = SYS_RES_NOTFOUND;
+            if (!hal_is_valid_user_pointer(out_msg) || 
+                !hal_is_valid_user_pointer((uint8_t*)out_msg + sizeof(message_t) - 1)) {
+                args->ret = SYS_RES_INVALID;
                 break;
             }
-            
-            target->priority = new_prio;
-            args->ret = SYS_RES_OK;
+            args->ret = ipc_reply(in_msg, out_msg);
             break;
         }
-	case SYS_SET_DRIVER_STATUS: {
-		apid_t target_pid = (apid_t)args->arg1;
-        	driver_status_t status = (driver_status_t)args->arg2;
-
-		if (target_pid != 0) {
-			args->ret = SYS_RES_KERNEL_ERR;
-			break;
-		}
-		driver_info_t* target = (target_pid == 0) ? get_driver_by_pid(current_thread->owner->id) : get_driver_by_pid(target_pid);
-		if (!target) {
-                	args->ret = SYS_RES_NOTFOUND;
-                	break;
-            	}
-		target->status = status;
-		args->ret = SYS_RES_OK;
-		break;
-	}		
+		case SYS_IPC_REQUEUE: {
+            message_t* msg = (message_t*)args->arg1;
+			if (!hal_is_valid_user_pointer(msg) || 
+                !hal_is_valid_user_pointer((uint8_t*)msg + sizeof(message_t) - 1)) {
+                args->ret = SYS_RES_INVALID;
+                break;
+            }
+            args->ret = ipc_requeue(msg);
+            break;
+        }
         default: {
             args->ret = SYS_RES_INVALID;
             break;

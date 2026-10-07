@@ -28,11 +28,11 @@ void _kclear() {
 
 void kclear() {
     if (!(state.system_flags & CAN_PRINT)) return;
-    uint64_t irq_state = spinlock_irq_save();
+    uint64_t irq_state = hal_irq_save();
     spinlock_acquire(&kprint_lock);
     _kclear();
     spinlock_release(&kprint_lock);
-    spinlock_irq_restore(irq_state);
+    hal_irq_restore(irq_state);
 }
 
 void kprint_scroll(void) {
@@ -112,11 +112,11 @@ void kprint(const char* str) {
 		serial_print(str);
 		return;
 	}
-    uint64_t irq_state = spinlock_irq_save();
+    uint64_t irq_state = hal_irq_save();
     spinlock_acquire(&kprint_lock);
     _kprint(str);
     spinlock_release(&kprint_lock);
-    spinlock_irq_restore(irq_state);
+    hal_irq_restore(irq_state);
 }
 
 void _kprint_error(const char* str) {
@@ -132,11 +132,11 @@ void kprint_error(const char* str) {
 		serial_print(str);
 		return;
 	}
-    uint64_t irq_state = spinlock_irq_save();
+    uint64_t irq_state = hal_irq_save();
     spinlock_acquire(&kprint_lock);
     _kprint_error(str);
     spinlock_release(&kprint_lock);
-    spinlock_irq_restore(irq_state);
+    hal_irq_restore(irq_state);
 }
 
 

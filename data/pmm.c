@@ -36,35 +36,35 @@ void init_pmm(uint64_t mem_size, uint64_t bitmap_base) {
 }
 
 uint64_t pmm_alloc_block() {
-    uint64_t irq = spinlock_irq_save();
+    uint64_t irq = hal_irq_save();
     spinlock_acquire(&pmm_lock);
     if (max_blocks <= used_blocks) {
         spinlock_release(&pmm_lock);
-        spinlock_irq_restore(irq);
+        hal_irq_restore(irq);
         return 0;
     }
     int64_t frame = mmap_first_free();
     if (frame == -1) {
         spinlock_release(&pmm_lock);
-        spinlock_irq_restore(irq);
+        hal_irq_restore(irq);
         return 0;
     }
     mmap_set(frame);
     used_blocks++;
     uint64_t addr = (uint64_t)frame * BLOCK_SIZE;
     spinlock_release(&pmm_lock);
-    spinlock_irq_restore(irq);
+    hal_irq_restore(irq);
     return addr;
 }
 
 void pmm_free_block(uint64_t p_addr) {
-    uint64_t irq = spinlock_irq_save();
+    uint64_t irq = hal_irq_save();
     spinlock_acquire(&pmm_lock);
     uint64_t frame = p_addr / BLOCK_SIZE;
     mmap_unset(frame);
     if (used_blocks > 0) used_blocks--;
     spinlock_release(&pmm_lock);
-    spinlock_irq_restore(irq);
+    hal_irq_restore(irq);
 }
 
 void pmm_init_region(uint64_t base, uint64_t size) {
@@ -86,10 +86,10 @@ void pmm_deinit_region(uint64_t base, uint64_t size) {
 }
 
 uint64_t pmm_get_free_blocks() {
-    uint64_t irq = spinlock_irq_save();
+    uint64_t irq = hal_irq_save();
     spinlock_acquire(&pmm_lock);
     uint64_t free_blocks = max_blocks - used_blocks;
     spinlock_release(&pmm_lock);
-    spinlock_irq_restore(irq);
+    hal_irq_restore(irq);
     return free_blocks;
 }
