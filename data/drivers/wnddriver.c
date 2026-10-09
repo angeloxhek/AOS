@@ -368,7 +368,7 @@ int driver_main(void* reserved1, void* reserved2) {
                     } else {
                         resp.param1 = -1;
                     }
-                    ipc_send(msg.sender_pid, &resp);
+                    ipc_reply(&msg, &resp);
                 }
                 else if (msg.subtype == MSG_SUBTYPE_QUERY && msg.param1 == WND_CMD_DESTROY) {
                     int win_id = (int)msg.param2;
@@ -388,7 +388,7 @@ int driver_main(void* reserved1, void* reserved2) {
                     resp.type = MSG_TYPE_WND;
                     resp.subtype = MSG_SUBTYPE_RESPONSE;
                     resp.param1 = 0;
-                    ipc_send(msg.sender_pid, &resp);
+                    ipc_reply(&msg, &resp);
                 }
                 else if (msg.subtype == MSG_SUBTYPE_SEND && msg.param1 == WND_CMD_FLUSH) {
 					int win_id = (int)msg.param2;
@@ -422,7 +422,7 @@ int driver_main(void* reserved1, void* reserved2) {
                     resp.subtype = MSG_SUBTYPE_RESPONSE;
                     resp.param1 = 0;
                     resp.param2 = ((uint64_t)vinfo.width << 16) | (vinfo.height & 0xFFFF);
-                    ipc_send(msg.sender_pid, &resp);
+                    ipc_reply(&msg, &resp);
                 }
 				else if (msg.subtype == MSG_SUBTYPE_QUERY && msg.param1 == WND_CMD_GET_THEME) {
                     uint64_t shm_id = *(uint64_t*)(msg.data);
@@ -439,7 +439,7 @@ int driver_main(void* reserved1, void* reserved2) {
                     } else {
                         resp.param1 = -1;
                     }
-                    ipc_send(msg.sender_pid, &resp);
+                    ipc_reply(&msg, &resp);
                 }
             }
         } while (ipc_tryrecv(&msg) == SYS_RES_OK); 

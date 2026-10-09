@@ -80,56 +80,6 @@ void init_mouse() {
 uint8_t mouse_packet[3];
 int mouse_cycle = 0;
 
-void handle_mouse_byte(uint8_t byte) {
-    mouse_packet[mouse_cycle] = byte;
-    if (mouse_cycle == 0 && !(byte & 0x08)) return; 
-    mouse_cycle++;
-
-    if (mouse_cycle == 3) { 
-        mouse_cycle = 0;
-
-        if (subscriber_pid != 0) {
-            uint8_t flags = mouse_packet[0];
-            int delta_x = mouse_packet[1];
-            int delta_y = mouse_packet[2];
-
-            if (flags & 0x10) delta_x |= 0xFFFFFF00; 
-            if (flags & 0x20) delta_y |= 0xFFFFFF00; 
-            delta_y = -delta_y;
-            uint8_t buttons = flags & 0x07;
-			
-            message_t msg;
-            memset(&msg, 0, sizeof(message_t));
-            
-            msg.type = MSG_TYPE_INPUT;
-            msg.subtype = MSG_SUBTYPE_SEND;
-            
-            msg.param1 = INPUT_EVENT_MOUSE;
-			
-            msg.param2 = (delta_x & 0xFFFF) | ((delta_y & 0xFFFF) << 16);
-			
-            msg.param3 = buttons;
-            
-            ipc_send(subscriber_pid, &msg);
-        }
-    }
-}
-
-void handle_keyboard_byte(uint8_t scancode) {
-    if (subscriber_pid != 0) {
-        message_t msg;
-        memset(&msg, 0, sizeof(message_t));
-        
-        msg.type = MSG_TYPE_INPUT;
-        msg.subtype = MSG_SUBTYPE_SEND;
-        
-        msg.param1 = INPUT_EVENT_KEY;
-        msg.param2 = scancode;
-        
-        ipc_send(subscriber_pid, &msg);
-    }
-}
-
 int driver_main(void* reserved1, void* reserved2) {
     printf("InputDriver: Starting...\n");
     init_mouse();
@@ -154,7 +104,7 @@ int driver_main(void* reserved1, void* reserved2) {
 				
 				out.param1 = INPUT_ERR_OK;
 				
-				ipc_send(subscriber_pid, &out);
+				ipc_reply(&msg, &out);
             }
         }
 
@@ -164,9 +114,51 @@ int driver_main(void* reserved1, void* reserved2) {
 				if (status & 0x01) {
 					uint8_t data = hal_inb(PS2_DATA_PORT);
 					if (status & 0x20) {
-						handle_mouse_byte(data);
+						mouse_packet[mouse_cycle] = data;
+						if (mouse_cycle == 0 && !(data & 0x08)) continue; 
+						mouse_cycle++;
+
+						if (mouse_cycle == 3) { 
+							mouse_cycle = 0;
+
+							if (subscriber_pid != 0) {
+								uint8_t flags = mouse_packet[0];
+								int delta_x = mouse_packet[1];
+								int delta_y = mouse_packet[2];
+
+								if (flags & 0x10) delta_x |= 0xFFFFFF00; 
+								if (flags & 0x20) delta_y |= 0xFFFFFF00; 
+								delta_y = -delta_y;
+								uint8_t buttons = flags & 0x07;
+								
+								message_t out;
+								memset(&out, 0, sizeof(message_t));
+								
+								out.type = MSG_TYPE_INPUT;
+								out.subtype = MSG_SUBTYPE_SEND;
+								
+								out.param1 = INPUT_EVENT_MOUSE;
+								
+								out.param2 = (delta_x & 0xFFFF) | ((delta_y & 0xFFFF) << 16);
+								
+								out.param3 = buttons;
+								
+								ipc_reply(&msg, &out);
+							}
+						}
 					} else {
-						handle_keyboard_byte(data);
+						 if (subscriber_pid != 0) {
+							message_t out;
+							memset(&out, 0, sizeof(message_t));
+							
+							out.type = MSG_TYPE_INPUT;
+							out.subtype = MSG_SUBTYPE_SEND;
+							
+							out.param1 = INPUT_EVENT_KEY;
+							out.param2 = data;
+							
+							ipc_reply(&msg, &out);
+						}
 					}
 				}
 			}

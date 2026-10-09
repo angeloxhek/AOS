@@ -17,7 +17,7 @@ int64_t ipc_forward(apid_t dest_pid, message_t* user_msg) {
     if (!target) {
         hal_irq_restore(irq);
         kernel_free(node);
-        return SYS_RES_INVALID;
+        return SYS_RES_NOTFOUND;
     }
 
     if (target->peb_phys_page != 0) {

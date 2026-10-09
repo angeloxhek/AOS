@@ -199,7 +199,7 @@ void handle_video_request(message_t* in) {
         }
     }
     
-    ipc_send(in->sender_pid, &out);
+    ipc_reply(in, &out);
 }
 
 int driver_main(void* reserved1, void* reserved2) {
@@ -263,7 +263,7 @@ int driver_main(void* reserved1, void* reserved2) {
 
     message_t msg;
     while(1) {
-        ipc_recv_ex(0, MSG_TYPE_VIDEO, MSG_SUBTYPE_NONE, &msg);
+        ipc_recv_ex(0, MSG_TYPE_VIDEO, MSG_SUBTYPE_NONE, 0, &msg);
         
         handle_video_request(&msg);
     }
