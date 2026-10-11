@@ -77,6 +77,7 @@ int64_t ipc_send(apid_t dest_pid, message_t* user_msg) {
 	spinlock_acquire(&idsp);
     user_msg->sender_pid = current_thread->owner->id;
 	user_msg->id = id++;
+	user_msg->flags |= MSG_FLAG_NEW_ID;
 	spinlock_release(&idsp);
 	int64_t res = ipc_forward(dest_pid, user_msg);
     return (res == SYS_RES_OK) ? user_msg->id : res;
@@ -86,6 +87,8 @@ int64_t ipc_reply(message_t* in_msg, message_t* out_msg) {
 	if (!in_msg || !out_msg) return SYS_RES_INVALID;
     out_msg->sender_pid = current_thread->owner->id;
 	out_msg->id = in_msg->id;
+	out_msg->flags &= ~MSG_FLAG_NEW_ID;
+	if (out_msg->flags == MSG_FLAG_NONE) out_msg->flags |= MSG_FLAG_NORMAL;
     int64_t res = ipc_forward(in_msg->sender_pid, out_msg);
     return (res == SYS_RES_OK) ? out_msg->id : res;
 }

@@ -996,14 +996,14 @@ int driver_main(void* reserved1, void* reserved2) {
 	if (auth_res != 0) {
         printf("AUTHDRIVER: Failed to create localroot! Error code: %d\n", auth_res);
     } else {
-        printf("AUTHDRIVER: localroot created successfully. Raw auth_id_t=%llx (uid=%x; gid=%x)\n", temp_root->id.raw, temp_root->id.user.uid, temp_root->id.user.gid);
+        printf("AUTHDRIVER: localroot created successfully. Raw auth_id_t=0x%llx (uid=%x; gid=%x)\n", temp_root->id.raw, temp_root->id.user.uid, temp_root->id.user.gid);
     }
 
     set_thread_priority(0, THREAD_PRIO_REALTIME);
 	
     message_t msg;
     while(1) {
-        ipc_recv_ex(0, MSG_TYPE_AUTH, MSG_SUBTYPE_NONE, 0, &msg);
+        ipc_recv_ex(0, MSG_TYPE_AUTH, MSG_SUBTYPE_NONE, 0, MSG_FLAG_NEW_ID, &msg);
 
         handle_message(&msg);
     }

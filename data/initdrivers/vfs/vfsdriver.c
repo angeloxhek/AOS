@@ -1124,7 +1124,7 @@ int driver_main(void* reserved1, void* reserved2) {
 
 	message_t msg;
     while (1) {
-        ipc_recv_ex(0, MSG_TYPE_VFS, MSG_SUBTYPE_NONE, 0, &msg);
+        ipc_recv_ex(0, MSG_TYPE_VFS, MSG_SUBTYPE_NONE, 0, MSG_FLAG_NEW_ID, &msg);
 		handle_vfs_request(&msg);
     }
 }
