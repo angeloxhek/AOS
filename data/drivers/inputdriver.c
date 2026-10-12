@@ -11,72 +11,56 @@
 #define PS2_DATA_PORT   0x60
 #define PS2_CMD_PORT    0x64
 
-// Даем драйверу права на работу с портами ввода-вывода
 AOS_DECLARE_DRIVER(DT_INPUT, DRV_PERM_IO_PORTS, PS2_CMD_PORT, PS2_DATA_PORT);
 
-// Кто слушает события (наш Оконный Менеджер)
 static apid_t subscriber_pid = 0;
 
-// Ожидание готовности PS/2 к записи
 void ps2_wait_write() {
     int timeout = 100000;
     while ((hal_inb(PS2_CMD_PORT) & 2) && timeout--);
 }
-
-// Ожидание наличия данных для чтения
 void ps2_wait_read() {
     int timeout = 100000;
     while (!(hal_inb(PS2_CMD_PORT) & 1) && timeout--);
 }
-
 void ps2_write_cmd(uint8_t cmd) {
     ps2_wait_write();
     hal_outb(PS2_CMD_PORT, cmd);
 }
-
 void ps2_write_data(uint8_t data) {
     ps2_wait_write();
     hal_outb(PS2_DATA_PORT, data);
 }
-
 uint8_t ps2_read_data() {
     ps2_wait_read();
     return hal_inb(PS2_DATA_PORT);
 }
 
-// --- Инициализация мыши ---
 void init_mouse() {
     printf("InputDriver: Initializing PS/2 Mouse...\n");
 
-    // 1. Включаем вспомогательное устройство (мышь)
     ps2_write_cmd(0xA8);
 
-    // 2. Читаем байт конфигурации контроллера
     ps2_write_cmd(0x20);
     uint8_t status = ps2_read_data();
 
-    // 3. Включаем прерывания IRQ12 (бит 1) и сбрасываем бит отключения мыши (бит 5)
     status |= (1 << 1); 
     status &= ~(1 << 5); 
     
-    // 4. Записываем обновленный байт конфигурации обратно
     ps2_write_cmd(0x60);
     ps2_write_data(status);
 
-    // 5. Говорим мыши использовать настройки по умолчанию
-    ps2_write_cmd(0xD4); // 0xD4 = отправить следующую команду прямо мыши
+    ps2_write_cmd(0xD4);
     ps2_write_data(0xF6);
-    ps2_read_data(); // Ждем подтверждения (ACK = 0xFA)
+    ps2_read_data();
 
-    // 6. Включаем отправку пакетов с данными от мыши
     ps2_write_cmd(0xD4);
     ps2_write_data(0xF4);
-    ps2_read_data(); // Ждем ACK
+    ps2_read_data();
     
     printf("InputDriver: Mouse initialized!\n");
 }
 
-// --- Состояние мыши ---
 uint8_t mouse_packet[3];
 int mouse_cycle = 0;
 
@@ -143,7 +127,7 @@ int driver_main(void* reserved1, void* reserved2) {
 								
 								out.param3 = buttons;
 								
-								ipc_reply(&msg, &out);
+								ipc_send(subscriber_pid, &out);
 							}
 						}
 					} else {
@@ -157,7 +141,7 @@ int driver_main(void* reserved1, void* reserved2) {
 							out.param1 = INPUT_EVENT_KEY;
 							out.param2 = data;
 							
-							ipc_reply(&msg, &out);
+							ipc_send(subscriber_pid, &out);
 						}
 					}
 				}
