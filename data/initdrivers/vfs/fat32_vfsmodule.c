@@ -483,6 +483,8 @@ void fat32_truncate_file(fat32_instance_t* inst, fat32_file_t* file) {
 
 fs_instance_t fat32_mount(block_dev_t* dev, fs_context_t context) {
 	UNUSED(context);
+	if (!dev) return 0;
+	
     uint8_t* buf = malloc(FAT32_MAX_SECTOR_SIZE);
     if (block_read(dev, 0, 1, buf) != 0) {
         free(buf);
@@ -996,6 +998,7 @@ int fat32_readdir(fs_instance_t fs, fs_file_handle_t dir_handle, uint64_t* offse
 }
 
 int fat32_stat(fs_instance_t fs, fs_file_handle_t f, fs_stat_t* out_info) {
+	UNUSED(fs);
     if (!f || !out_info) return -1;
     
     fat32_file_t* file = (fat32_file_t*)f;
@@ -1019,7 +1022,7 @@ void fat32_get_label(fs_instance_t fs, char* out_label) {
     while (cluster < 0x0FFFFFF8 && cluster >= 2) {
         uint64_t lba = cluster_to_lba(inst, cluster);
         
-        for (int s = 0; s < inst->sectors_per_cluster; s++) {
+        for (uint32_t s = 0; s < inst->sectors_per_cluster; s++) {
             fat32_read_cached_sector(inst, lba + s, buffer);
             fat32_dir_entry_t* entries = (fat32_dir_entry_t*)buffer;
             
@@ -1047,6 +1050,7 @@ void fat32_get_label(fs_instance_t fs, char* out_label) {
 }
 
 void fat32_close(fs_instance_t fs, fs_file_handle_t f) {
+	UNUSED(fs);
     free(f);
 }
 

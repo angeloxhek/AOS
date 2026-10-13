@@ -57,6 +57,7 @@ dkms.conf
 # AOS build artifacts
 build/
 temp/
+debug/
 *.bin
 *.vhd
 *.ip

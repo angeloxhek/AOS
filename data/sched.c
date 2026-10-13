@@ -64,6 +64,11 @@ thread_t* create_thread_core(uint64_t root_phys, process_t* owner, thread_state_
 thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t cr3_phys, process_t* proc, thread_state_t state, uint64_t arg1, uint64_t arg2) {
     uint64_t irq = hal_irq_save();
     thread_t* t = create_thread_core(cr3_phys, proc, state);
+	
+	if (!t) {
+		hal_irq_restore(irq);
+		return 0;
+	}
 
     uint64_t tcb_size = 0x30;
     uint64_t total_tls_size = proc->tls_mem_size + tcb_size;
@@ -108,6 +113,11 @@ thread_t* create_user_thread(uint64_t entry_point, uint64_t user_stack, uint64_t
 thread_t* create_kernel_thread(void (*entry)(void), thread_state_t state) {
     uint64_t irq = hal_irq_save();
     thread_t* t = create_thread_core(hal_get_current_address_space(), &kernel_process, state);
+	
+	if (!t) {
+		hal_irq_restore(irq);
+		return 0;
+	}
     
     hal_setup_kernel_thread(t, (uint64_t)entry);
     
@@ -141,7 +151,7 @@ void schedule() {
             }
         }
 
-        for (int current_prio = 0; current_prio < THREAD_PRIO_LEVELS; current_prio++) {
+        for (thread_prio_t current_prio = 0; current_prio < THREAD_PRIO_LEVELS; current_prio++) {
             thread_t* temp = start_node;
             
             do {

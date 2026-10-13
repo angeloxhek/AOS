@@ -54,10 +54,12 @@ void hal_init_current_thread(thread_t* t) {
 }
 
 void hal_setup_user_thread(thread_t* t, uint64_t entry_point, uint64_t user_stack, uint64_t arg1, uint64_t arg2) {
+	if (!t) return;
     kernel_memcpy(t->fpu_state, default_fpu_state, 512);
     
     uint64_t* sp = (uint64_t*)t->rsp;
     
+	*(--sp) = 0;
     *(--sp) = GDT_USER_DATA;   // SS
     *(--sp) = user_stack;      // RSP (User)
     *(--sp) = 0x202;           // RFLAGS (IF=1)
@@ -81,10 +83,12 @@ void hal_setup_user_thread(thread_t* t, uint64_t entry_point, uint64_t user_stac
 }
 
 void hal_setup_kernel_thread(thread_t* t, uint64_t entry_point) {
+	if (!t) return;
     kernel_memcpy(t->fpu_state, default_fpu_state, 512);
     
     uint64_t* sp = (uint64_t*)t->rsp;
 
+	*(--sp) = 0;
     *(--sp) = entry_point;
     *(--sp) = (uint64_t)trampoline_enter_kernel;
     

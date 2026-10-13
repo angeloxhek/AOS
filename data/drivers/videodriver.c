@@ -203,6 +203,7 @@ void handle_video_request(message_t* in) {
 }
 
 int driver_main(void* reserved1, void* reserved2) {
+    UNUSED(reserved1); UNUSED(reserved2);
     printf("VideoDriver: Initializing...\n");
 
     if (sysget_spec_info(SPEC_INFO_VIDEO, &vinfo, sizeof(sys_video_t)) != SYS_RES_OK) {

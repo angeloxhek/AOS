@@ -6,7 +6,8 @@
 #include <vfs/part_interface.h>
 
 static int iso9660_parse(block_dev_t* raw_disk, const part_boot_desc_t* boot_desc, part_found_cb_t callback, void* context) {
-    uint32_t sec_size = raw_disk->sector_size;
+    (void)(boot_desc);
+	uint32_t sec_size = raw_disk->sector_size;
     if (sec_size < 2048) sec_size = 2048;
 
     uint8_t* sector = malloc(sec_size);

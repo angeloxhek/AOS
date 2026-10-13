@@ -16,6 +16,7 @@ AOS_DECLARE_DRIVER(DT_INIT, 0, 0);
 auth_id_t localroot;
 
 int spawn_driver(driver_type_t type, const char* name, const char* path) {
+	UNUSED(name);
 	startup_info_t info;
 	memset(&info, 0, sizeof(startup_info_t));
 	info.type = STARTUP_DRIVERMAIN;
@@ -267,7 +268,8 @@ uint8_t* read_entire_binary(const char* path, uint64_t* out_size) {
     return data;
 }
 
-int driver_main(void* reserved1, void* reserved2) {	
+int driver_main(void* reserved1, void* reserved2) {
+	UNUSED(reserved1); UNUSED(reserved2);
 	printf("AOS, Initdriver is here...\n");
 	
 	uint64_t auth_len = 0;

@@ -94,7 +94,7 @@ typedef struct thread_t {
 	int              waiting_for_msg;
 	thread_prio_t    priority;
 	uint8_t fpu_state[512] __attribute__((aligned(16)));
-} thread_t;
+} __attribute__((aligned(16))) thread_t;
 
 typedef volatile int spinlock_t;
 
@@ -349,6 +349,7 @@ void debug_print_thread(thread_t* th);
 void debug_backtrace();
 void debug_print_stack_trace(uint64_t max_frames);
 __attribute__((noreturn)) void debug_stop_kernel();
+void debug_dump_process_memory(process_t* proc, uint64_t start_vaddr, uint64_t size);
 #endif
 
 

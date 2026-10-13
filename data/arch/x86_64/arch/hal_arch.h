@@ -12,12 +12,23 @@
 #define E820_RESERVED 2
 #define E820_ACPI     3
 
+#define UEFI_CONVENTIONAL  7
+
 typedef struct {
     uint64_t base;
     uint64_t length;
     uint32_t type;
-    uint32_t unused;
+    uint32_t extended;
 } __attribute__((packed)) e820_entry_t;
+
+typedef struct {
+    uint32_t type;
+    uint32_t padding;
+    uint64_t phys_start;
+    uint64_t virt_start;
+    uint64_t page_count;
+    uint64_t attribute;
+} __attribute__((packed)) uefi_entry_t;
 
 typedef struct {
     uint64_t rax, rbx, rcx, rdx, rsi, rdi, rbp, r8, r9, r10, r11, r12, r13, r14, r15;

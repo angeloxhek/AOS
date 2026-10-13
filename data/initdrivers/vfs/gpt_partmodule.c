@@ -43,7 +43,8 @@ static uint32_t gpt_crc32(const uint8_t *data, uint32_t length) {
 }
 
 static int gpt_parse(block_dev_t* raw_disk, const part_boot_desc_t* boot_desc, part_found_cb_t callback, void* context) {
-    uint32_t sec_size = raw_disk->sector_size;
+    (void)(boot_desc);
+	uint32_t sec_size = raw_disk->sector_size;
     if (sec_size < 512) sec_size = 512;
 
     uint8_t* header_sec = malloc(sec_size);

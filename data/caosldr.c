@@ -15,7 +15,7 @@ st_flags_t state;
 const char* const kernel_messages[] = {
 	"NO_ERROR_DEBUG",
 	"STACK_SMASHING_DETECTED",
-	"RESERVED1",
+	"STARTUP_ERROR",
 	"RESERVED2",
 	"INITRD_ERROR",
 	"MEMORY_ERROR",
@@ -223,9 +223,13 @@ void kernel_handle_user_exception(uint64_t int_no, uint64_t instruction_pointer)
 int expand_heap(uint64_t size) {
     uint64_t needed_bytes = size + sizeof(malloc_header_t);
     uint64_t needed_pages = (needed_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+	uint64_t start_limit = heap_current_limit;
     for (uint64_t i = 0; i < needed_pages; i++) {
         uint64_t phys = pmm_alloc_block();
-        if (!phys) return 0;
+        if (!phys) {
+            heap_current_limit = start_limit;
+            return 0;
+        }
         hal_map_page(heap_current_limit, phys, 0x3);
         heap_current_limit += PAGE_SIZE;
     }
@@ -274,16 +278,17 @@ restart_search:
         last = current;
         current = current->next;
     }
+	uint64_t old_limit = heap_current_limit;
     if (expand_heap(size)) {
         if (!last) last = free_list_start;
         while(last->next) last = last->next;
-        malloc_header_t* new_block = (malloc_header_t*)((uint8_t*)last + sizeof(malloc_header_t) + last->size);
+        malloc_header_t* new_block = (malloc_header_t*)old_limit;
         if ((uint64_t)new_block >= heap_current_limit) {
             spinlock_release(&heap_lock);
             hal_irq_restore(irq);
             return 0;
         }
-        new_block->size = (heap_current_limit - (uint64_t)new_block) - sizeof(malloc_header_t);
+        new_block->size = (heap_current_limit - old_limit) - sizeof(malloc_header_t);
         new_block->is_free = 1;
         new_block->next = 0;
         last->next = new_block;
@@ -542,7 +547,7 @@ void kernel_main(boot_info_t* boot_info) {
 
     hal_vm_init();
     init_pmm(total_ram, hal_get_pmm_bitmap_addr());
-    hal_pmm_init_regions(total_ram);
+    hal_pmm_init_regions(boot_info);
     _kprint("Memory is configured!\n");
 
     hal_interrupts_init();
@@ -552,9 +557,10 @@ void kernel_main(boot_info_t* boot_info) {
     init_scheduler();
     _kprint("Threads are set! We're safe\n");
     
-    hal_enable_interrupts();
 	serial_init();
     thread_t* t = create_kernel_thread(idle_thread, THREAD_READY);
+	
+	if (!t) kernel_error(0x2, 0x1, (uint64_t)t, (uint64_t)idle_thread, (max_blocks - used_blocks) * 4096);
 	idle_thread_ptr = t;
 
 	if (ready_queue == t) {
@@ -566,6 +572,8 @@ void kernel_main(boot_info_t* boot_info) {
 	if (prev != t) prev->next = t->next;
 	
 	t->next = 0; 
+	
+	hal_enable_interrupts();
 
     kprint("Load drivers...\n");
     
@@ -573,15 +581,12 @@ void kernel_main(boot_info_t* boot_info) {
     elf_load_result_t* driver = (elf_load_result_t*)kernel_malloc(sizeof(elf_load_result_t));
     uint8_t* file_buf;
 	uint64_t file_size;
-    apid_t pid = 0;
-    driver_type_t dtype;
 
      // --- AUTH Driver ---
     kprint("Auth driver..\n");
-    dtype = DT_AUTH;
     file_buf = load_file_initrd(initrd_vaddr, "AUTHDRIVER.ELF", &file_size); 
     if (!file_buf) {
-        kernel_error(0x4, dtype, 0, 0, 0);
+        kernel_error(0x4, DT_AUTH, 0, 0, 0);
     }
     
     kernel_memset(driver, 0, sizeof(elf_load_result_t));
@@ -590,16 +595,12 @@ void kernel_main(boot_info_t* boot_info) {
     
     if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
-    pid = 0;
-    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (uint64_t*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
-
 
     // --- VFS Driver ---
     kprint("VFS driver..\n");
-    dtype = DT_VFS;
     file_buf = load_file_initrd(initrd_vaddr, "VFSDRIVER.ELF", &file_size);
     if (!file_buf) {
-        kernel_error(0x4, dtype, 0, 0, 0);
+        kernel_error(0x4, DT_VFS, 0, 0, 0);
     }
     
     kernel_memset(driver, 0, sizeof(elf_load_result_t));
@@ -608,16 +609,12 @@ void kernel_main(boot_info_t* boot_info) {
     
     if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
-    pid = 0;
-    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (uint64_t*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
-
 
     // --- INIT Driver ---
     kprint("Init driver..\n");
-    dtype = DT_INIT;
     file_buf = load_file_initrd(initrd_vaddr, "INITDRIVER.ELF", &file_size);
     if (!file_buf) {
-        kernel_error(0x4, dtype, 0, 0, 0);
+        kernel_error(0x4, DT_INIT, 0, 0, 0);
     }
     
     kernel_memset(driver, 0, sizeof(elf_load_result_t));
@@ -626,9 +623,7 @@ void kernel_main(boot_info_t* boot_info) {
     
     if (driver->result != ELF_RESULT_OK) kernel_error(0x6, driver->result, driver->entry_point, 0, 0);
     start_elf_process(driver, 0, 0);
-    pid = 0;
-    if(!sleep_while_zero(get_driver_pid_sleep_wrapper, &dtype, 5000, (uint64_t*)&pid)) kernel_error(0x6, 0x1DEAD, dtype, 0, 0);
-
+	
     kprint("Stage 2 completed!\n");
     
     kill_thread(current_thread, 0);

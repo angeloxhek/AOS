@@ -16,6 +16,7 @@ ABUILD_DIR = $(CURDIR)/build
 BUILD_DIR = $(ABUILD_DIR)/$(ARCH)
 TEMP_DIR = $(CURDIR)/temp
 DISK_DIR = $(BUILD_DIR)/volume
+DEBUG_DIR = $(CURDIR)/debug
 DRIVERS_DIR = $(DISK_DIR)/drivers
 BIN_DIR = $(DISK_DIR)/bin
 LINUX_DIR = $(DISK_DIR)/linux
@@ -48,20 +49,23 @@ KERNEL_INC    = -I $(CURDIR)/data/include -I $(CURDIR)/data/arch/$(ARCH)
 SDK_INC       = -I $(AOSLIB_DIR)/include
 LIBC_CFLAGS   = -I $(AOSLIBLIN_DIR)/include $(SDK_INC)
 
-COMMON_CFLAGS = -Wall -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fstack-protector
+COMMON_CFLAGS = -Wall -Wextra -std=gnu11 -fno-omit-frame-pointer -ffreestanding -fno-pic -fno-pie -fstack-protector \
+				-ffunction-sections -fdata-sections
 
-ifeq ($(DEBUG), 1)
-    COMMON_CFLAGS += -DDEBUG_MODE
-    $(info [INFO] Compiling in DEBUG mode)
-endif
-
-KERNEL_CFLAGS = $(COMMON_CFLAGS) -g3 -O0 $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS) $(KERNEL_INC) $(SDK_INC)
-USER_COMMON_CFLAGS = $(COMMON_CFLAGS) -fno-asynchronous-unwind-tables $(ARCH_CFLAGS) $(ARCH_USER_CFLAGS)
+KERNEL_CFLAGS = $(COMMON_CFLAGS) $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS) $(KERNEL_INC) $(SDK_INC)
+USER_COMMON_CFLAGS = $(COMMON_CFLAGS) -mpreferred-stack-boundary=4 -fno-asynchronous-unwind-tables $(ARCH_CFLAGS) $(ARCH_USER_CFLAGS)
 LIB_CFLAGS = $(USER_COMMON_CFLAGS) -nostdinc
 DRV_CFLAGS = $(USER_COMMON_CFLAGS) $(SDK_INC) $(KERNEL_INC) -nostdinc
 USR_CFLAGS = $(USER_COMMON_CFLAGS) $(SDK_INC) -nostdinc
 
-LDFLAGS = --no-warn-rwx-segments $(ARCH_LDFLAGS)
+ifeq ($(DEBUG), 1)
+    COMMON_CFLAGS += -DDEBUG_MODE -g3 -O0
+    $(info [INFO] Compiling in DEBUG mode)
+else
+	COMMON_CFLAGS += -Oz
+endif
+
+LDFLAGS = --no-warn-rwx-segments --gc-sections $(ARCH_LDFLAGS)
 
 COMMON_OBJS = $(TEMP_DIR)/caosldr.o $(TEMP_DIR)/pmm.o \
               $(TEMP_DIR)/vmm.o $(TEMP_DIR)/sched.o $(TEMP_DIR)/ipc.o \
@@ -88,6 +92,10 @@ prepare:
 	$(Q)$(MKDIR) -p $(BIN_DIR)
 	$(ECHO) "${RED}[  MKDIR  ]${NC} ${LINUX_DIR}\n"
 	$(Q)$(MKDIR) -p $(LINUX_DIR)
+ifeq ($(DEBUG), 1)
+	$(ECHO) "${RED}[  MKDIR  ]${NC} ${DEBUG_DIR}\n"
+	$(Q)$(MKDIR) -p $(DEBUG_DIR)
+endif
 	
 kernel: $(DISK_DIR)/AOSLDR.BIN $(DISK_DIR)/INITRD.TAR
 
@@ -105,18 +113,22 @@ else
 endif
 	$(ECHO) "${PURPLE}[ OBJCOPY ]${NC} $@\n"
 	$(Q)$(OBJCOPY) -O binary -S -R .bss -R .note -R .comment -R .note.gnu.property $(TEMP_DIR)/aosldr.elf $@
+ifeq ($(DEBUG), 1)
+	$(ECHO) "${BROWN}[   CP    ]${NC} ${TEMP_DIR}/aosldr.elf ${GREEN}->${NC} ${DEBUG_DIR}/aosldr.elf\n"
+	$(Q)$(CP) -r $(TEMP_DIR)/aosldr.elf $(DEBUG_DIR)
+endif
 
 include data/initdrivers/make.mk
 
 $(TEMP_DIR)/aos_start.o $(BUILD_DIR)/libs/libaos.a: FORCE
 	$(ECHO) "${PURPLE}[ SUBMAKE ]${NC} sdk/aoslib\n"
-	$(Q)$(MAKE) -s -C $(AOSLIB_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
+	$(Q)$(MAKE) -s -C $(AOSLIB_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) DEBUG=$(DEBUG)
 	$(Q)$(CP) $(AOSLIB_DIR)/build/libaos.a $(BUILD_DIR)/libs/libaos.a
 	$(Q)$(CP) $(AOSLIB_DIR)/build/aos_start.o $(TEMP_DIR)/aos_start.o
 
 $(TEMP_DIR)/libc_start.o $(BUILD_DIR)/libs/libaoslin.a $(TEMP_DIR)/libaoslin.a: FORCE
 	$(ECHO) "${PURPLE}[ SUBMAKE ]${NC} sdk/aosliblin\n"
-	$(Q)$(MAKE) -s -C $(AOSLIBLIN_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
+	$(Q)$(MAKE) -s -C $(AOSLIBLIN_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) DEBUG=$(DEBUG)
 	$(Q)$(CP) $(AOSLIBLIN_DIR)/build/libaoslin.a $(BUILD_DIR)/libs/libaoslin.a
 	$(Q)$(CP) $(AOSLIBLIN_DIR)/build/libaoslin.a $(TEMP_DIR)/libaoslin.a
 	$(Q)$(CP) $(AOSLIBLIN_DIR)/build/libc_start.o $(TEMP_DIR)/libc_start.o
@@ -138,7 +150,13 @@ userspace: $(BIN_DIR)/desktop.elf $(BIN_DIR)/aex.elf
 
 $(BIN_DIR)/%.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/%.o $(BUILD_DIR)/libs/libaos.a
 	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"
-	$(Q)$(LD) $(LDFLAGS) -N -T $(CURDIR)/data/driver.ld $^ -o $@
+	$(Q)$(LD) $(LDFLAGS) -T $(CURDIR)/data/driver.ld $^ -o $(TEMP_DIR)/$*.elf
+	$(ECHO) "${PURPLE}[ OBJCOPY ]${NC} Stripping debug info for $@\n"
+	$(Q)$(OBJCOPY) --strip-debug $(TEMP_DIR)/$*.elf $@
+ifeq ($(DEBUG), 1)
+	$(ECHO) "${BROWN}[   CP    ]${NC} ${TEMP_DIR}/$*.elf ${GREEN}->${NC} ${DEBUG_DIR}/$*.elf\n"
+	$(Q)$(CP) -r $(TEMP_DIR)/$*.elf $(DEBUG_DIR)
+endif
 	
 userlinux: $(LINUX_DIR)/tree
 
@@ -178,5 +196,7 @@ clean:
 	$(Q)$(RM) -rf $(TEMP_DIR)/*
 	$(ECHO) "${DRED}[   RM    ]${NC} ${ABUILD_DIR}/*\n"
 	$(Q)$(RM) -rf $(ABUILD_DIR)/*
+	$(ECHO) "${DRED}[   RM    ]${NC} ${DEBUG_DIR}/*\n"
+	$(Q)$(RM) -rf $(DEBUG_DIR)/*
 	$(Q)$(MAKE) -s -C $(AOSLIB_DIR) clean
 	$(Q)$(MAKE) -s -C $(AOSLIBLIN_DIR) clean

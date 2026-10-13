@@ -148,7 +148,67 @@ uint64_t hal_get_pmm_bitmap_addr(void) {
     return KERNEL_BASE + 0x100000;
 }
 
-void hal_pmm_init_regions(uint64_t total_ram) {
-    pmm_deinit_region(0x0, 0x1000000);
-    pmm_init_region(0x1000000, total_ram - 0x1000000);
+void hal_pmm_init_regions(boot_info_t* boot_info) {
+    kernel_memset(bitmap, 0xFF, bitmap_size);
+    used_blocks = max_blocks;
+
+    uint8_t* mmap_buffer = (uint8_t*)(boot_info->mmap.map_addr + 0xFFFF800000000000ULL);
+    uint64_t mmap_end = (uint64_t)mmap_buffer + boot_info->mmap.map_size;
+    uint32_t desc_size = boot_info->mmap.desc_size;
+
+    while ((uint64_t)mmap_buffer < mmap_end) {
+        uint64_t base_addr = 0;
+        uint64_t region_size = 0;
+        int is_available = 0;
+
+        if (boot_info->type == BOOT_TYPE_MBR) {
+            e820_entry_t* entry = (e820_entry_t*)mmap_buffer;
+            base_addr = entry->base;
+            region_size = entry->length;
+            if (entry->type == E820_RAM) {
+                is_available = 1;
+            }
+        } 
+        else if (boot_info->type == BOOT_TYPE_UEFI) {
+            uefi_entry_t* entry = (uefi_entry_t*)mmap_buffer;
+            base_addr = entry->phys_start;
+            region_size = entry->page_count * 4096;
+            if (entry->type == UEFI_CONVENTIONAL) {
+                is_available = 1;
+            }
+        }
+
+        if (is_available && region_size > 0) {
+            if (base_addr < 0x100000) {
+                if (region_size <= (0x100000 - base_addr)) {
+                    goto next_descriptor;
+                }
+                region_size -= (0x100000 - base_addr);
+                base_addr = 0x100000;
+            }
+
+            if (base_addr < boot_info->initrd_addr + boot_info->initrd_size && 
+                base_addr + region_size > boot_info->initrd_addr) {
+                if (base_addr < boot_info->initrd_addr) {
+                    region_size = boot_info->initrd_addr - base_addr;
+                } else {
+                    uint64_t initrd_end = boot_info->initrd_addr + boot_info->initrd_size;
+                    region_size = (base_addr + region_size) - initrd_end;
+                    base_addr = initrd_end;
+                }
+            }
+
+            if (region_size >= BLOCK_SIZE) {
+                pmm_init_region(base_addr, region_size);
+            }
+        }
+
+    next_descriptor:
+        mmap_buffer += desc_size;
+    }
+	
+	uint64_t bitmap_phys_addr = hal_get_pmm_bitmap_addr() - KERNEL_BASE;
+    uint64_t bitmap_phys_size = (bitmap_size + 4095) & ~4095ULL;
+    
+    pmm_deinit_region(bitmap_phys_addr, bitmap_phys_size);
 }

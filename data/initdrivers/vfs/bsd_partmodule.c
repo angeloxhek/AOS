@@ -37,7 +37,8 @@ typedef struct {
 } __attribute__((packed)) mbr_entry_t;
 
 static int bsd_parse(block_dev_t* raw_disk, const part_boot_desc_t* boot_desc, part_found_cb_t callback, void* context) {
-    uint8_t sector[512];
+    (void)(boot_desc);
+	uint8_t sector[512];
     
     if (block_read(raw_disk, 0, 1, sector) != 0) return 0;
     if (sector[510] != 0x55 || sector[511] != 0xAA) return 0;

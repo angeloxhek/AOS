@@ -34,6 +34,7 @@ static int ide_wait_drq(uint16_t base) {
     return -1;
 }
 
+__attribute__((optimize("-fno-strict-aliasing")))
 static int ide_init(void) {
     uint16_t bases[2] = { 0x1F0, 0x170 };
     ide_drive_count = 0;

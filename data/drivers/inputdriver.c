@@ -65,6 +65,7 @@ uint8_t mouse_packet[3];
 int mouse_cycle = 0;
 
 int driver_main(void* reserved1, void* reserved2) {
+    UNUSED(reserved1); UNUSED(reserved2);
     printf("InputDriver: Starting...\n");
     init_mouse();
 

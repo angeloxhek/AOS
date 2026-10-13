@@ -170,6 +170,14 @@ void vfs_free_fd(int fd, apid_t pid) {
     }
 }
 
+typedef struct ipcfs_context {
+	apid_t pid;
+    char name[64];
+    struct ipcfs_context* next;
+} ipcfs_context_t;
+
+ipcfs_context_t* ipcfs_registry = NULL;
+
 extern disk_driver_t ide_disk_driver;
 disk_driver_t* available_disks[] = {
 	&ide_disk_driver,
@@ -188,72 +196,173 @@ part_driver_t* available_parsers[] = {
 	0
 };
 
-extern fs_driver_t fat32_driver;
+extern fs_driver_t ipcfs_driver;
 extern fs_driver_t procfs_driver;
+extern fs_driver_t fat32_driver;
 fs_driver_t* available_filesystems[] = {
 	&fat32_driver,
 	0
 };
 
+typedef struct vfs_part_ctx vfs_part_ctx_t;
+
+typedef struct unmount_block_dev_node {
+    block_dev_t* dev;
+    vfs_node_t* p_node;
+    vfs_part_ctx_t* ctx;
+    char part_name[16];
+    int is_bootable;
+    struct unmount_block_dev_node* next;
+} unmount_block_dev_node_t;
+
+unmount_block_dev_node_t* unmounted_parts_head = NULL;
+
+void add_unmounted_part(block_dev_t* dev, vfs_node_t* p_node, vfs_part_ctx_t* ctx, const char* part_name, int is_bootable) {
+    unmount_block_dev_node_t* node = malloc(sizeof(unmount_block_dev_node_t));
+    if (!node) return;
+
+    node->dev = dev;
+    node->p_node = p_node;
+    node->ctx = ctx;
+    
+    strlcpy(node->part_name, part_name, sizeof(node->part_name)); 
+    node->is_bootable = is_bootable;
+    
+    node->next = unmounted_parts_head;
+    unmounted_parts_head = node;
+}
+
+void remove_unmounted_part(block_dev_t* dev) {
+    unmount_block_dev_node_t* current = unmounted_parts_head;
+    unmount_block_dev_node_t* previous = NULL;
+
+    while (current != NULL) {
+        if (current->dev == dev) {
+            if (previous == NULL) {
+                unmounted_parts_head = current->next;
+            } else {
+                previous->next = current->next;
+            }
+            
+            free(current); 
+            return;
+        }
+        
+        previous = current;
+        current = current->next;
+    }
+}
+
+typedef struct block_dev_registry_node {
+    block_dev_t* dev;
+    struct block_dev_registry_node* next;
+} block_dev_registry_node_t;
+
+block_dev_registry_node_t* all_block_devices = NULL;
+
+void register_block_device(block_dev_t* dev) {
+    if (!dev) return;
+    block_dev_registry_node_t* node = malloc(sizeof(block_dev_registry_node_t));
+    if (!node) return;
+    node->dev = dev;
+    node->next = all_block_devices;
+    all_block_devices = node;
+}
+
+int valid_block_device(block_dev_t* dev) {
+    block_dev_registry_node_t* curr = all_block_devices;
+    while (curr) {
+        if (curr->dev == dev) return 1;
+        curr = curr->next;
+    }
+    return 0;
+}
+
+int remove_block_device(block_dev_t* dev) {
+    block_dev_registry_node_t* curr = all_block_devices;
+	block_dev_registry_node_t* prev = NULL;
+    while (curr) {
+        if (curr->dev == dev) {
+			if (prev == NULL) {
+				all_block_devices = curr->next;
+			} else {
+				prev->next = curr->next;
+			}
+			free(curr);
+			return 1;
+		}
+		prev = curr;
+        curr = curr->next;
+    }
+    return 0;
+}
 
 int dev_read_raw(void* param, void* buf, uint64_t size, uint64_t offset) {
     block_dev_t* dev = (block_dev_t*)param;
     uint64_t lba = offset / dev->sector_size;
     uint64_t count = (size + dev->sector_size - 1) / dev->sector_size;
-    return block_read(dev, lba, count, buf) == 0 ? size : -1;
+    return block_read(dev, lba, count, buf) == 0 ? (int)size : -1;
 }
 
 int dev_write_raw(void* param, void* buf, uint64_t size, uint64_t offset) {
     block_dev_t* dev = (block_dev_t*)param;
     uint64_t lba = offset / dev->sector_size;
     uint64_t count = (size + dev->sector_size - 1) / dev->sector_size;
-    return block_write(dev, lba, count, buf) == 0 ? size : -1;
+    return block_write(dev, lba, count, buf) == 0 ? (int)size : -1;
 }
 
 int dev_read_uptime(void* param, void* buf, uint64_t size, uint64_t offset) {
+	UNUSED(param);
     system_info_t info;
     get_sysinfo(&info);
 
     char text[32];
     snprintf(text, sizeof(text), "%d\n", (int)info.uptime);
 
-    int len = strlen(text);
+    uint64_t len = strlen(text);
     if (offset >= len) return 0;
     if (offset + size > len) size = len - offset;
     memcpy(buf, text + offset, size);
-    return size;
+    return (int)size;
 }
 
 int dev_read_flags(void* param, void* buf, uint64_t size, uint64_t offset) {
+	UNUSED(param);
     system_info_t info;
     get_sysinfo(&info);
 
     char text[32];
     snprintf(text, sizeof(text), "%d\n", (int)info.flags);
     
-    int len = strlen(text);
+    uint64_t len = strlen(text);
     if (offset >= len) return 0;
     if (offset + size > len) size = len - offset;
     memcpy(buf, text + offset, size);
-    return size;
+    return (int)size;
 }
 
 int dev_read_zero(void* param, void* buf, uint64_t size, uint64_t offset) {
+	UNUSED(param); UNUSED(offset);
     memset(buf, 0, size);
-    return size;
+    return (int)size;
 }
 
 int dev_read_null(void* param, void* buf, uint64_t size, uint64_t offset) {
+	UNUSED(param); UNUSED(offset);
+	UNUSED(buf); UNUSED(size);
     return 0;
 }
 
 int dev_write_null(void* param, void* buf, uint64_t size, uint64_t offset) {
-    return size;
+	UNUSED(param); UNUSED(offset);
+	UNUSED(buf);
+    return (int)size;
 }
 
 static uint64_t rand_seed = 123456789;
 
 int dev_read_urandom(void* param, void* buf, uint64_t size, uint64_t offset) {
+	UNUSED(param); UNUSED(offset);
     uint8_t* b = (uint8_t*)buf;
     
     if (rand_seed == 123456789) {
@@ -267,10 +376,11 @@ int dev_read_urandom(void* param, void* buf, uint64_t size, uint64_t offset) {
         rand_seed = rand_seed * 6364136223846793005ULL + 1442695040888963407ULL;
         b[i] = (uint8_t)(rand_seed >> 56);
     }
-    return size;
+    return (int)size;
 }
 
 int dev_write_ctl(void* param, void* buf, uint64_t size, uint64_t offset) {
+	UNUSED(offset);
     block_dev_t* dev = (block_dev_t*)param;
     char cmd[32];
     strncpy(cmd, (char*)buf, size < 31 ? size : 31);
@@ -280,7 +390,7 @@ int dev_write_ctl(void* param, void* buf, uint64_t size, uint64_t offset) {
         // syscall(SYS_EJECT_DISK, dev->disk_id...);
         printf("VFS: Ejecting disk %d\n", dev->disk_id);
     }
-    return size;
+    return (int)size;
 }
 
 vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
@@ -342,7 +452,7 @@ void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
     parent->children = node;
 }
 
-typedef struct {
+typedef struct vfs_part_ctx {
     vfs_node_t* disk_node;
     char disk_name[32];
     int* global_part_id;
@@ -350,45 +460,66 @@ typedef struct {
     vfs_node_t* mnt_node;
 } vfs_part_ctx_t;
 
+void vfs_link_mounted_fs(vfs_node_t* p_node, fs_driver_t* fs_drv, fs_instance_t fs_inst, 
+                         const char* disk_name, const char* part_name, vfs_node_t* mnt_id_node, vfs_node_t* mnt_node, int is_bootable) {
+    vfs_node_t* fs_node = vfs_mkdir(p_node, "fs");
+    fs_node->type = VFS_TYPE_MOUNT_POINT;
+    fs_node->mount.driver = fs_drv;
+    fs_node->mount.fs_inst = fs_inst;
+    
+    char target[64];
+    snprintf(target, sizeof(target), "/hw/%s/%s/fs", disk_name, part_name);
+    vfs_symlink(mnt_id_node, part_name, target); // /mnt/id/v0
+    
+    char label[12] = "NO_NAME";
+    if (fs_drv->get_label) fs_drv->get_label(fs_inst, label);
+    if (strcmp(label, "NO_NAME") != 0) vfs_symlink(mnt_node, label, target); // /mnt/DISK_C
+    
+    if (is_bootable) vfs_symlink(vfs_root, "boot", target); // /boot
+}
+
+
 void vfs_on_partition_found(block_dev_t* raw_disk, uint8_t part_id, uint64_t start_lba, uint64_t size_sectors, int is_bootable, void* context) {
-    vfs_part_ctx_t* ctx = (vfs_part_ctx_t*)context;
+    UNUSED(part_id);
+	vfs_part_ctx_t* ctx = (vfs_part_ctx_t*)context;
     
     char part_name[16];
     sprintf(part_name, "v%d", *ctx->global_part_id);
     
-    // /hw/ide0/v0
     vfs_node_t* p_node = vfs_mkdir(ctx->disk_node, part_name);
     
     block_dev_t* part_dev = malloc(sizeof(block_dev_t));
     memcpy(part_dev, raw_disk, sizeof(block_dev_t));
     part_dev->partition_offset_lba = start_lba;
     part_dev->size_sectors = size_sectors;
+	
+	register_block_device(part_dev);
     
     vfs_mkdev(p_node, "raw", dev_read_raw, dev_write_raw, part_dev);
 
+    fs_driver_t* fs_drv = NULL;
+    fs_instance_t fs_inst = NULL;
+
     for (int i = 0; available_filesystems[i] != 0; i++) {
-        fs_driver_t* fs_drv = available_filesystems[i];
-        fs_instance_t fs_inst = fs_drv->mount(part_dev, 0);
-        
-        if (fs_inst) {
-            vfs_node_t* fs_node = vfs_mkdir(p_node, "fs");
-            fs_node->type = VFS_TYPE_MOUNT_POINT;
-            fs_node->mount.driver = fs_drv;
-            fs_node->mount.fs_inst = fs_inst;
-            
-            char target[64];
-            snprintf(target, sizeof(target), "/hw/%s/%s/fs", ctx->disk_name, part_name);
-            vfs_symlink(ctx->mnt_id_node, part_name, target); // /mnt/id/v0
-            
-            char label[12] = "NO_NAME";
-            if (fs_drv->get_label) fs_drv->get_label(fs_inst, label);
-            if (strcmp(label, "NO_NAME") != 0) vfs_symlink(ctx->mnt_node, label, target); // /mnt/DISK_C
-            
-            if (is_bootable) vfs_symlink(vfs_root, "boot", target); // /boot -> активный диск
-            break;
+        fs_drv = available_filesystems[i];
+        fs_inst = fs_drv->mount(part_dev, 0);
+        if (fs_inst) break;
+    }
+	
+    if (!fs_inst) {
+        for (ipcfs_context_t* efs = ipcfs_registry; efs != NULL; efs = efs->next) {
+            fs_drv = &ipcfs_driver;
+            fs_inst = fs_drv->mount(part_dev, (fs_context_t)efs);
+            if (fs_inst) break;
         }
     }
-    
+	
+    if (fs_inst) {
+        vfs_link_mounted_fs(p_node, fs_drv, fs_inst, ctx->disk_name, part_name, ctx->mnt_id_node, ctx->mnt_node, is_bootable);
+    } else {
+		add_unmounted_part(part_dev, p_node, ctx, part_name, is_bootable);
+    }
+
     (*ctx->global_part_id)++;
 }
 
@@ -445,6 +576,8 @@ void vfs_init_tree() {
             raw_disk->partition_offset_lba = 0;
             raw_disk->size_sectors = total_sec;
             raw_disk->sector_size = sec_size;
+			
+			register_block_device(raw_disk);
             
             vfs_mkdev(d_node, "raw", dev_read_raw, dev_write_raw, raw_disk);
 
@@ -616,7 +749,7 @@ void handle_vfs_request(message_t* in) {
         case VFS_CMD_OPEN:
         case VFS_CMD_OPENAT: {
 			uint32_t flags = in->param2;
-            int dir_fd = (in->param1 == VFS_CMD_OPENAT) ? in->param3 : -1;
+            int dir_fd = (in->param1 == VFS_CMD_OPENAT) ? (int)in->param3 : -1;
             char* path = (char*)in->data;
 
             if (!path || path[0] == '\0') {
@@ -1102,6 +1235,179 @@ void handle_vfs_request(message_t* in) {
 			shm_free(shm_id);
 			break;
 		}
+		
+		case VFS_CMD_REGISTER_FS: {
+			ipcfs_context_t* node = malloc(sizeof(ipcfs_context_t));
+			node->pid = in->sender_pid;
+			strlcpy(node->name, (char*)in->data, 64);
+			node->next = ipcfs_registry;
+			ipcfs_registry = node;
+			
+			printf("VFS: Registered external FS '%s' from PID %d\n", node->name, node->pid);
+			
+			unmount_block_dev_node_t* curr = unmounted_parts_head;
+			while (curr) {
+				fs_instance_t fs_inst = ipcfs_driver.mount(0, (fs_context_t)node);
+				if (fs_inst) {
+					vfs_link_mounted_fs(curr->p_node, &ipcfs_driver, fs_inst, 
+                                curr->ctx->disk_name, curr->part_name, 
+                                curr->ctx->mnt_id_node, curr->ctx->mnt_node, curr->is_bootable);
+
+					unmount_block_dev_node_t* to_remove = curr;
+					curr = curr->next;
+					remove_unmounted_part(to_remove->dev); 
+					continue;
+				}
+				curr = curr->next;
+			}
+			out.param1 = VFS_ERR_OK;
+			out.param2 = (uint64_t)node;
+			break;
+		}
+		
+		case VFS_CMD_MOUNT_FS: {
+			ipcfs_context_t* context = (ipcfs_context_t*)in->param2;
+			
+			int is_valid_context = 0;
+			ipcfs_context_t* curr_ctx = ipcfs_registry;
+			while (curr_ctx) {
+				if (curr_ctx == context) {
+					is_valid_context = 1;
+					break;
+				}
+				curr_ctx = curr_ctx->next;
+			}
+			
+			if (!is_valid_context) {
+				out.param1 = VFS_ERR_NOTFOUND;
+				break;
+			}
+	
+			char path[64];
+			strlcpy(path, (char*)in->data, 64);
+			path[63] = '\0';
+
+			int len = strlen(path);
+			if (len > 1 && path[len - 1] == '/') {
+				path[len - 1] = '\0';
+			}
+
+			char* last_slash = strrchr(path, '/');
+			char* base_name;
+			char* dir_name;
+
+			if (last_slash) {
+				base_name = last_slash + 1;
+				
+				if (last_slash == path) {
+					dir_name = path;
+				} else {
+					*last_slash = '\0'; 
+					dir_name = path;
+				}
+			} else {
+				base_name = path;
+				dir_name = ".";
+			}
+
+			vfs_path_result_t res;
+			vfs_resolve(dir_name, &res);
+			if (res.error != 0) {
+				out.param1 = res.error;
+				break;
+			}
+
+			if (!res.node || *base_name == '\0') {
+				out.param1 = VFS_ERR_NOTFOUND;
+				break;
+			}
+			
+			if (res.node->type != VFS_TYPE_DIR) {
+				out.param1 = VFS_ERR_NOTFOUND;
+				break;
+			}
+			
+			fs_instance_t inst = ipcfs_driver.mount(0, (fs_context_t)context);
+			if (!inst) {
+				out.param1 = VFS_ERR_UNKNOWN;
+				break;
+			}
+			
+			vfs_node_t* fs_node = vfs_mkdir(res.node, base_name);
+			fs_node->type = VFS_TYPE_MOUNT_POINT;
+			fs_node->mount.driver = &ipcfs_driver;
+			fs_node->mount.fs_inst = inst;
+
+			out.param1 = VFS_ERR_OK;
+			break;
+		}
+		
+		case VFS_CMD_UMOUNT_FS: {
+			fs_instance_t inst = (fs_instance_t)in->param2;
+			
+			if (!inst) {
+				out.param1 = VFS_ERR_UNKNOWN;
+				break;
+			}
+			
+			ipcfs_driver.umount(inst);
+			out.param1 = VFS_ERR_OK;
+			break;
+		}
+		
+		case VFS_CMD_BLOCK_READ: {
+            block_dev_t* dev = (block_dev_t*)in->param2;
+            uint64_t lba = in->param3;
+            uint64_t shm_id = *(uint64_t*)(in->data);
+			uint64_t count = *(uint64_t*)(in->data + sizeof(uint64_t));
+            
+            if (!valid_block_device(dev)) {
+                out.param1 = VFS_ERR_NOTFOUND;
+                break;
+            }
+            
+            void* buf = shm_map(shm_id);
+            if (!buf) {
+                out.param1 = VFS_ERR_UNKNOWN;
+                break;
+            }
+            
+            if (block_read(dev, lba, count, buf) == 0) {
+                out.param1 = VFS_ERR_OK;
+            } else {
+                out.param1 = VFS_ERR_UNKNOWN;
+            }
+            
+            shm_free(shm_id);
+            break;
+        }
+		
+		case VFS_CMD_BLOCK_WRITE: {
+            block_dev_t* dev = (block_dev_t*)in->param2;
+            uint64_t lba = in->param3;
+            uint64_t shm_id = *(uint64_t*)(in->data);
+			uint64_t count = *(uint64_t*)(in->data + sizeof(uint64_t));
+            
+            if (!valid_block_device(dev)) {
+                out.param1 = VFS_ERR_NOTFOUND;
+                break;
+            }
+            
+            void* buf = shm_map(shm_id);
+            if (!buf) {
+                out.param1 = VFS_ERR_UNKNOWN;
+                break;
+            }
+            
+            if (block_write(dev, lba, count, buf) == 0) {
+                out.param1 = VFS_ERR_OK;
+            } else {
+                out.param1 = VFS_ERR_UNKNOWN;
+            }
+            
+            shm_free(shm_id);
+            break;
+        }
         
         default: {
             out.param1 = VFS_ERR_NOCOMM;
@@ -1113,8 +1419,10 @@ void handle_vfs_request(message_t* in) {
 }
 
 int driver_main(void* reserved1, void* reserved2) {
-	if(sysget_spec_info(SPEC_INFO_BOOT_DISK, &boot_disk_info, sizeof(sys_boot_disk_t)) != SYS_RES_OK) {
-		printf("VFS: Boot disk is invalid!\n");
+	UNUSED(reserved1); UNUSED(reserved2);
+	int res = sysget_spec_info(SPEC_INFO_BOOT_DISK, &boot_disk_info, sizeof(sys_boot_disk_t));
+	if(res != SYS_RES_OK) {
+		printf("VFS: Boot disk is invalid (code=%d)!\n", res);
 	}
 	
     vfs_init_tree();

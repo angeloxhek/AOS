@@ -32,7 +32,7 @@ void generic_syscall_handler(syscall_args_t* args) {
             }
 
             while (1) {
-                int i;
+                uint64_t i;
                 for (i = 0; i < sizeof(safe_buf) - 1; i++) {
                     const char* curr_ptr = user_msg + offset + i;
                     
@@ -575,7 +575,7 @@ void generic_syscall_handler(syscall_args_t* args) {
 			
 			driver_info_t* drv = get_driver_by_pid(current_thread->owner->id);
 			if (!drv) {
-				args->ret = SYS_RES_INVALID;
+				args->ret = SYS_RES_NO_PERM;
                 break;
 			}
 			

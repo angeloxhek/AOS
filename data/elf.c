@@ -58,15 +58,17 @@ void load_elf_raw_proc(process_t* proc, uint8_t* raw_data, uint64_t file_size, e
                 uint64_t curr_virt = start_page + (p * 4096);
                 uint64_t phys;
                 uint64_t existing_phys = hal_get_phys((uint64_t)proc->page_directory, curr_virt);
+				void* ptr;
                 if (existing_phys != 0) {
                     phys = existing_phys;
+					ptr = temp_map(phys);
                 } else {
                     phys = pmm_alloc_block();
                     hal_map_page_in_space((uint64_t)proc->page_directory, curr_virt, phys, 0x7);
+					ptr = temp_map(phys);
+					kernel_memset(ptr, 0, 4096);
                 }
-                void* ptr = temp_map(phys);
-                kernel_memset(ptr, 0, 4096);
-
+                
                 uint64_t file_data_start = vaddr;
                 uint64_t file_data_end   = vaddr + filesz;
                 uint64_t page_start = curr_virt;

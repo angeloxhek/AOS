@@ -240,7 +240,9 @@ __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64
 #ifdef DEBUG_MODE
 	debug_backtrace();
 #else
-    _kprint_error("The system has been halted!\n");
+	_kprint_error("PROCESS: \"");
+	_kprint_error(current_thread->owner->name);
+    _kprint_error("\"\nThe system has been halted!\n");
 #endif
     
     hal_halt();
@@ -437,8 +439,10 @@ void debug_backtrace() {
 	if (ready_queue) {
         thread_t* t = ready_queue;
         do {
-			_kprint_error("============\n");
-            debug_print_thread(t);
+			if (t != current_thread) {
+				_kprint_error("============\n");
+				debug_print_thread(t);
+			}
             t = t->next;
         } while (t != ready_queue);
     }
@@ -447,6 +451,84 @@ void debug_backtrace() {
 __attribute__((noreturn)) void debug_stop_kernel() {
 	kernel_error(0x0, 0x0, 0x0, 0x0, 0x0);
 	__builtin_unreachable();
+}
+
+void debug_dump_process_memory(process_t* proc, uint64_t start_vaddr, uint64_t size) {
+    if (!proc || !proc->page_directory || size == 0) return;
+
+    char buf[64];
+    _kprint_error("\n=== MEMORY DUMP FOR PROCESS: \"");
+    kernel_strncpy(buf, proc->name, 32);
+    _kprint_error(buf);
+    _kprint_error("\" (PID: ");
+    uint32_to_hex(proc->id, buf);
+    _kprint_error(buf);
+    _kprint_error(") ===\n");
+
+    uint64_t current_vaddr = start_vaddr;
+    uint64_t bytes_left = size;
+
+    while (bytes_left > 0) {
+        uint64_t phys_page = hal_get_phys((uint64_t)proc->page_directory, current_vaddr & ~4095ULL);
+        
+        if (phys_page == 0) {
+            _kprint_error("0x");
+            uint64_to_hex(current_vaddr, buf);
+            _kprint_error(buf);
+            _kprint_error(": [PAGE NOT PRESENT]\n");
+            
+            uint64_t next_page_dist = 4096 - (current_vaddr % 4096);
+            if (next_page_dist > bytes_left) next_page_dist = bytes_left;
+            current_vaddr += next_page_dist;
+            bytes_left -= next_page_dist;
+            continue;
+        }
+
+        void* mapped_page = temp_map(phys_page);
+        
+        uint64_t page_offset = current_vaddr % 4096;
+        uint64_t bytes_to_read_in_page = 4096 - page_offset;
+        if (bytes_to_read_in_page > bytes_left) bytes_to_read_in_page = bytes_left;
+
+        for (uint64_t i = 0; i < bytes_to_read_in_page; i += 16) {
+            _kprint_error("0x");
+            uint64_to_hex(current_vaddr + i, buf);
+            _kprint_error(buf);
+            _kprint_error(": ");
+
+            uint64_t chunk_size = (bytes_to_read_in_page - i < 16) ? (bytes_to_read_in_page - i) : 16;
+            uint8_t* byte_ptr = (uint8_t*)mapped_page + page_offset + i;
+
+            for (uint64_t j = 0; j < 16; j++) {
+                if (j < chunk_size) {
+                    uint8_to_hex(byte_ptr[j], buf);
+                    _kprint_error(buf);
+                    _kprint_error(" ");
+                } else {
+                    _kprint_error("   ");
+                }
+                if (j == 7) _kprint_error(" ");
+            }
+
+            _kprint_error(" |");
+            for (uint64_t j = 0; j < chunk_size; j++) {
+                char c = (char)byte_ptr[j];
+                if (c >= 32 && c <= 126) {
+                    buf[0] = c;
+                    buf[1] = '\0';
+                    _kprint_error(buf);
+                } else {
+                    _kprint_error(".");
+                }
+            }
+            _kprint_error("|\n");
+        }
+
+        temp_unmap(mapped_page);
+        current_vaddr += bytes_to_read_in_page;
+        bytes_left -= bytes_to_read_in_page;
+    }
+    _kprint_error("=========================================\n");
 }
 
 #endif

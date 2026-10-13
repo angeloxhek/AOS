@@ -86,7 +86,7 @@ int hal_is_valid_kernel_frame(uint64_t fp);
 uint64_t hal_get_frame_pointer(void);
 
 uint64_t hal_get_pmm_bitmap_addr(void);
-void hal_pmm_init_regions(uint64_t total_ram);
+void hal_pmm_init_regions(boot_info_t* boot_info);
 uint64_t hal_get_stopped_thread_fp(struct thread_t* th);
 
 #if defined(__LP64__) || defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__)

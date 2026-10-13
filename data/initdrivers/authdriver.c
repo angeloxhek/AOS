@@ -980,6 +980,7 @@ void handle_message(message_t* in) {
 }
 
 int driver_main(void* reserved1, void* reserved2) {
+	UNUSED(reserved1); UNUSED(reserved2);
 	if (init_auth() != 0) return -1;
 
 	auth_idex_t* temp_root = (auth_idex_t*)malloc(sizeof(auth_idex_t));
