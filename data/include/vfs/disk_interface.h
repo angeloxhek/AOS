@@ -6,6 +6,8 @@
 typedef void* disk_instance_t;
 typedef struct disk_driver disk_driver_t;
 
+#ifndef VFS_DRIVER_H
+
 typedef struct {
     disk_driver_t* driver;
     disk_instance_t disk_inst;
@@ -15,6 +17,8 @@ typedef struct {
     uint64_t size_sectors;
     uint32_t sector_size;
 } block_dev_t;
+
+#endif
 
 struct disk_driver {
     const char name[64];

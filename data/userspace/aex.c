@@ -47,7 +47,7 @@ void refresh_directory() {
     file_count = 0;
     int fd = vfs_open(current_path, VFS_FREAD);
     if (fd < 0) {
-        printf("AExplorer: Failed to open directory %s\n", current_path);
+        printf("AExplorer: Failed to open directory %s. Error %d\n", current_path, fd);
         return;
     }
 

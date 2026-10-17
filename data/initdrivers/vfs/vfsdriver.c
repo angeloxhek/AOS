@@ -1238,6 +1238,11 @@ void handle_vfs_request(message_t* in) {
 		
 		case VFS_CMD_REGISTER_FS: {
 			ipcfs_context_t* node = malloc(sizeof(ipcfs_context_t));
+			if (!node) {
+				out.param1 = VFS_ERR_UNKNOWN;
+				break;
+			}
+			memset(node, 0, sizeof(ipcfs_context_t));
 			node->pid = in->sender_pid;
 			strlcpy(node->name, (char*)in->data, 64);
 			node->next = ipcfs_registry;
@@ -1338,7 +1343,11 @@ void handle_vfs_request(message_t* in) {
 			fs_node->mount.driver = &ipcfs_driver;
 			fs_node->mount.fs_inst = inst;
 
-			out.param1 = VFS_ERR_OK;
+			if (in->subtype == MSG_SUBTYPE_QUERY) {
+				out.param1 = VFS_ERR_OK;
+				out.param2 = (uint64_t)inst;
+				ipc_reply(in, &out);
+			}
 			break;
 		}
 		

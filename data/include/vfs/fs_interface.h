@@ -8,6 +8,8 @@ typedef void* fs_context_t;
 
 typedef void* fs_instance_t;
 
+#ifndef VFS_DRIVER_H
+
 typedef struct {
     char name[256];
     uint64_t size;
@@ -33,5 +35,7 @@ typedef struct {
     int (*stat)(fs_instance_t fs, fs_file_handle_t file, fs_stat_t* out_info); 
     void (*get_label)(fs_instance_t fs, char* out_label);
 } fs_driver_t;
+
+#endif
 
 #endif /* FS_INTERFACE_H */

@@ -1,6 +1,6 @@
 # data/drivers/make.mk
 
-drivers: $(DRIVERS_DIR)/videodriver.elf $(DRIVERS_DIR)/wnddriver.elf $(DRIVERS_DIR)/inputdriver.elf
+drivers: $(DRIVERS_DIR)/videodriver.elf $(DRIVERS_DIR)/wnddriver.elf $(DRIVERS_DIR)/inputdriver.elf $(DRIVERS_DIR)/pcidriver.elf
 
 $(DRIVERS_DIR)/%.elf: $(TEMP_DIR)/aos_start.o $(TEMP_DIR)/%.o $(BUILD_DIR)/libs/libaos.a
 	$(ECHO) "${YELLOW}[   LD    ]${NC} $@\n"

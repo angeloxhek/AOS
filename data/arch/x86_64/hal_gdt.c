@@ -133,10 +133,13 @@ void hal_set_io_permissions(process_t* process) {
     for (int i = 0; i < 8; i++) {
         uint16_t port = drv->allowed_ports[i];
         if (port != 0) {
-            int byte_index = port / 8;
-            int bit_index  = port % 8;
-            
-            tss.io_bitmap[byte_index] &= ~(1 << bit_index);
+            for (int offset = 0; offset < 4; offset++) {
+                uint16_t target_port = port + offset;
+                int byte_index = target_port / 8;
+                int bit_index  = target_port % 8;
+                
+                tss.io_bitmap[byte_index] &= ~(1 << bit_index);
+            }
         }
     }
 }
