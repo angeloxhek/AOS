@@ -110,6 +110,8 @@ void handle_file_click(vfs_dirent_t* file) {
     }
 }
 
+int file_list_scroll = 0;
+
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
     printf("AExplorer: Starting...\n");
@@ -183,18 +185,28 @@ int main(int argc, char** argv) {
             agfx_ui_same_line(&ui);
             agfx_ui_textbox(&ui, current_path, win_w - 80, 24, 0);
 
-            agfx_ui_begin(&ui, 10, 50);
+            agfx_ui_begin_panel(&ui, 0, 41, win_w, win_h - 41, &file_list_scroll);
             
+            // Кнопка "Вверх"
             if (strcmp(current_path, "/") != 0) {
                 if (agfx_ui_button(&ui, "[ .. ] Up", win_w - 20, 30)) {
                     vfs_dirent_t up = { .name = "..", .type = VFS_FILE_TYPE_DIR };
                     handle_file_click(&up);
+                    file_list_scroll = 0; // Сбрасываем скролл при переходе
                     needs_redraw = 1;
                 }
             }
 
+            // Отрисовка файлов
             for (int i = 0; i < file_count; i++) {
                 if (strcmp(files[i].name, ".") == 0 || strcmp(files[i].name, "..") == 0) continue;
+
+                // ОПТИМИЗАЦИЯ: Не рисуем кнопки, которые точно не видны на экране!
+                // Это сэкономит кучу времени на рендер шрифтов.
+                if (ui.cursor_y + 30 < ui.panel_y || ui.cursor_y > ui.panel_y + ui.panel_h) {
+                    agfx_ui_advance(&ui, win_w - 20, 30); // Просто сдвигаем курсор
+                    continue;
+                }
 
                 char btn_text[128];
                 if (files[i].type == VFS_FILE_TYPE_DIR) {
@@ -205,9 +217,13 @@ int main(int argc, char** argv) {
 
                 if (agfx_ui_button(&ui, btn_text, win_w - 20, 30)) {
                     handle_file_click(&files[i]);
+                    file_list_scroll = 0; // Сбрасываем скролл при переходе
                     needs_redraw = 1;
                 }
             }
+
+            // --- КОНЕЦ ПАНЕЛИ ---
+            agfx_ui_end_panel(&ui);
 
             window_flush(win);
         }
