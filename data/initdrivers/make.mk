@@ -47,4 +47,4 @@ $(TEMP_DIR)/%.o: $(CURDIR)/data/initdrivers/%.c
 $(TEMP_DIR)/%.o: $(CURDIR)/data/initdrivers/vfs/%.c
 	@$(MKDIR) -p $(dir $@)
 	$(ECHO) "${CYAN}[   CC    ]${NC} $<\n"
-	$(Q)$(CC) $(DRV_CFLAGS) -c $< -o $@
+	$(Q)$(CC) $(DRV_CFLAGS) $(KERNEL_INC) -c $< -o $@

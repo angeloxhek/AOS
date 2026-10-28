@@ -55,7 +55,7 @@ COMMON_CFLAGS = -Wall -Wextra -std=gnu11 -fno-omit-frame-pointer -ffreestanding 
 KERNEL_CFLAGS = $(COMMON_CFLAGS) $(ARCH_CFLAGS) $(ARCH_KERNEL_CFLAGS) $(KERNEL_INC) $(SDK_INC)
 USER_COMMON_CFLAGS = $(COMMON_CFLAGS) -mpreferred-stack-boundary=4 -fno-asynchronous-unwind-tables $(ARCH_CFLAGS) $(ARCH_USER_CFLAGS)
 LIB_CFLAGS = $(USER_COMMON_CFLAGS) -nostdinc
-DRV_CFLAGS = $(USER_COMMON_CFLAGS) $(SDK_INC) $(KERNEL_INC) -nostdinc
+DRV_CFLAGS = $(USER_COMMON_CFLAGS) $(SDK_INC) -nostdinc
 USR_CFLAGS = $(USER_COMMON_CFLAGS) $(SDK_INC) -nostdinc
 
 ifeq ($(DEBUG), 1)
