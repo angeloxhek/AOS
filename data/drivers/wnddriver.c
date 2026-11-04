@@ -11,6 +11,8 @@
 #include <aos/videodriver.h>
 #include <aos/window.h>
 #include <aos/syscalls.h>
+#include <aos/vfs.h>
+#include <aos/process.h>
 
 #include <agfx.h>
 #include <agfx_ui.h>
@@ -21,6 +23,8 @@ sys_video_t vinfo;
 uint32_t* backbuffer = 0;
 static agfx_surface_t screen_surface;
 agfx_ui_theme_t wm_theme;
+static agfx_font_t wm_font;
+static int has_font = 0;
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -35,7 +39,12 @@ typedef struct syswindow {
     uint32_t* pixels;        // Указатель на пиксели клиента
     uint32_t flags;          // WND_FLAG_*
     agfx_surface_t surface;  // Поверхность AGFX
-    
+    char title[32];          // Заголовок окна
+    int is_minimized;        // Флаг сворачивания
+    int is_maximized;        // Флаг развертывания
+    int orig_x, orig_y;      // Для восстановления размера
+    int orig_w, orig_h;  
+	
     struct syswindow* next;  // Окно ВЫШЕ
     struct syswindow* prev;  // Окно НИЖЕ
 } syswindow_t;
@@ -75,7 +84,8 @@ syswindow_t* find_window_by_id(int win_id) {
 syswindow_t* find_window_at(int x, int y) {
     syswindow_t* cur = top_window;
     while (cur) {
-        if (x >= cur->x && x < cur->x + cur->w &&
+        if (!cur->is_minimized &&
+			x >= cur->x && x < cur->x + cur->w &&
             y >= cur->y && y < cur->y + cur->h) {
             return cur;
         }
@@ -96,6 +106,15 @@ syswindow_t* create_window(apid_t owner_pid, int x, int y, int w, int h, uint64_
     win->w = w; win->h = h;
     win->flags = flags;
     win->shm_id = shm_id;
+	win->is_minimized = 0;
+    win->is_maximized = 0;
+    
+    proc_info_user_t pinfo;
+    if (get_proc_info(owner_pid, &pinfo) == SYS_RES_OK) {
+        strlcpy(win->title, pinfo.name, sizeof(win->title));
+    } else {
+        strlcpy(win->title, "Window", sizeof(win->title));
+    }
     
     uint8_t* shm_ptr = (uint8_t*)shm_map(shm_id);
 	uint64_t frame_size = (uint64_t)w * h * 4;
@@ -165,6 +184,11 @@ void draw_all_windows(int clip_x, int clip_y, int clip_w, int clip_h) {
 
     syswindow_t* current = bottom_window;
     while (current) {
+        if (current->is_minimized) { // <-- Пропускаем свернутые окна
+            current = current->next;
+            continue;
+        }
+
         int tot_w, tot_h;
         get_window_total_bounds(current, &tot_w, &tot_h);
 
@@ -187,10 +211,26 @@ void draw_all_windows(int clip_x, int clip_y, int clip_w, int clip_h) {
 
                 agfx_fill_rect(&screen_surface, current->x, current->y, tot_w, TITLE_H, title_bg);
 
-                int btn_w = 36;
-                int btn_x = current->x + tot_w - btn_w;
-                agfx_draw_line(&screen_surface, btn_x + 13, current->y + 10, btn_x + 23, current->y + 20, 1, wm_theme.close_btn_icon);
-                agfx_draw_line(&screen_surface, btn_x + 13, current->y + 20, btn_x + 23, current->y + 10, 1, wm_theme.close_btn_icon);
+                if (has_font && current->title[0] != '\0') {
+                    int tw, th;
+                    uint8_t* mask = agfx_mask_generate_string(&wm_font, current->title, &tw, &th);
+                    if (mask) {
+                        agfx_fill_alpha_mask(&screen_surface, current->x + 10, current->y + (TITLE_H - th) / 2, 
+                                             tw, th, mask, wm_theme.text);
+                        agfx_mask_free(mask);
+                    }
+                }
+
+                int btn_close_x = current->x + tot_w - 36;
+                int btn_max_x   = current->x + tot_w - 72;
+                int btn_min_x   = current->x + tot_w - 108;
+
+                agfx_draw_line(&screen_surface, btn_close_x + 13, current->y + 10, btn_close_x + 23, current->y + 20, 1, wm_theme.close_btn_icon);
+                agfx_draw_line(&screen_surface, btn_close_x + 13, current->y + 20, btn_close_x + 23, current->y + 10, 1, wm_theme.close_btn_icon);
+
+                agfx_draw_rect(&screen_surface, btn_max_x + 13, current->y + 10, 10, 10, 1, wm_theme.close_btn_icon);
+
+                agfx_draw_line(&screen_surface, btn_min_x + 13, current->y + 15, btn_min_x + 23, current->y + 15, 1, wm_theme.close_btn_icon);
 
                 agfx_blit(&screen_surface, current->x + BORDER_W, current->y + TITLE_H, 
                           current->w, current->h, &current->surface);
@@ -271,6 +311,19 @@ int driver_main(void* reserved1, void* reserved2) {
     if (sysget_spec_info(SPEC_INFO_VIDEO, &vinfo, sizeof(sys_video_t)) != SYS_RES_OK) {
         printf("WindowManager: Failed to get video info!\n");
         return -1;
+    }
+	
+	int fd = vfs_open("/boot/assets/selawk.ttf", VFS_FREAD);
+    if (fd >= 0) {
+        vfs_stat_info_t st;
+        if (vfs_stat(fd, &st) == 0 && st.size_bytes > 0) {
+            uint8_t* fbuf = malloc(st.size_bytes);
+            if (fbuf) {
+                vfs_read(fd, fbuf, st.size_bytes);
+                has_font = agfx_font_init(&wm_font, fbuf, 14);
+            }
+        }
+        vfs_close(fd);
     }
 
     uint64_t size_bytes = (uint64_t)vinfo.height * vinfo.pitch;
@@ -470,10 +523,11 @@ int driver_main(void* reserved1, void* reserved2) {
 						ui_needs_full_redraw = 1;
 
 						if (mouse_y >= clicked_win->y && mouse_y < clicked_win->y + TITLE_H) {
-							int btn_w = 36;
-							int btn_x = clicked_win->x + tot_w - btn_w;
+							int btn_close_x = clicked_win->x + tot_w - 36;
+							int btn_max_x   = clicked_win->x + tot_w - 72;
+							int btn_min_x   = clicked_win->x + tot_w - 108;
 
-							if (mouse_x >= btn_x) {
+							if (mouse_x >= btn_close_x) {
 								message_t close_msg;
 								memset(&close_msg, 0, sizeof(message_t));
 								close_msg.type = MSG_TYPE_WND;
@@ -483,14 +537,40 @@ int driver_main(void* reserved1, void* reserved2) {
 								
 								destroy_window(clicked_win);
 								ui_needs_full_redraw = 1;
-								
 								continue; 
+							}
+							else if (mouse_x >= btn_max_x) {
+								if (!clicked_win->is_maximized) {
+									clicked_win->orig_x = clicked_win->x;
+									clicked_win->orig_y = clicked_win->y;
+									clicked_win->orig_w = clicked_win->w;
+									clicked_win->orig_h = clicked_win->h;
+
+									clicked_win->x = 0;
+									clicked_win->y = 0;
+									clicked_win->w = vinfo.width - BORDER_W * 2;
+									clicked_win->h = vinfo.height - TITLE_H - BORDER_W - 40;
+									clicked_win->is_maximized = 1;
+								} else {
+									clicked_win->x = clicked_win->orig_x;
+									clicked_win->y = clicked_win->orig_y;
+									clicked_win->w = clicked_win->orig_w;
+									clicked_win->h = clicked_win->orig_h;
+									clicked_win->is_maximized = 0;
+								}
+								ui_needs_full_redraw = 1;
+								continue;
+							}
+							else if (mouse_x >= btn_min_x) {
+								clicked_win->is_minimized = 1;
+								ui_needs_full_redraw = 1;
+								continue;
 							}
 
 							dragged_window = clicked_win;
 							drag_offset_x = mouse_x - clicked_win->x;
 							drag_offset_y = mouse_y - clicked_win->y;
-							continue;
+							continue; 
 						}
 					}
 
