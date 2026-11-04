@@ -23,6 +23,7 @@ void serial_putchar(char a) {
 }
 
 void serial_print(const char* str) {
+	if (!str) return;
     while (*str) {
         serial_putchar(*str++);
     }

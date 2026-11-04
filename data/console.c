@@ -100,6 +100,7 @@ void kprint_char(char c, uint32_t color) {
 }
 
 void _kprint(const char* str) {
+	if (!str) return;
 	serial_print(str);
     if (!(state.system_flags & CAN_PRINT)) return;
     for (int i = 0; str[i] != 0; i++) {
@@ -120,6 +121,7 @@ void kprint(const char* str) {
 }
 
 void _kprint_error(const char* str) {
+	if (!str) return;
 	serial_print(str);
     if (!(state.system_flags & CAN_PRINT)) return;
     for (int i = 0; str[i] != 0; i++) {
@@ -211,11 +213,11 @@ __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64
     hal_disable_interrupts();
 	
 	state.system_flags |= CAN_PRINT;
-    bg_color = 0x00000088;
+    bg_color = 0x00000000;
     _kclear();
     cursor_x = 0; cursor_y = 0;
     
-    _kprint_error("KERNEL STOP: 0x");
+    _kprint_error("================================================================\n !!  KERNEL STOP  !!\n================================================================\n\n  Reason:     0x");
     char buff[17];
     uint64_to_hex(code, buff);
     _kprint_error(buff);
@@ -224,27 +226,32 @@ __attribute__((noreturn)) void kernel_error(uint64_t code, uint64_t arg1, uint64
         _kprint_error(kernel_messages[code]);
     else
         _kprint_error("UNKNOWN");
-    _kprint_error(")\nARGS: 0x");
+    _kprint_error(")\n  Args:       [01] 0x");
     uint64_to_hex(arg1, buff);
     _kprint_error(buff);
-    _kprint_error("; 0x");
+    _kprint_error("   [02] 0x");
     uint64_to_hex(arg2, buff);
     _kprint_error(buff);
-    _kprint_error("; 0x");
+    _kprint_error("\n              [03] 0x");
     uint64_to_hex(arg3, buff);
     _kprint_error(buff);
-    _kprint_error("; 0x");
+    _kprint_error("   [04] 0x");
     uint64_to_hex(arg4, buff);
     _kprint_error(buff);
 	_kprint_error("\n");
 #ifdef DEBUG_MODE
 	debug_backtrace();
 #else
-	_kprint_error("PROCESS: \"");
-	_kprint_error(current_thread->owner->name);
-    _kprint_error("\"\nThe system has been halted!\n");
+	_kprint_error("  Process:    \"");
+	if (current_thread && current_thread->owner) {
+		_kprint_error(current_thread->owner->name);
+	} else {
+		_kprint_error("KERNEL (BOOT)");
+	}
+    _kprint_error("\"\n  The system has been halted to prevent damage to your data.\n  Please reboot your computer.\n");
 #endif
     
+	_kprint_error("\n================================================================\n");
     hal_halt();
     __builtin_unreachable();
 }
@@ -384,7 +391,7 @@ void debug_print_thread(thread_t* th) {
 }
 
 void debug_print_stack_trace(uint64_t max_frames) {
-    _kprint_error("Call trace:\n");
+    _kprint_error("\n---[ Call trace ]-----------------------------------------------\n");
 
     hal_stack_frame_t frame;
     hal_stack_trace_init(&frame);
@@ -431,16 +438,16 @@ void debug_print_stack_trace(uint64_t max_frames) {
 }
 
 void debug_backtrace() {
-	_kprint_error("===Backtrace===\n");
+	_kprint_error("\n---[ Active Threads ]-------------------------------------------\n");
 	debug_print_stack_trace(16);
-	_kprint_error("Current thread:\n");
+	_kprint_error(" !!! \n");
 	if (current_thread) debug_print_thread(current_thread);
 	else _kprint_error("NULL");
 	if (ready_queue) {
         thread_t* t = ready_queue;
         do {
 			if (t != current_thread) {
-				_kprint_error("============\n");
+				_kprint_error("----------------------------------------------------------------\n");
 				debug_print_thread(t);
 			}
             t = t->next;

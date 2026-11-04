@@ -133,7 +133,7 @@ void hal_destroy_address_space(process_t* proc) {
 }
 
 uint64_t hal_get_total_ram(boot_info_t* boot_info) {
-    uint32_t entry_count = boot_info->mmap.map_size / sizeof(e820_entry_t);
+    uint32_t entry_count = boot_info->mmap.map_size / boot_info->mmap.desc_size;
     e820_entry_t* e820_entries = (e820_entry_t*)boot_info->mmap.map_addr;
     uint64_t total_ram = 0;
     for (uint32_t i = 0; i < entry_count; i++) {
@@ -145,7 +145,7 @@ uint64_t hal_get_total_ram(boot_info_t* boot_info) {
 }
 
 uint64_t hal_get_pmm_bitmap_addr(void) {
-    return KERNEL_BASE + 0x100000;
+    return KERNEL_BASE + 0x800000;
 }
 
 void hal_pmm_init_regions(boot_info_t* boot_info) {
@@ -179,12 +179,12 @@ void hal_pmm_init_regions(boot_info_t* boot_info) {
         }
 
         if (is_available && region_size > 0) {
-            if (base_addr < 0x100000) {
-                if (region_size <= (0x100000 - base_addr)) {
+            if (base_addr < 0x800000) {
+                if (region_size <= (0x800000 - base_addr)) {
                     goto next_descriptor;
                 }
-                region_size -= (0x100000 - base_addr);
-                base_addr = 0x100000;
+                region_size -= (0x800000 - base_addr);
+                base_addr = 0x800000;
             }
 
             if (base_addr < boot_info->initrd_addr + boot_info->initrd_size && 
