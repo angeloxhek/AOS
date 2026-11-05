@@ -266,6 +266,9 @@ int pcifs_stat(fs_instance_t fs, fs_file_handle_t fd, fs_stat_t* out_info) {
         out_info->attributes = 0; // REGULAR
         out_info->size_bytes = 11;
     }
+    out_info->uid = 1;
+    out_info->gid = 0;
+    out_info->mode = 0777;
     return 0;
 }
 

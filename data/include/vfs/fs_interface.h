@@ -20,6 +20,9 @@ typedef struct {
     uint64_t inode_id;
     uint64_t size_bytes;
     uint32_t attributes;
+    uint32_t uid;
+    uint32_t gid;
+    uint16_t mode;
 } fs_stat_t;
 
 typedef struct {

@@ -320,7 +320,7 @@ int driver_main(void* reserved1, void* reserved2) {
             uint8_t* fbuf = malloc(st.size_bytes);
             if (fbuf) {
                 vfs_read(fd, fbuf, st.size_bytes);
-                has_font = agfx_font_init(&wm_font, fbuf, 14);
+                has_font = agfx_font_init(&wm_font, fbuf, 16);
             }
         }
         vfs_close(fd);

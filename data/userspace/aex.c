@@ -25,6 +25,7 @@
 char paths[2][PATH_MAX];
 vfs_dirent_t files[2][MAX_FILES];
 int is_dir[2][MAX_FILES];
+int is_virtual[2][MAX_FILES];
 int file_counts[2] = {0, 0};
 int scrolls[2] = {0, 0};
 
@@ -56,16 +57,16 @@ void refresh_panel(int p) {
     
     int fd = vfs_open(paths[p], VFS_FREAD);
     if (fd < 0) {
-        printf("AOS Commander: Failed to open directory %s\n", paths[p]);
+        printf("AExplorer: Failed to open directory %s\n", paths[p]);
         return;
     }
 
     file_counts[p] = vfs_readdir(fd, files[p], MAX_FILES);
     vfs_close(fd);
 
-    // Определяем, кто является папкой (включая симлинки на папки)
     for (int i = 0; i < file_counts[p]; i++) {
         is_dir[p][i] = (files[p][i].type == VFS_FILE_TYPE_DIR);
+        is_virtual[p][i] = (files[p][i].is_virtual == 1) || (files[p][i].type == VFS_FILE_TYPE_DEVICE);
         
         if (files[p][i].type == VFS_FILE_TYPE_SYMLINK) {
             char full_path[PATH_MAX];
@@ -73,15 +74,16 @@ void refresh_panel(int p) {
             int sfd = vfs_open(full_path, VFS_FREAD);
             if (sfd >= 0) {
                 vfs_stat_info_t st;
-                if (vfs_stat(sfd, &st) == 0 && (st.attributes & 0x10)) {
-                    is_dir[p][i] = 1; // Симлинк указывает на директорию
+                if (vfs_stat(sfd, &st) == 0) {
+                    if (st.attributes & 0x10) is_dir[p][i] = 1;
+                    if (st.attributes & 0x80000000) is_virtual[p][i] = 1;
                 }
                 vfs_close(sfd);
             }
         }
     }
 
-    // Сортировка: папки сверху, файлы снизу, по алфавиту
+    // Сортировка
     for (int i = 0; i < file_counts[p] - 1; i++) {
         for (int j = i + 1; j < file_counts[p]; j++) {
             int swap = 0;
@@ -99,6 +101,10 @@ void refresh_panel(int p) {
                 int temp_dir = is_dir[p][i];
                 is_dir[p][i] = is_dir[p][j];
                 is_dir[p][j] = temp_dir;
+
+                int temp_virt = is_virtual[p][i];
+                is_virtual[p][i] = is_virtual[p][j];
+                is_virtual[p][j] = temp_virt;
             }
         }
     }
@@ -135,25 +141,20 @@ void handle_file_click(int p, vfs_dirent_t* file) {
         char full_path[PATH_MAX];
         snprintf(full_path, PATH_MAX, "%s%s", paths[p], file->name);
         
-        int len = strlen(file->name);
-        if (len > 4 && strcmp(file->name + len - 4, ".elf") == 0) {
-            printf("AOS Commander: Executing %s\n", full_path);
-            startup_info_t info;
-            memset(&info, 0, sizeof(startup_info_t));
-            info.type = STARTUP_MAIN;
-            info.state = THREAD_BLOCKED;
-            
-            apid_t pid;
-            sysspawn(full_path, &info, 0, &pid);
-        } else {
-            printf("AOS Commander: No associated app for %s\n", file->name);
-        }
+		printf("AExplorer: Executing %s\n", full_path);
+        startup_info_t info;
+        memset(&info, 0, sizeof(startup_info_t));
+        info.type = STARTUP_MAIN;
+        info.state = THREAD_BLOCKED;
+        
+        apid_t pid;
+        sysspawn(full_path, &info, 0, &pid);
     }
 }
 
 int main(int argc, char** argv) {
-    (void)argc; (void)argv;
-    printf("AOS Commander: Starting...\n");
+    UNUSED(argc); UNUSED(argv);
+    printf("AExplorer: Starting...\n");
 
     agfx_set_allocators(malloc, free);
 
@@ -272,24 +273,23 @@ int main(int argc, char** argv) {
                         agfx_fill_rect(&screen, bx, by, item_w, item_h, ui.theme.control_hover);
                     }
 
-                    // Цветовая дифференциация
                     // Цветовая дифференциация и имя
                     uint32_t text_color = ui.theme.text;
                     char name_buf[128];
                     int is_directory = is_dir[p][i];
+                    int is_virt = is_virtual[p][i];
                     
                     if (files[p][i].type == VFS_FILE_TYPE_DIR) {
                         snprintf(name_buf, sizeof(name_buf), "%s/", files[p][i].name);
                         text_color = 0xFFFFFFFF; // Белый для папок
                     } else if (files[p][i].type == VFS_FILE_TYPE_SYMLINK) {
-                        // Если симлинк на папку — добавляем слеш!
                         if (is_directory) snprintf(name_buf, sizeof(name_buf), "%s/", files[p][i].name);
                         else snprintf(name_buf, sizeof(name_buf), "%s", files[p][i].name);
                         
                         text_color = 0xFF5CE6E6; // Бирюзовый для симлинков
-                    } else if (files[p][i].type == VFS_FILE_TYPE_DEVICE) {
+                    } else if (is_virt || files[p][i].type == VFS_FILE_TYPE_DEVICE) {
                         snprintf(name_buf, sizeof(name_buf), "%s", files[p][i].name);
-                        text_color = 0xFF5CE673; // Зеленый для устройств
+                        text_color = 0xFF5CE673; // ЗЕЛЕНЫЙ для устройств и виртуальных файлов!
                     } else {
                         snprintf(name_buf, sizeof(name_buf), "%s", files[p][i].name);
                         text_color = 0xFFCCCCCC; // Светло-серый для файлов
@@ -302,8 +302,8 @@ int main(int argc, char** argv) {
                         agfx_mask_free(mask);
                     }
 
-                    // Отрисовка размера: скрываем для папок, симлинков-папок И устройств!
-                    if (!is_directory && files[p][i].type != VFS_FILE_TYPE_DEVICE) {
+                    // Отрисовка размера: скрываем для папок, устройств И виртуальных файлов!
+                    if (!is_directory && !is_virt && files[p][i].type != VFS_FILE_TYPE_DEVICE) {
                         char size_buf[32];
                         if (files[p][i].size > 1024 * 1024) {
                             snprintf(size_buf, sizeof(size_buf), "%d MB", (int)(files[p][i].size / (1024 * 1024)));

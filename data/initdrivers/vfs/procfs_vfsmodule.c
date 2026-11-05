@@ -323,6 +323,10 @@ int procfs_stat(fs_instance_t fs, fs_file_handle_t f, fs_stat_t* out_info) {
     } else {
         out_info->attributes = 0; // REGULAR / SYMLINK
     }
+
+    out_info->uid = 1;
+    out_info->gid = 0;
+    out_info->mode = 0777;
     
     return 0;
 }

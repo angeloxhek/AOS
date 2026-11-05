@@ -10,6 +10,7 @@
 #include <aos/vfs.h>
 #include <aos/syscalls.h>
 #include <aos/sysinfo.h>
+#include <aos/process.h>
 
 #include <vfs/fs_interface.h>
 #include <vfs/disk_interface.h>
@@ -29,6 +30,10 @@ typedef enum {
 typedef struct vfs_node {
     char name[64];
     vfs_node_type_t type;
+	
+	uint32_t uid;
+    uint32_t gid;
+    uint16_t mode;
     
     struct vfs_node* parent;
     struct vfs_node* children;
@@ -44,6 +49,7 @@ typedef struct vfs_node {
         struct {
             fs_driver_t* driver;
             fs_instance_t fs_inst;
+			int is_virtual;
         } mount;
 
         char target_path[128];
@@ -74,10 +80,6 @@ typedef struct {
             int (*write)(void* param, void* buf, uint64_t size, uint64_t offset);
             void* param;
         } device_file;
-
-        struct {
-            vfs_node_t* node;
-        } dir;
     };
 } vfs_file_t;
 
@@ -420,6 +422,9 @@ vfs_node_t* vfs_mkdir(vfs_node_t* parent, const char* name) {
     strlcpy(node->name, name, sizeof(node->name));
     node->type = VFS_TYPE_DIR;
     node->parent = parent;
+	node->uid = 1;
+    node->gid = 0;
+    node->mode = 0755;
     
     node->next = parent->children;
     parent->children = node;
@@ -434,6 +439,7 @@ void vfs_mkdev(vfs_node_t* parent, const char* name, void* read_func, void* writ
     node->dev_ops.read = read_func;
 	node->dev_ops.write = write_func;
     node->dev_ops.param = param;
+	node->mode = (read_func!=0 ? 0444 : 0) + (write_func!=0 ? 0222 : 0);
 }
 
 void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
@@ -447,6 +453,9 @@ void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
     node->type = VFS_TYPE_SYMLINK;
     node->parent = parent;
     strlcpy(node->target_path, target, sizeof(node->target_path));
+	node->uid = parent->uid;
+    node->gid = parent->gid;
+    node->mode = parent->mode;
     
     node->next = parent->children;
     parent->children = node;
@@ -466,6 +475,7 @@ void vfs_link_mounted_fs(vfs_node_t* p_node, fs_driver_t* fs_drv, fs_instance_t 
     fs_node->type = VFS_TYPE_MOUNT_POINT;
     fs_node->mount.driver = fs_drv;
     fs_node->mount.fs_inst = fs_inst;
+	fs_node->mount.is_virtual = 0;
     
     char target[64];
     snprintf(target, sizeof(target), "/hw/%s/%s/fs", disk_name, part_name);
@@ -526,6 +536,9 @@ void vfs_on_partition_found(block_dev_t* raw_disk, uint8_t part_id, uint64_t sta
 void vfs_init_tree() {
     vfs_root = calloc(1, sizeof(vfs_node_t));
     vfs_root->type = VFS_TYPE_DIR;
+	vfs_root->uid = 1;
+    vfs_root->gid = 0;
+    vfs_root->mode = 0755;
 
     vfs_node_t* hw   = vfs_mkdir(vfs_root, "hw");
     vfs_mkdev(hw, "null", dev_read_null, dev_write_null, 0);
@@ -537,6 +550,7 @@ void vfs_init_tree() {
     tasks->type = VFS_TYPE_MOUNT_POINT;
     tasks->mount.driver = &procfs_driver;
     tasks->mount.fs_inst = procfs_driver.mount(0, 0);
+	tasks->mount.is_virtual = 1;
     
     vfs_node_t* mnt  = vfs_mkdir(vfs_root, "mnt");
     vfs_node_t* mnt_id = vfs_mkdir(mnt, "id");
@@ -739,6 +753,34 @@ void vfs_resolve(const char* path, vfs_path_result_t* out) {
     vfs_resolve_from(vfs_root, path, out);
 }
 
+int vfs_check_access(apid_t pid, uint32_t file_uid, uint32_t file_gid, uint16_t file_mode, uint32_t req_flags) {
+    proc_info_user_t pinfo;
+    if (get_proc_info(pid, &pinfo) != SYS_RES_OK) {
+        return 0;
+    }
+
+    if (pinfo.user.user.uid <= 2) { //kernel=1, localroot=2
+        return 1;
+    }
+
+    int has_access = 0;
+
+    if (pinfo.user.user.uid == file_uid) {
+        if ((req_flags & VFS_FREAD)  && (file_mode & 0400)) has_access = 1;
+        if ((req_flags & VFS_FWRITE) && (file_mode & 0200)) has_access = 1;
+    }
+    else if (pinfo.user.user.gid == file_gid) {
+        if ((req_flags & VFS_FREAD)  && (file_mode & 0040)) has_access = 1;
+        if ((req_flags & VFS_FWRITE) && (file_mode & 0020)) has_access = 1;
+    }
+    else {
+        if ((req_flags & VFS_FREAD)  && (file_mode & 0004)) has_access = 1;
+        if ((req_flags & VFS_FWRITE) && (file_mode & 0002)) has_access = 1;
+    }
+    
+    return has_access;
+}
+
 void handle_vfs_request(message_t* in) {
     message_t out;
     memset(&out, 0, sizeof(message_t));
@@ -764,7 +806,7 @@ void handle_vfs_request(message_t* in) {
                 vfs_file_t* parent_f = vfs_get_file(dir_fd, in->sender_pid);
                 if (parent_f) {
                     if (parent_f->type == VFS_TYPE_DIR) {
-                        start_node = parent_f->dir.node;
+                        start_node = parent_f->mount_node;
                     } else if (parent_f->type == VFS_TYPE_MOUNT_POINT) {
                         int new_fd = vfs_alloc_fd(in->sender_pid);
                         if (new_fd < 0) {
@@ -824,32 +866,40 @@ void handle_vfs_request(message_t* in) {
             vfs_file_t* f = vfs_get_file(new_fd, in->sender_pid);
             f->offset = 0;
 
-		const char* fname = strrchr(path, '/');
-		if (fname) fname++;
-		else fname = path;
-		strlcpy(f->name, fname, sizeof(f->name));
+			const char* fname = strrchr(path, '/');
+			if (fname) fname++;
+			else fname = path;
+			strlcpy(f->name, fname, sizeof(f->name));
 
             if (res.node->type == VFS_TYPE_MOUNT_POINT) {
                 f->type = VFS_TYPE_MOUNT_POINT;
                 f->mounted_file.driver = res.node->mount.driver;
                 f->mounted_file.fs = res.node->mount.fs_inst;
-				
-				f->mount_node = res.node;
+                f->mount_node = res.node;
                 
                 char* p = (res.fs_path && *res.fs_path) ? res.fs_path : "/";
                 
                 if (f->mounted_file.driver && f->mounted_file.driver->open) {
                     f->mounted_file.handle = f->mounted_file.driver->open(f->mounted_file.fs, p, flags);
-					f->flags = flags;
-					if (f->mounted_file.handle && f->mounted_file.driver->stat) {
+                    f->flags = flags;
+                    
+                    if (f->mounted_file.handle && f->mounted_file.driver->stat) {
                         fs_stat_t file_stat;
                         if (f->mounted_file.driver->stat(f->mounted_file.fs, f->mounted_file.handle, &file_stat) == 0) {
+                            
+                            if (!vfs_check_access(in->sender_pid, file_stat.uid, file_stat.gid, file_stat.mode, flags)) {
+                                f->mounted_file.driver->close(f->mounted_file.fs, f->mounted_file.handle);
+                                vfs_free_fd(new_fd, in->sender_pid);
+                                out.param1 = VFS_ERR_PERM;
+                                break;
+                            }
+
                             f->inode_id = file_stat.inode_id;
-							if (flags & VFS_FAPPEND) {
-								f->offset = file_stat.size_bytes;
-							}
+                            if (flags & VFS_FAPPEND) {
+                                f->offset = file_stat.size_bytes;
+                            }
                         }
-					}
+                    }
                 }
                 
                 if (!f->mounted_file.handle) {
@@ -861,22 +911,33 @@ void handle_vfs_request(message_t* in) {
                 }
             } 
             else if (res.node->type == VFS_TYPE_DEVICE_FILE) {
+                if (!vfs_check_access(in->sender_pid, res.node->uid, res.node->gid, res.node->mode, flags)) {
+                    vfs_free_fd(new_fd, in->sender_pid);
+                    out.param1 = VFS_ERR_PERM;
+                    break;
+                }
                 f->type = VFS_TYPE_DEVICE_FILE;
                 f->device_file.read = res.node->dev_ops.read;
                 f->device_file.write = res.node->dev_ops.write;
                 f->device_file.param = res.node->dev_ops.param;
+                f->mount_node = res.node;
                 out.param1 = VFS_ERR_OK;
                 out.param2 = new_fd;
             }
             else if (res.node->type == VFS_TYPE_DIR) {
+                if (!vfs_check_access(in->sender_pid, res.node->uid, res.node->gid, res.node->mode, flags)) {
+                    vfs_free_fd(new_fd, in->sender_pid);
+                    out.param1 = VFS_ERR_PERM;
+                    break;
+                }
                 f->type = VFS_TYPE_DIR;
-                f->dir.node = res.node;
+                f->mount_node = res.node;
                 out.param1 = VFS_ERR_OK;
                 out.param2 = new_fd;
             }
             else {
                 vfs_free_fd(new_fd, in->sender_pid);
-                out.param1 = VFS_ERR_PERM;
+                out.param1 = VFS_ERR_NOTFOUND;
             }
 
             if (res.fs_path) free(res.fs_path);
@@ -982,6 +1043,7 @@ void handle_vfs_request(message_t* in) {
             
             vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
+			if (!(f->flags & VFS_FREAD)) { out.param1 = VFS_ERR_PERM; break; }
 			
 			uint64_t actual_shm_size = shm_get_size(shm_id);
             if (actual_shm_size < max_entries * sizeof(vfs_dirent_t)) {
@@ -997,10 +1059,10 @@ void handle_vfs_request(message_t* in) {
 
             if (f->type == VFS_TYPE_DIR) {
                 while (entries_read < max_entries && f->offset != (uint64_t)-1) {
-                    vfs_node_t* child = (f->offset == 0) ? f->dir.node->children : (vfs_node_t*)f->offset;
+                    vfs_node_t* child = (f->offset == 0) ? f->mount_node->children : (vfs_node_t*)f->offset;
                     
                     if (child) {
-                        if (child == f->dir.node || strcmp(child->name, f->dir.node->name) == 0){
+                        if (child == f->mount_node || strcmp(child->name, f->mount_node->name) == 0){
                             printf("VFS: GRAPH LOOP DETECTED!\n");
                             break; 
                         }
@@ -1049,6 +1111,10 @@ void handle_vfs_request(message_t* in) {
                             dirent_array[i].size = fs_array[i].size;
                             
                             dirent_array[i].type = fs_array[i].type;
+							
+							if (f->mount_node && f->mount_node->mount.is_virtual) {
+                                dirent_array[i].is_virtual = 1; 
+                            }
                         }
                     }
 
@@ -1209,6 +1275,7 @@ void handle_vfs_request(message_t* in) {
 			
 			vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
 			if (!f) { out.param1 = VFS_ERR_PERM; break; }
+			if (!(f->flags & VFS_FREAD)) { out.param1 = VFS_ERR_PERM; break; }
 			
 			if (shm_get_size(shm_id) < sizeof(vfs_stat_info_t)) {
                 out.param1 = VFS_ERR_UNKNOWN;
@@ -1223,6 +1290,9 @@ void handle_vfs_request(message_t* in) {
 					user_stat->inode_id = native_stat.inode_id;
 					user_stat->size_bytes = native_stat.size_bytes;
 					user_stat->attributes = native_stat.attributes;
+					if (f->mount_node && f->mount_node->mount.is_virtual) {
+						user_stat->attributes |= 0x80000000;
+					}
 					strlcpy(user_stat->name, f->name, 256); 
 					out.param1 = VFS_ERR_OK;
 				} else {
@@ -1342,6 +1412,7 @@ void handle_vfs_request(message_t* in) {
 			fs_node->type = VFS_TYPE_MOUNT_POINT;
 			fs_node->mount.driver = &ipcfs_driver;
 			fs_node->mount.fs_inst = inst;
+			fs_node->mount.is_virtual = 1;
 
 			if (in->subtype == MSG_SUBTYPE_QUERY) {
 				out.param1 = VFS_ERR_OK;
