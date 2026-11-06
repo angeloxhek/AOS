@@ -268,7 +268,7 @@ int pcifs_stat(fs_instance_t fs, fs_file_handle_t fd, fs_stat_t* out_info) {
     }
     out_info->uid = 1;
     out_info->gid = 0;
-    out_info->mode = 0777;
+    out_info->mode = (type == PCI_FILE_ROOT || type == PCI_FILE_DEV_DIR) ? 0555 : 0444;
     return 0;
 }
 

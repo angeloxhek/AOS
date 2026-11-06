@@ -837,6 +837,12 @@ void handle_vfs_request(message_t* in) {
 										new_f->offset = file_stat.size_bytes;
 									}
                                 }
+								if (!vfs_check_access(in->sender_pid, file_stat.uid, file_stat.gid, file_stat.mode, flags)) {
+									new_f->mounted_file.driver->close(new_f->mounted_file.fs, new_f->mounted_file.handle);
+									vfs_free_fd(new_fd, in->sender_pid);
+									out.param1 = VFS_ERR_PERM;
+									break;
+								}
                             }
                             out.param1 = VFS_ERR_OK;
                             out.param2 = new_fd;
@@ -865,6 +871,7 @@ void handle_vfs_request(message_t* in) {
 
             vfs_file_t* f = vfs_get_file(new_fd, in->sender_pid);
             f->offset = 0;
+			f->flags = flags;
 
 			const char* fname = strrchr(path, '/');
 			if (fname) fname++;
@@ -881,7 +888,6 @@ void handle_vfs_request(message_t* in) {
                 
                 if (f->mounted_file.driver && f->mounted_file.driver->open) {
                     f->mounted_file.handle = f->mounted_file.driver->open(f->mounted_file.fs, p, flags);
-                    f->flags = flags;
                     
                     if (f->mounted_file.handle && f->mounted_file.driver->stat) {
                         fs_stat_t file_stat;
@@ -1493,6 +1499,11 @@ void handle_vfs_request(message_t* in) {
             out.param1 = VFS_ERR_NOCOMM;
             break;
         }
+    }
+	
+	if (out.param1 != VFS_ERR_OK && out.param1 != VFS_ERR_NOCOMM) {
+        printf("VFS: CMD %d failed for PID %d (code=%d)\n", 
+               (int)in->param1, (int)in->sender_pid, (int)out.param1);
     }
 	
     ipc_reply(in, &out);
