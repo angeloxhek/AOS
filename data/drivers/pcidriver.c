@@ -387,6 +387,10 @@ void handle_vfs(message_t* in) {
             out.param1 = VFS_ERR_OK;
             break;
         }
+		case VFS_CMD_UNLINKAT: {
+            out.param1 = VFS_ERR_PERM;
+            break;
+        }
         default: {
             out.param1 = VFS_ERR_NOCOMM;
             break;

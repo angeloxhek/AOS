@@ -21,13 +21,13 @@
 #define PANEL_LEFT  0
 #define PANEL_RIGHT 1
 
-// Состояние двух панелей
 char paths[2][PATH_MAX];
 vfs_dirent_t files[2][MAX_FILES];
 int is_dir[2][MAX_FILES];
 int is_virtual[2][MAX_FILES];
 int file_counts[2] = {0, 0};
 int scrolls[2] = {0, 0};
+int selected_idx[2] = {0, 0}; 
 
 int active_panel = PANEL_LEFT;
 
@@ -50,10 +50,10 @@ uint8_t* read_entire_file(const char* path, uint64_t* out_size) {
     return data;
 }
 
-// Загрузка списка файлов для конкретной панели
 void refresh_panel(int p) {
     file_counts[p] = 0;
-    scrolls[p] = 0; 
+    scrolls[p] = 0;
+	selected_idx[p] = 0;
     
     int fd = vfs_open(paths[p], VFS_FREAD);
     if (fd < 0) {
@@ -83,7 +83,6 @@ void refresh_panel(int p) {
         }
     }
 
-    // Сортировка
     for (int i = 0; i < file_counts[p] - 1; i++) {
         for (int j = i + 1; j < file_counts[p]; j++) {
             int swap = 0;
@@ -158,7 +157,6 @@ int main(int argc, char** argv) {
 
     agfx_set_allocators(malloc, free);
 
-    // Большое окно для двух панелей
     int win_w = 800, win_h = 500;
     window_t* win = window_create(50, 50, win_w, win_h, WND_FLAG_NORMAL);
     if (!win) return -1;
@@ -178,9 +176,8 @@ int main(int argc, char** argv) {
     agfx_ui_context_t ui;
     agfx_ui_init(&ui, &screen, has_font ? &font : NULL);
 
-    // Инициализация путей
     strlcpy(paths[PANEL_LEFT], "/", PATH_MAX);
-    strlcpy(paths[PANEL_RIGHT], "/hw/", PATH_MAX); // Правая панель смотрит в устройства
+    strlcpy(paths[PANEL_RIGHT], "/hw/", PATH_MAX);
     
     refresh_panel(PANEL_LEFT);
     refresh_panel(PANEL_RIGHT);
@@ -191,7 +188,7 @@ int main(int argc, char** argv) {
 
     int topbar_h = 36;
     int bottombar_h = 40;
-    int panel_w = (win_w - 30) / 2; // Две панели с отступами
+    int panel_w = (win_w - 30) / 2;
     int panel_h = win_h - topbar_h - bottombar_h - 20;
 
     while (1) {
@@ -221,17 +218,12 @@ int main(int argc, char** argv) {
             
             agfx_fill_rect(&screen, 0, 0, win_w, win_h, ui.theme.bg);
 
-            // ==========================================
-            // ОТРИСОВКА ПАНЕЛЕЙ (Левая и Правая)
-            // ==========================================
             for (int p = 0; p < 2; p++) {
                 int px = (p == 0) ? 10 : (20 + panel_w);
                 int py = 10;
 
-                // Подсветка активной панели
                 uint32_t path_bg = (active_panel == p) ? ui.theme.accent : ui.theme.control;
                 
-                // Верхняя плашка с путем
                 agfx_fill_rect(&screen, px, py, panel_w, topbar_h, path_bg);
                 agfx_draw_rect(&screen, px, py, panel_w, topbar_h, 1, ui.theme.border);
                 
@@ -244,13 +236,11 @@ int main(int argc, char** argv) {
                 agfx_ui_same_line(&ui);
                 agfx_ui_label(&ui, paths[p]);
 
-                // Затемняем фон неактивной панели
                 uint32_t original_bg = ui.theme.bg;
                 if (active_panel != p) {
                     ui.theme.bg = 0xFF151515; 
                 }
 
-                // Сама панель с файлами
                 agfx_ui_begin_panel(&ui, px, py + topbar_h + 5, panel_w, panel_h, &scrolls[p]);
                 
                 for (int i = 0; i < file_counts[p]; i++) {
@@ -267,32 +257,34 @@ int main(int argc, char** argv) {
                     
                     int clicked = agfx_ui_button_behavior(&ui, item_w, item_h, &bx, &by, &bstate);
                     
-                    if (bstate == AGFX_UI_STATE_PRESSED) {
+                    int is_selected = (active_panel == p && selected_idx[p] == i);
+                    
+                    if (is_selected) {
+                        agfx_fill_rect(&screen, bx, by, item_w, item_h, ui.theme.accent);
+                    } else if (bstate == AGFX_UI_STATE_PRESSED) {
                         agfx_fill_rect(&screen, bx, by, item_w, item_h, ui.theme.control_pressed);
                     } else if (bstate == AGFX_UI_STATE_HOVER) {
                         agfx_fill_rect(&screen, bx, by, item_w, item_h, ui.theme.control_hover);
                     }
 
-                    // Цветовая дифференциация и имя
-                    uint32_t text_color = ui.theme.text;
+                    uint32_t text_color = is_selected ? 0xFFFFFFFF : ui.theme.text;
                     char name_buf[128];
                     int is_directory = is_dir[p][i];
                     int is_virt = is_virtual[p][i];
                     
                     if (files[p][i].type == VFS_FILE_TYPE_DIR) {
                         snprintf(name_buf, sizeof(name_buf), "%s/", files[p][i].name);
-                        text_color = 0xFFFFFFFF; // Белый для папок
+                        if (!is_selected) text_color = 0xFFFFFFFF;
                     } else if (files[p][i].type == VFS_FILE_TYPE_SYMLINK) {
                         if (is_directory) snprintf(name_buf, sizeof(name_buf), "%s/", files[p][i].name);
                         else snprintf(name_buf, sizeof(name_buf), "%s", files[p][i].name);
-                        
-                        text_color = 0xFF5CE6E6; // Бирюзовый для симлинков
+                        if (!is_selected) text_color = 0xFF5CE6E6;
                     } else if (is_virt || files[p][i].type == VFS_FILE_TYPE_DEVICE) {
                         snprintf(name_buf, sizeof(name_buf), "%s", files[p][i].name);
-                        text_color = 0xFF5CE673; // ЗЕЛЕНЫЙ для устройств и виртуальных файлов!
+                        if (!is_selected) text_color = 0xFF5CE673;
                     } else {
                         snprintf(name_buf, sizeof(name_buf), "%s", files[p][i].name);
-                        text_color = 0xFFCCCCCC; // Светло-серый для файлов
+                        if (!is_selected) text_color = 0xFFCCCCCC;
                     }
 
                     int tw, th;
@@ -302,7 +294,6 @@ int main(int argc, char** argv) {
                         agfx_mask_free(mask);
                     }
 
-                    // Отрисовка размера: скрываем для папок, устройств И виртуальных файлов!
                     if (!is_directory && !is_virt && files[p][i].type != VFS_FILE_TYPE_DEVICE) {
                         char size_buf[32];
                         if (files[p][i].size > 1024 * 1024) {
@@ -315,38 +306,38 @@ int main(int argc, char** argv) {
 
                         uint8_t* smask = agfx_mask_generate_string(ui.font, size_buf, &tw, &th);
                         if (smask) {
-                            agfx_fill_alpha_mask(&screen, bx + item_w - tw - 5, by + (item_h - th) / 2, tw, th, smask, ui.theme.text_secondary);
+                            uint32_t size_color = is_selected ? 0xFFFFFFFF : ui.theme.text_secondary;
+                            agfx_fill_alpha_mask(&screen, bx + item_w - tw - 5, by + (item_h - th) / 2, tw, th, smask, size_color);
                             agfx_mask_free(smask);
                         }
                     }
 
                     if (clicked) {
-                        handle_file_click(p, &files[p][i]);
+                        active_panel = p;
+                        if (selected_idx[p] == i) {
+                            handle_file_click(p, &files[p][i]);
+                        } else {
+                            selected_idx[p] = i;
+                        }
                         needs_redraw = 1;
                     }
                 }
                 agfx_ui_end_panel(&ui);
                 
-                // Возвращаем оригинальный фон
                 ui.theme.bg = original_bg;
                 
-                // Рамка вокруг панели
                 uint32_t border_color = (active_panel == p) ? ui.theme.accent : ui.theme.border;
                 agfx_draw_rect(&screen, px, py + topbar_h + 5, panel_w, panel_h, 1, border_color);
             }
 
-            // ==========================================
-            // НИЖНЯЯ ПАНЕЛЬ (Кнопки действий)
-            // ==========================================
             int bottom_y = win_h - bottombar_h;
             
-            // Делаем фон нижней панели темнее, чтобы стандартные кнопки выделялись
             agfx_fill_rect(&screen, 0, bottom_y, win_w, bottombar_h, 0xFF151515);
             agfx_draw_line(&screen, 0, bottom_y, win_w, bottom_y, 1, ui.theme.border);
 
             agfx_ui_begin(&ui, 10, bottom_y + 6);
             
-            int btn_w = (win_w - 80) / 6; // 6 кнопок
+            int btn_w = (win_w - 80) / 6;
             
             if (agfx_ui_button(&ui, "F3 View", btn_w, 28)) printf("View not implemented\n");
             agfx_ui_same_line(&ui);
@@ -358,7 +349,33 @@ int main(int argc, char** argv) {
             agfx_ui_same_line(&ui);
             if (agfx_ui_button(&ui, "F7 Mkdir", btn_w, 28)) printf("Mkdir not implemented\n");
             agfx_ui_same_line(&ui);
-            if (agfx_ui_button(&ui, "F8 Delete", btn_w, 28)) printf("Delete not implemented\n");
+            if (agfx_ui_button(&ui, "F8 Delete", btn_w, 28)) {
+                if (file_counts[active_panel] > 0) {
+                    int idx = selected_idx[active_panel];
+                    vfs_dirent_t* target_file = &files[active_panel][idx];
+                    
+                    char target_path[PATH_MAX];
+                    snprintf(target_path, PATH_MAX, "%s%s", paths[active_panel], target_file->name);
+                    
+                    if (is_dir[active_panel][idx]) {
+                        printf("AOS Commander: Cannot delete directory %s\n", target_path);
+                    } 
+                    else if (is_virtual[active_panel][idx] || target_file->type == VFS_FILE_TYPE_DEVICE) {
+                        printf("AOS Commander: Cannot delete virtual file %s\n", target_path);
+                    }
+                    else {
+                        printf("AOS Commander: Deleting %s...\n", target_path);
+                        
+                        if (vfs_unlink(target_path) == 0) {
+                            printf("AOS Commander: Deleted successfully.\n");
+                            refresh_panel(active_panel);
+                            needs_redraw = 1;
+                        } else {
+                            printf("AOS Commander: Failed to delete %s\n", target_path);
+                        }
+                    }
+                }
+            }
 
             window_flush(win);
         }

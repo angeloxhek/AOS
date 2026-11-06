@@ -62,6 +62,7 @@ typedef struct {
     int id;
     apid_t owner_pid;
     int used;
+	int is_invalidated;
     uint64_t offset;
     vfs_node_type_t type;
 	vfs_node_t* mount_node;
@@ -169,6 +170,21 @@ void vfs_free_fd(int fd, apid_t pid) {
     if (fd <= ctx->fd_capacity && ctx->fd_table[fd - 1]) {
         free(ctx->fd_table[fd - 1]);
         ctx->fd_table[fd - 1] = NULL;
+    }
+}
+
+void vfs_invalidate_inode(vfs_node_t* mount_node, uint64_t inode_id) {
+    vfs_proc_ctx_t* ctx = proc_contexts;
+    while (ctx) {
+        for (int i = 0; i < ctx->fd_capacity; i++) {
+            vfs_file_t* f = ctx->fd_table[i];
+            if (f && f->type == VFS_TYPE_MOUNT_POINT) {
+                if (f->mount_node == mount_node && f->inode_id == inode_id) {
+                    f->is_invalidated = 1;
+                }
+            }
+        }
+        ctx = ctx->next;
     }
 }
 
@@ -408,7 +424,7 @@ vfs_node_t* find_child(vfs_node_t* parent, const char* name) {
     return 0;
 }
 
-vfs_node_t* vfs_mkdir(vfs_node_t* parent, const char* name) {
+vfs_node_t* vfs_mkdir(vfs_node_t* parent, const char* name, uint32_t uid, uint32_t gid, uint16_t mode) {
     if (!parent || !name) return 0;
     
     vfs_node_t* existing = find_child(parent, name);
@@ -422,27 +438,27 @@ vfs_node_t* vfs_mkdir(vfs_node_t* parent, const char* name) {
     strlcpy(node->name, name, sizeof(node->name));
     node->type = VFS_TYPE_DIR;
     node->parent = parent;
-	node->uid = 1;
-    node->gid = 0;
-    node->mode = 0755;
+    
+    node->uid = uid;
+    node->gid = gid;
+    node->mode = mode;
     
     node->next = parent->children;
     parent->children = node;
     return node;
 }
 
-void vfs_mkdev(vfs_node_t* parent, const char* name, void* read_func, void* write_func, void* param) {
-	if (!name) return;
-    vfs_node_t* node = vfs_mkdir(parent, name);
-	if (!node) return;
+void vfs_mkdev(vfs_node_t* parent, const char* name, uint32_t uid, uint32_t gid, uint16_t mode, void* read_func, void* write_func, void* param) {
+    if (!name) return;
+    vfs_node_t* node = vfs_mkdir(parent, name, uid, gid, mode);
+    if (!node) return;
     node->type = VFS_TYPE_DEVICE_FILE;
     node->dev_ops.read = read_func;
-	node->dev_ops.write = write_func;
+    node->dev_ops.write = write_func;
     node->dev_ops.param = param;
-	node->mode = (read_func!=0 ? 0444 : 0) + (write_func!=0 ? 0222 : 0);
 }
 
-void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
+void vfs_symlink(vfs_node_t* parent, const char* name, const char* target, uint32_t uid, uint32_t gid, uint16_t mode) {
     if (!name || !target) return;
     
     if (find_child(parent, name)) return; 
@@ -453,9 +469,10 @@ void vfs_symlink(vfs_node_t* parent, const char* name, const char* target) {
     node->type = VFS_TYPE_SYMLINK;
     node->parent = parent;
     strlcpy(node->target_path, target, sizeof(node->target_path));
-	node->uid = parent->uid;
-    node->gid = parent->gid;
-    node->mode = parent->mode;
+    
+    node->uid = uid;
+    node->gid = gid;
+    node->mode = mode;
     
     node->next = parent->children;
     parent->children = node;
@@ -471,7 +488,7 @@ typedef struct vfs_part_ctx {
 
 void vfs_link_mounted_fs(vfs_node_t* p_node, fs_driver_t* fs_drv, fs_instance_t fs_inst, 
                          const char* disk_name, const char* part_name, vfs_node_t* mnt_id_node, vfs_node_t* mnt_node, int is_bootable) {
-    vfs_node_t* fs_node = vfs_mkdir(p_node, "fs");
+    vfs_node_t* fs_node = vfs_mkdir(p_node, "fs", 1, 0, 0755);
     fs_node->type = VFS_TYPE_MOUNT_POINT;
     fs_node->mount.driver = fs_drv;
     fs_node->mount.fs_inst = fs_inst;
@@ -479,13 +496,13 @@ void vfs_link_mounted_fs(vfs_node_t* p_node, fs_driver_t* fs_drv, fs_instance_t 
     
     char target[64];
     snprintf(target, sizeof(target), "/hw/%s/%s/fs", disk_name, part_name);
-    vfs_symlink(mnt_id_node, part_name, target); // /mnt/id/v0
+    vfs_symlink(mnt_id_node, part_name, target, 1, 0, 0777); // /mnt/id/v0
     
     char label[12] = "NO_NAME";
     if (fs_drv->get_label) fs_drv->get_label(fs_inst, label);
-    if (strcmp(label, "NO_NAME") != 0) vfs_symlink(mnt_node, label, target); // /mnt/DISK_C
+    if (strcmp(label, "NO_NAME") != 0) vfs_symlink(mnt_node, label, target, 1, 0, 0777); // /mnt/DISK_C
     
-    if (is_bootable) vfs_symlink(vfs_root, "boot", target); // /boot
+    if (is_bootable) vfs_symlink(vfs_root, "boot", target, 1, 0, 0777); // /boot
 }
 
 
@@ -496,7 +513,7 @@ void vfs_on_partition_found(block_dev_t* raw_disk, uint8_t part_id, uint64_t sta
     char part_name[16];
     sprintf(part_name, "v%d", *ctx->global_part_id);
     
-    vfs_node_t* p_node = vfs_mkdir(ctx->disk_node, part_name);
+    vfs_node_t* p_node = vfs_mkdir(ctx->disk_node, part_name, 1, 0, 0755);
     
     block_dev_t* part_dev = malloc(sizeof(block_dev_t));
     memcpy(part_dev, raw_disk, sizeof(block_dev_t));
@@ -505,7 +522,7 @@ void vfs_on_partition_found(block_dev_t* raw_disk, uint8_t part_id, uint64_t sta
 	
 	register_block_device(part_dev);
     
-    vfs_mkdev(p_node, "raw", dev_read_raw, dev_write_raw, part_dev);
+    vfs_mkdev(p_node, "raw", 1, 0, 0600, dev_read_raw, dev_write_raw, part_dev);
 
     fs_driver_t* fs_drv = NULL;
     fs_instance_t fs_inst = NULL;
@@ -540,24 +557,24 @@ void vfs_init_tree() {
     vfs_root->gid = 0;
     vfs_root->mode = 0755;
 
-    vfs_node_t* hw   = vfs_mkdir(vfs_root, "hw");
-    vfs_mkdev(hw, "null", dev_read_null, dev_write_null, 0);
-    vfs_mkdev(hw, "zero", dev_read_zero, dev_write_null, 0);
-    vfs_mkdev(hw, "urandom", dev_read_urandom, dev_write_null, 0);
+    vfs_node_t* hw   = vfs_mkdir(vfs_root, "hw", 1, 0, 0755);
+    vfs_mkdev(hw, "null", 1, 0, 0666, dev_read_null, dev_write_null, 0);
+    vfs_mkdev(hw, "zero", 1, 0, 0666, dev_read_zero, dev_write_null, 0);
+    vfs_mkdev(hw, "urandom", 1, 0, 0666, dev_read_urandom, dev_write_null, 0);
 
-    vfs_node_t* sys  = vfs_mkdir(vfs_root, "sys");
-    vfs_node_t* tasks = vfs_mkdir(vfs_root, "tasks");
+    vfs_node_t* sys  = vfs_mkdir(vfs_root, "sys", 1, 0, 0755);
+    vfs_node_t* tasks = vfs_mkdir(vfs_root, "tasks", 1, 0, 0755);
     tasks->type = VFS_TYPE_MOUNT_POINT;
     tasks->mount.driver = &procfs_driver;
     tasks->mount.fs_inst = procfs_driver.mount(0, 0);
 	tasks->mount.is_virtual = 1;
     
-    vfs_node_t* mnt  = vfs_mkdir(vfs_root, "mnt");
-    vfs_node_t* mnt_id = vfs_mkdir(mnt, "id");
+    vfs_node_t* mnt  = vfs_mkdir(vfs_root, "mnt", 1, 0, 0755);
+    vfs_node_t* mnt_id = vfs_mkdir(mnt, "id", 1, 0, 0755);
     
-    vfs_node_t* sysstat  = vfs_mkdir(sys, "stat");
-    vfs_mkdev(sysstat, "uptime", dev_read_uptime, 0, 0);
-    vfs_mkdev(sysstat, "flags", dev_read_flags, 0, 0);
+    vfs_node_t* sysstat  = vfs_mkdir(sys, "stat", 1, 0, 0755);
+    vfs_mkdev(sysstat, "uptime", 1, 0, 0444, dev_read_uptime, 0, 0);
+    vfs_mkdev(sysstat, "flags", 1, 0, 0444, dev_read_flags, 0, 0);
     
     int global_disk_id = 0;
     int global_part_id = 0;
@@ -580,7 +597,7 @@ void vfs_init_tree() {
 
             char disk_name[32];
             sprintf(disk_name, "%s%d", disk_drv->name, i); // "ide0", "ide1"
-            vfs_node_t* d_node = vfs_mkdir(hw, disk_name);
+            vfs_node_t* d_node = vfs_mkdir(hw, disk_name, 1, 0, 0755);
             
             block_dev_t* raw_disk = malloc(sizeof(block_dev_t));
             memset(raw_disk, 0, sizeof(block_dev_t));
@@ -593,7 +610,7 @@ void vfs_init_tree() {
 			
 			register_block_device(raw_disk);
             
-            vfs_mkdev(d_node, "raw", dev_read_raw, dev_write_raw, raw_disk);
+            vfs_mkdev(d_node, "raw", 1, 0, 0600, dev_read_raw, dev_write_raw, raw_disk);
 
             vfs_part_ctx_t ctx = {
                 .disk_node = d_node,
@@ -958,6 +975,7 @@ void handle_vfs_request(message_t* in) {
             
             vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
+			if (f->is_invalidated) { out.param1 = VFS_ERR_NOTFOUND; break; }
             if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
 			if (!(f->flags & VFS_FREAD)) { out.param1 = VFS_ERR_PERM; break; }
 			
@@ -1003,6 +1021,7 @@ void handle_vfs_request(message_t* in) {
             
             vfs_file_t* f = vfs_get_file(fd, in->sender_pid);
             if (!f) { out.param1 = VFS_ERR_PERM; break; }
+			if (f->is_invalidated) { out.param1 = VFS_ERR_NOTFOUND; break; }
             if (f->type == VFS_TYPE_DIR) { out.param1 = VFS_ERR_ISDIR; break; }
 			if (!(f->flags & VFS_FWRITE)) { out.param1 = VFS_ERR_PERM; break; }
 			
@@ -1414,7 +1433,7 @@ void handle_vfs_request(message_t* in) {
 				break;
 			}
 			
-			vfs_node_t* fs_node = vfs_mkdir(res.node, base_name);
+			vfs_node_t* fs_node = vfs_mkdir(res.node, base_name, 1, 0, 0755);
 			fs_node->type = VFS_TYPE_MOUNT_POINT;
 			fs_node->mount.driver = &ipcfs_driver;
 			fs_node->mount.fs_inst = inst;
@@ -1492,6 +1511,47 @@ void handle_vfs_request(message_t* in) {
             }
             
             shm_free(shm_id);
+            break;
+        }
+		
+		case VFS_CMD_UNLINKAT: {
+            int dir_fd = in->param2;
+            char* name = (char*)in->data;
+            
+            if (!name || name[0] == '\0' || strchr(name, '/')) {
+                out.param1 = VFS_ERR_UNKNOWN;
+                break;
+            }
+
+            vfs_file_t* parent_f = vfs_get_file(dir_fd, in->sender_pid);
+            if (!parent_f || parent_f->type != VFS_TYPE_MOUNT_POINT) {
+                out.param1 = VFS_ERR_PERM; 
+                break;
+            }
+
+            if (!vfs_check_access(in->sender_pid, parent_f->mount_node->uid, parent_f->mount_node->gid, parent_f->mount_node->mode, VFS_FWRITE)) {
+                out.param1 = VFS_ERR_PERM;
+                break;
+            }
+
+            if (parent_f->mounted_file.driver && parent_f->mounted_file.driver->unlinkat) {
+                uint64_t deleted_inode = 0;
+                int err = parent_f->mounted_file.driver->unlinkat(
+                    parent_f->mounted_file.fs, 
+                    parent_f->mounted_file.handle, 
+                    name,
+                    &deleted_inode
+                );
+                
+                if (err == 0) {
+                    vfs_invalidate_inode(parent_f->mount_node, deleted_inode);
+                    out.param1 = VFS_ERR_OK;
+                } else {
+                    out.param1 = VFS_ERR_UNKNOWN;
+                }
+            } else {
+                out.param1 = VFS_ERR_UNKNOWN;
+            }
             break;
         }
         

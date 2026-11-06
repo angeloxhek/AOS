@@ -334,10 +334,16 @@ int procfs_stat(fs_instance_t fs, fs_file_handle_t f, fs_stat_t* out_info) {
 void procfs_get_label(fs_instance_t fs, char* out_label) { UNUSED(fs); strcpy(out_label, "PROCFS"); }
 void procfs_close(fs_instance_t fs, fs_file_handle_t f) { UNUSED(fs); free(f); }
 
+int procfs_unlinkat(fs_instance_t fs, fs_file_handle_t dir_handle, const char* name, uint64_t* out_deleted_inode) {
+    UNUSED(fs); UNUSED(dir_handle); UNUSED(name); UNUSED(out_deleted_inode);
+    return -1;
+}
+
 fs_driver_t procfs_driver = {
     .mount = procfs_mount, .umount = procfs_umount,
     .open = procfs_open, .openat = procfs_openat,
     .read = procfs_read, .write = procfs_write,
     .readdir = procfs_readdir, .stat = procfs_stat,
-    .get_label = procfs_get_label, .close = procfs_close
+    .get_label = procfs_get_label, .close = procfs_close,
+    .unlinkat = procfs_unlinkat
 };

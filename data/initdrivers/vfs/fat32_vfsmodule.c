@@ -1058,6 +1058,42 @@ void fat32_close(fs_instance_t fs, fs_file_handle_t f) {
     free(f);
 }
 
+int fat32_unlinkat(fs_instance_t fs, fs_file_handle_t dir_handle, const char* name, uint64_t* out_deleted_inode) {
+    fat32_instance_t* inst = (fat32_instance_t*)fs;
+    fat32_file_t* parent_dir = (fat32_file_t*)dir_handle;
+    
+    if (!(parent_dir->attributes & FAT_ATTR_DIRECTORY) && parent_dir->first_cluster != inst->root_cluster) {
+        return -1; 
+    }
+
+    fat32_file_t file_info;
+    if (!find_entry_in_cluster_chain(inst, parent_dir->first_cluster, name, &file_info)) {
+        return -1; 
+    }
+    
+    if (file_info.attributes & FAT_ATTR_DIRECTORY) {
+        return -1;
+    }
+    
+    if (out_deleted_inode) {
+        *out_deleted_inode = (file_info.dir_entry_lba << 32) | file_info.dir_entry_offset;
+    }
+    
+    uint8_t sec_buf[FAT32_MAX_SECTOR_SIZE];
+    fat32_read_cached_sector(inst, file_info.dir_entry_lba, sec_buf);
+    sec_buf[file_info.dir_entry_offset] = 0xE5;
+    fat32_write_cached_sector(inst, file_info.dir_entry_lba, sec_buf);
+    
+    uint32_t cluster = file_info.first_cluster;
+    while (cluster >= 2 && cluster < 0x0FFFFFF8) {
+        uint32_t next = get_next_cluster(inst, cluster);
+        set_next_cluster(inst, cluster, 0x00000000);
+        cluster = next;
+    }
+    
+    return 0;
+}
+
 fs_driver_t fat32_driver = {
     .mount = fat32_mount,
     .umount = fat32_umount,
@@ -1068,5 +1104,6 @@ fs_driver_t fat32_driver = {
     .close = fat32_close,
     .readdir = fat32_readdir,
 	.stat = fat32_stat,
-    .get_label = fat32_get_label
+    .get_label = fat32_get_label,
+    .unlinkat = fat32_unlinkat
 };

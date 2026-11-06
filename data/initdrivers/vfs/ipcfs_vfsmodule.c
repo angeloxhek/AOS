@@ -386,6 +386,38 @@ void ipcfs_get_label(fs_instance_t fs, char* out_label) {
     }
 }
 
+int ipcfs_unlinkat(fs_instance_t fs, fs_file_handle_t dir_handle, const char* name, uint64_t* out_deleted_inode) {
+    ipcfs_instance_t* inst = (ipcfs_instance_t*)fs;
+    if (!valid_inst(inst)) return -1;
+    ipcfs_file_t* dir = (ipcfs_file_t*)dir_handle;
+    
+    if (!name) return -1;
+    int len = strlen(name);
+    if (len >= 64) return -1;
+    
+    message_t req, resp;
+    memset(&req, 0, sizeof(message_t));
+    req.type = MSG_TYPE_VFS;
+    req.subtype = MSG_SUBTYPE_QUERY;
+    req.param1 = VFS_CMD_UNLINKAT;
+    req.param2 = (uint64_t)dir->remote_fd;
+    strlcpy((char*)req.data, name, 64);
+    
+    int64_t tx_id = ipc_send(inst->context.driver_pid, &req);
+    if (tx_id < 0) return -1;
+    
+    ipc_recv_ex(inst->context.driver_pid, MSG_TYPE_VFS, MSG_SUBTYPE_RESPONSE, (uint64_t)tx_id, MSG_FLAG_NONE, &resp);
+    
+    if (resp.param1 == VFS_ERR_OK) {
+        if (out_deleted_inode) {
+            *out_deleted_inode = resp.param2;
+        }
+        return 0;
+    }
+    
+    return -1;
+}
+
 fs_driver_t ipcfs_driver = {
     .name = "ipcfs",
     .mount = ipcfs_mount,
@@ -397,5 +429,6 @@ fs_driver_t ipcfs_driver = {
     .close = ipcfs_close,
     .readdir = ipcfs_readdir,
     .stat = ipcfs_stat,
-    .get_label = ipcfs_get_label
+    .get_label = ipcfs_get_label,
+    .unlinkat = ipcfs_unlinkat
 };

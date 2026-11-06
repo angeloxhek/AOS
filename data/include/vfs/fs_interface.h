@@ -37,6 +37,7 @@ typedef struct {
     int (*readdir)(fs_instance_t fs, fs_file_handle_t dir, uint64_t* offset, fs_dirent_t* out_array, int max_entries);
     int (*stat)(fs_instance_t fs, fs_file_handle_t file, fs_stat_t* out_info); 
     void (*get_label)(fs_instance_t fs, char* out_label);
+    int (*unlinkat)(fs_instance_t fs, fs_file_handle_t dir_handle, const char* name, uint64_t* out_deleted_inode);
 } fs_driver_t;
 
 #endif
