@@ -640,10 +640,10 @@ __attribute__((noreturn)) void idle_thread() {
 
         while (z) {
             thread_t* next_z = z->next_zombie;
-            if (z->stack_base) {
+            if (z->stack_base && z->stack_base != (uint64_t)kernel_stack) {
                 kernel_free((void*)z->stack_base);
             }
-            if (z->owner && z->owner->main_thread == z) {
+            if (z->owner && z->owner->main_thread == z && z->owner != &kernel_process) {
                 hal_destroy_address_space(z->owner);
                 kernel_free(z->owner);
             }
