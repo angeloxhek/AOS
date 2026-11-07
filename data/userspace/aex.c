@@ -151,6 +151,16 @@ void handle_file_click(int p, vfs_dirent_t* file) {
     }
 }
 
+static int get_text_width(const agfx_font_t* font, const char* text) {
+    if (!font || !text) return 0;
+    int w = 0;
+    for (int i = 0; text[i]; i++) {
+        unsigned char c = text[i];
+        if (c >= 32 && c <= 127) w += font->glyph_cache[c - 32].advance;
+    }
+    return w;
+}
+
 int main(int argc, char** argv) {
     UNUSED(argc); UNUSED(argv);
     printf("AExplorer: Starting...\n");
@@ -287,11 +297,9 @@ int main(int argc, char** argv) {
                         if (!is_selected) text_color = 0xFFCCCCCC;
                     }
 
-                    int tw, th;
-                    uint8_t* mask = agfx_mask_generate_string(ui.font, name_buf, &tw, &th);
-                    if (mask) {
-                        agfx_fill_alpha_mask(&screen, bx + 5, by + (item_h - th) / 2, tw, th, mask, text_color);
-                        agfx_mask_free(mask);
+                    if (has_font) {
+                        int th = (int)((ui.font->ascent - ui.font->descent) * ui.font->scale);
+                        agfx_draw_text(&screen, ui.font, name_buf, bx + 5, by + (item_h - th) / 2, text_color);
                     }
 
                     if (!is_directory && !is_virt && files[p][i].type != VFS_FILE_TYPE_DEVICE) {
@@ -304,11 +312,12 @@ int main(int argc, char** argv) {
                             snprintf(size_buf, sizeof(size_buf), "%d B", (int)files[p][i].size);
                         }
 
-                        uint8_t* smask = agfx_mask_generate_string(ui.font, size_buf, &tw, &th);
-                        if (smask) {
+                        if (has_font) {
+                            int th = (int)((ui.font->ascent - ui.font->descent) * ui.font->scale);
+                            int tw = get_text_width(ui.font, size_buf);
                             uint32_t size_color = is_selected ? 0xFFFFFFFF : ui.theme.text_secondary;
-                            agfx_fill_alpha_mask(&screen, bx + item_w - tw - 5, by + (item_h - th) / 2, tw, th, smask, size_color);
-                            agfx_mask_free(smask);
+                            
+                            agfx_draw_text(&screen, ui.font, size_buf, bx + item_w - tw - 5, by + (item_h - th) / 2, size_color);
                         }
                     }
 

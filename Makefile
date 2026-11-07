@@ -62,7 +62,7 @@ ifeq ($(DEBUG), 1)
     COMMON_CFLAGS += -DDEBUG_MODE -g3 -O0
     $(info [INFO] Compiling in DEBUG mode)
 else
-	COMMON_CFLAGS += -Oz
+	COMMON_CFLAGS += -O3
 endif
 
 LDFLAGS = --no-warn-rwx-segments --gc-sections $(ARCH_LDFLAGS)
