@@ -27,9 +27,11 @@ int is_dir[2][MAX_FILES];
 int is_virtual[2][MAX_FILES];
 int file_counts[2] = {0, 0};
 int scrolls[2] = {0, 0};
-int selected_idx[2] = {0, 0}; 
+int selected_idx[2] = {-1, -1}; 
 
 int active_panel = PANEL_LEFT;
+
+agfx_ui_context_t ui;
 
 uint8_t* read_entire_file(const char* path, uint64_t* out_size) {
     int fd = vfs_open(path, VFS_FREAD);
@@ -53,7 +55,7 @@ uint8_t* read_entire_file(const char* path, uint64_t* out_size) {
 void refresh_panel(int p) {
     file_counts[p] = 0;
     scrolls[p] = 0;
-	selected_idx[p] = 0;
+	selected_idx[p] = -1;
     
     int fd = vfs_open(paths[p], VFS_FREAD);
     if (fd < 0) {
@@ -107,6 +109,8 @@ void refresh_panel(int p) {
             }
         }
     }
+	
+	ui.force_redraw = 1;
 }
 
 void go_up(int p) {
@@ -161,6 +165,29 @@ static int get_text_width(const agfx_font_t* font, const char* text) {
     return w;
 }
 
+static void fast_format_size(char *buf, size_t buf_size, unsigned long long value, const char *suffix) {
+    char temp[32];
+    int i = 0;
+    
+    if (value == 0) {
+        temp[i++] = '0';
+    } else {
+        while (value > 0 && i < 20) {
+            temp[i++] = (value % 10) + '0';
+            value /= 10;
+        }
+    }
+    
+    int out = 0;
+    while (i > 0 && out < (int)buf_size - 1) {
+        buf[out++] = temp[--i];
+    }
+    buf[out] = '\0';
+    
+    strlcat(buf, suffix, buf_size); 
+}
+
+
 int main(int argc, char** argv) {
     UNUSED(argc); UNUSED(argv);
     printf("AExplorer: Starting...\n");
@@ -183,7 +210,6 @@ int main(int argc, char** argv) {
         has_font = agfx_font_init(&font, font_buf, 16);
     }
 
-    agfx_ui_context_t ui;
     agfx_ui_init(&ui, &screen, has_font ? &font : NULL);
 
     strlcpy(paths[PANEL_LEFT], "/", PATH_MAX);
@@ -203,7 +229,10 @@ int main(int argc, char** argv) {
 
     while (1) {
         message_t msg;
-        while (ipc_tryrecv(&msg) == SYS_RES_OK) {
+        
+        ipc_recv(&msg);
+
+        do {
             if (msg.type == MSG_TYPE_INPUT && msg.subtype == MSG_SUBTYPE_SEND) {
                 if (msg.param1 == INPUT_EVENT_MOUSE) {
                     mouse_x = (int16_t)(msg.param2 & 0xFFFF);
@@ -213,18 +242,26 @@ int main(int argc, char** argv) {
                     if (new_down && !mouse_down) mouse_clicked = 1;
                     mouse_down = new_down;
 
-                    agfx_ui_set_input(&ui, mouse_x, mouse_y, mouse_down, mouse_clicked);
                     needs_redraw = 1;
                 }
             }
             else if (msg.type == MSG_TYPE_WND && msg.subtype == MSG_SUBTYPE_SEND) {
                 if (msg.param1 == WND_CMD_DESTROY) exit(0);
             }
-        }
+        } while (ipc_tryrecv(&msg) == SYS_RES_OK);
+
+        agfx_ui_set_input(&ui, mouse_x, mouse_y, mouse_down, mouse_clicked);
 
         if (needs_redraw) {
             needs_redraw = 0;
             mouse_clicked = 0;
+			
+			ui.hot_item = 0;
+            if (!ui.mouse_down) ui.active_item = 0;
+			
+			int action_go_up = -1;
+            int action_click_panel = -1;
+            int action_click_idx = -1;
             
             agfx_fill_rect(&screen, 0, 0, win_w, win_h, ui.theme.bg);
 
@@ -239,9 +276,7 @@ int main(int argc, char** argv) {
                 
                 agfx_ui_begin(&ui, px + 10, py + 6);
                 if (agfx_ui_button(&ui, "<", 30, 24)) {
-                    go_up(p);
-                    active_panel = p;
-                    needs_redraw = 1;
+                    action_go_up = p;
                 }
                 agfx_ui_same_line(&ui);
                 agfx_ui_label(&ui, paths[p]);
@@ -258,6 +293,7 @@ int main(int argc, char** argv) {
 
                     if (ui.cursor_y + 24 < ui.panel_y || ui.cursor_y > ui.panel_y + ui.panel_h) {
                         agfx_ui_advance(&ui, panel_w - 20, 24);
+						ui.current_item_id++;
                         continue;
                     }
 
@@ -283,17 +319,21 @@ int main(int argc, char** argv) {
                     int is_virt = is_virtual[p][i];
                     
                     if (files[p][i].type == VFS_FILE_TYPE_DIR) {
-                        snprintf(name_buf, sizeof(name_buf), "%s/", files[p][i].name);
+                        strlcpy(name_buf, files[p][i].name, sizeof(name_buf));
+						strlcat(name_buf, "/", sizeof(name_buf));
                         if (!is_selected) text_color = 0xFFFFFFFF;
                     } else if (files[p][i].type == VFS_FILE_TYPE_SYMLINK) {
-                        if (is_directory) snprintf(name_buf, sizeof(name_buf), "%s/", files[p][i].name);
-                        else snprintf(name_buf, sizeof(name_buf), "%s", files[p][i].name);
+                        if (is_directory) {
+							strlcpy(name_buf, files[p][i].name, sizeof(name_buf));
+							strlcat(name_buf, "/", sizeof(name_buf));
+						}
+                        else strlcpy(name_buf, files[p][i].name, sizeof(name_buf));
                         if (!is_selected) text_color = 0xFF5CE6E6;
                     } else if (is_virt || files[p][i].type == VFS_FILE_TYPE_DEVICE) {
-                        snprintf(name_buf, sizeof(name_buf), "%s", files[p][i].name);
+                        strlcpy(name_buf, files[p][i].name, sizeof(name_buf));
                         if (!is_selected) text_color = 0xFF5CE673;
                     } else {
-                        snprintf(name_buf, sizeof(name_buf), "%s", files[p][i].name);
+                        strlcpy(name_buf, files[p][i].name, sizeof(name_buf));
                         if (!is_selected) text_color = 0xFFCCCCCC;
                     }
 
@@ -303,32 +343,29 @@ int main(int argc, char** argv) {
                     }
 
                     if (!is_directory && !is_virt && files[p][i].type != VFS_FILE_TYPE_DEVICE) {
-                        char size_buf[32];
-                        if (files[p][i].size > 1024 * 1024) {
-                            snprintf(size_buf, sizeof(size_buf), "%d MB", (int)(files[p][i].size / (1024 * 1024)));
-                        } else if (files[p][i].size > 1024) {
-                            snprintf(size_buf, sizeof(size_buf), "%d KB", (int)(files[p][i].size / 1024));
-                        } else {
-                            snprintf(size_buf, sizeof(size_buf), "%d B", (int)files[p][i].size);
-                        }
+						char size_buf[32];
+						unsigned long long size = (unsigned long long)files[p][i].size;
 
-                        if (has_font) {
-                            int th = (int)((ui.font->ascent - ui.font->descent) * ui.font->scale);
-                            int tw = get_text_width(ui.font, size_buf);
-                            uint32_t size_color = is_selected ? 0xFFFFFFFF : ui.theme.text_secondary;
-                            
-                            agfx_draw_text(&screen, ui.font, size_buf, bx + item_w - tw - 5, by + (item_h - th) / 2, size_color);
-                        }
-                    }
+						if (size > 1024 * 1024) {
+							fast_format_size(size_buf, sizeof(size_buf), size / (1024 * 1024), " MB");
+						} else if (size > 1024) {
+							fast_format_size(size_buf, sizeof(size_buf), size / 1024, " KB");
+						} else {
+							fast_format_size(size_buf, sizeof(size_buf), size, " B");
+						}
+
+						if (has_font) {
+							int th = (int)((ui.font->ascent - ui.font->descent) * ui.font->scale);
+							int tw = get_text_width(ui.font, size_buf);
+							uint32_t size_color = is_selected ? 0xFFFFFFFF : ui.theme.text_secondary;
+							
+							agfx_draw_text(&screen, ui.font, size_buf, bx + item_w - tw - 5, by + (item_h - th) / 2, size_color);
+						}
+					}
 
                     if (clicked) {
-                        active_panel = p;
-                        if (selected_idx[p] == i) {
-                            handle_file_click(p, &files[p][i]);
-                        } else {
-                            selected_idx[p] = i;
-                        }
-                        needs_redraw = 1;
+                        action_click_panel = p;
+                        action_click_idx = i;
                     }
                 }
                 agfx_ui_end_panel(&ui);
@@ -386,26 +423,38 @@ int main(int argc, char** argv) {
                 }
             }
 
-            window_flush(win);
-        }
-        
-        ipc_recv(&msg);
-        
-        if (msg.type == MSG_TYPE_INPUT && msg.subtype == MSG_SUBTYPE_SEND) {
-            if (msg.param1 == INPUT_EVENT_MOUSE) {
-                mouse_x = (int16_t)(msg.param2 & 0xFFFF);
-                mouse_y = (int16_t)((msg.param2 >> 16) & 0xFFFF);
-                
-                int new_down = msg.param3 & 1;
-                if (new_down && !mouse_down) mouse_clicked = 1;
-                mouse_down = new_down;
-
-                agfx_ui_set_input(&ui, mouse_x, mouse_y, mouse_down, mouse_clicked);
+            if (action_go_up != -1) {
+                go_up(action_go_up);
+                active_panel = action_go_up;
                 needs_redraw = 1;
+                ui.force_redraw = 1;
             }
-        }
-        else if (msg.type == MSG_TYPE_WND && msg.subtype == MSG_SUBTYPE_SEND) {
-            if (msg.param1 == WND_CMD_DESTROY) exit(0);
+            else if (action_click_panel != -1) {
+                int p = action_click_panel;
+                int idx = action_click_idx;
+                active_panel = p;
+
+                if (selected_idx[p] == idx) {
+					selected_idx[p] = -1;
+                    handle_file_click(p, &files[p][idx]);
+                } else {
+                    selected_idx[p] = idx;
+                }
+                
+                needs_redraw = 1;
+                ui.force_redraw = 1;
+            }
+
+            if (ui.force_redraw || 
+                ui.hot_item != ui.last_hot_item || 
+                ui.active_item != ui.last_active_item) 
+            {
+                window_flush(win);
+                ui.force_redraw = 0;
+            }
+            
+            ui.last_hot_item = ui.hot_item;
+            ui.last_active_item = ui.active_item;
         }
     }
 
