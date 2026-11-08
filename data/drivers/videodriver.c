@@ -156,33 +156,51 @@ void handle_video_request(message_t* in) {
             uint8_t bytes_per_pixel = vinfo.bpp / 8;
 
             if (is_bga_available) {
-                uint32_t hidden_y = (current_page == 0) ? vinfo.height : 0;
-                uint64_t vram_offset = hidden_y * vinfo.pitch;
-                uint8_t* hidden_vram = (uint8_t*)framebuffer + vram_offset;
+                uint32_t hidden_y  = (current_page == 0) ? vinfo.height : 0;
+                uint32_t visible_y = (current_page == 0) ? 0 : vinfo.height;
 
-                hal_memcpy_toio(hidden_vram, wm_backbuffer, vinfo.height * vinfo.pitch);
+                uint8_t* hidden_vram  = (uint8_t*)framebuffer + (hidden_y * vinfo.pitch);
+                uint8_t* visible_vram = (uint8_t*)framebuffer + (visible_y * vinfo.pitch);
 
-                hal_outw(VBE_DISPI_IOPORT_INDEX, VBE_DISPI_INDEX_Y_OFFSET);
-                hal_outw(VBE_DISPI_IOPORT_DATA, hidden_y);
-                
-                current_page = (current_page == 0) ? 1 : 0;
-            } else {
                 for (uint64_t i = 0; i < rect_count; i++) {
-                    uint32_t x = rects[i].x;
-                    uint32_t y = rects[i].y;
-                    uint32_t w = rects[i].w;
-                    uint32_t h = rects[i].h;
-
+                    uint32_t x = rects[i].x, y = rects[i].y, w = rects[i].w, h = rects[i].h;
                     if (x >= vinfo.width || y >= vinfo.height) continue;
                     if (x + w > vinfo.width) w = vinfo.width - x;
                     if (y + h > vinfo.height) h = vinfo.height - y;
 
                     for (uint32_t cy = 0; cy < h; cy++) {
                         uint64_t offset = ((y + cy) * vinfo.pitch) + (x * bytes_per_pixel);
-                        
+                        hal_memcpy_toio(hidden_vram + offset, (uint8_t*)wm_backbuffer + offset, w * bytes_per_pixel);
+                    }
+                }
+
+                hal_outw(VBE_DISPI_IOPORT_INDEX, VBE_DISPI_INDEX_Y_OFFSET);
+                hal_outw(VBE_DISPI_IOPORT_DATA, hidden_y);
+                current_page = (current_page == 0) ? 1 : 0;
+
+                for (uint64_t i = 0; i < rect_count; i++) {
+                    uint32_t x = rects[i].x, y = rects[i].y, w = rects[i].w, h = rects[i].h;
+                    if (x >= vinfo.width || y >= vinfo.height) continue;
+                    if (x + w > vinfo.width) w = vinfo.width - x;
+                    if (y + h > vinfo.height) h = vinfo.height - y;
+
+                    for (uint32_t cy = 0; cy < h; cy++) {
+                        uint64_t offset = ((y + cy) * vinfo.pitch) + (x * bytes_per_pixel);
+                        hal_memcpy_toio(visible_vram + offset, (uint8_t*)wm_backbuffer + offset, w * bytes_per_pixel);
+                    }
+                }
+            } 
+            else {
+                for (uint64_t i = 0; i < rect_count; i++) {
+                    uint32_t x = rects[i].x, y = rects[i].y, w = rects[i].w, h = rects[i].h;
+                    if (x >= vinfo.width || y >= vinfo.height) continue;
+                    if (x + w > vinfo.width) w = vinfo.width - x;
+                    if (y + h > vinfo.height) h = vinfo.height - y;
+
+                    for (uint32_t cy = 0; cy < h; cy++) {
+                        uint64_t offset = ((y + cy) * vinfo.pitch) + (x * bytes_per_pixel);
                         uint8_t* dest = (uint8_t*)framebuffer + offset;
                         uint8_t* src  = (uint8_t*)wm_backbuffer + offset;
-                        
                         hal_memcpy_toio(dest, src, w * bytes_per_pixel);
                     }
                 }
