@@ -372,8 +372,11 @@ int driver_main(void* reserved1, void* reserved2) {
     int total_dy = 0;
     uint8_t current_buttons = 0;
     uint8_t old_buttons = 0;
+	int button_clicked_in_batch = 0;
     int mouse_needs_redraw = 0;
     int ui_needs_full_redraw = 0;
+	
+	static syswindow_t* last_event_target = NULL;
 
 	set_thread_priority(0, THREAD_PRIO_REALTIME);
 
@@ -422,6 +425,27 @@ int driver_main(void* reserved1, void* reserved2) {
                         resp.param1 = -1;
                     }
                     ipc_reply(&msg, &resp);
+					
+					if (new_win) {
+                        message_t init_mouse_msg;
+                        memset(&init_mouse_msg, 0, sizeof(message_t));
+                        init_mouse_msg.type = MSG_TYPE_INPUT;
+                        init_mouse_msg.subtype = MSG_SUBTYPE_SEND;
+                        init_mouse_msg.param1 = INPUT_EVENT_MOUSE;
+                        
+                        int lx = mouse_x - new_win->x;
+                        int ly = mouse_y - new_win->y;
+                        
+                        if (!(new_win->flags & (WND_FLAG_BACKGROUND | WND_FLAG_NO_TITLEBAR))) {
+                            lx -= BORDER_W;
+                            ly -= TITLE_H;
+                        }
+                        
+                        init_mouse_msg.param2 = (lx & 0xFFFF) | ((ly & 0xFFFF) << 16);
+                        init_mouse_msg.param3 = current_buttons;
+                        
+                        ipc_send(new_win->owner_pid, &init_mouse_msg);
+                    }
                 }
                 else if (msg.subtype == MSG_SUBTYPE_QUERY && msg.param1 == WND_CMD_DESTROY) {
                     int win_id = (int)msg.param2;
@@ -467,6 +491,12 @@ int driver_main(void* reserved1, void* reserved2) {
                     } else {
                         ui_needs_full_redraw = 1;
                     }
+					message_t resp;
+                    memset(&resp, 0, sizeof(message_t));
+                    resp.type = MSG_TYPE_WND;
+                    resp.subtype = MSG_SUBTYPE_RESPONSE;
+                    resp.param1 = (win ? 0 : -1);
+                    ipc_reply(&msg, &resp);
 				}
                 else if (msg.subtype == MSG_SUBTYPE_QUERY && msg.param1 == WND_CMD_GET_SCREEN_INFO) {
                     message_t resp;
@@ -510,7 +540,8 @@ int driver_main(void* reserved1, void* reserved2) {
             mouse_x = CLAMP(mouse_x, 0, (int)vinfo.width - mouse_w);
             mouse_y = CLAMP(mouse_y, 0, (int)vinfo.height - mouse_h);
 
-            if ((current_buttons & 1) && !(old_buttons & 1)) {
+            if (button_clicked_in_batch || ((current_buttons & 1) && !(old_buttons & 1))) {
+				button_clicked_in_batch = 0;
                 syswindow_t* clicked_win = find_window_at(mouse_x, mouse_y);
                 mouse_target_window = clicked_win;
 								
@@ -588,6 +619,13 @@ int driver_main(void* reserved1, void* reserved2) {
             syswindow_t* event_target = dragged_window ? dragged_window : 
                                        (mouse_target_window ? mouse_target_window : find_window_at(mouse_x, mouse_y));
             
+			if (event_target != last_event_target) {
+                if (last_event_target) {
+                    dispatch_mouse_event(last_event_target, -1, -1, 0);
+                }
+                last_event_target = event_target;
+            }
+			
             if (event_target) {
 				int off_y = (event_target->flags & (WND_FLAG_BACKGROUND | WND_FLAG_NO_TITLEBAR)) ? 0 : TITLE_H;
 				int off_x = (event_target->flags & (WND_FLAG_BACKGROUND | WND_FLAG_NO_TITLEBAR)) ? 0 : BORDER_W;
